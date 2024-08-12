@@ -1,0 +1,20 @@
+{
+	"name": "seda-data-proxy",
+	"module": "./src/index.ts",
+	"main": "./src/index.ts",
+	"type": "module",
+	"scripts": {
+		"proto": "cd workspace/data-proxy-sdk && bun run proto",
+		"start": "bun run ./workspace/data-proxy",
+		"fmt": "bunx biome check --write ."
+	},
+	"devDependencies": {
+		"@biomejs/biome": "1.8.3",
+		"@types/bun": "latest",
+		"@types/secp256k1": "^4.0.6"
+	},
+	"workspaces": ["workspace/*"],
+	"peerDependencies": {
+		"typescript": "^5.0.0"
+	}
+}
