@@ -1,0 +1,11 @@
+{
+	"routes": [
+		{
+			"path": "/api/*",
+			"upstreamUrl": "https://swapi.dev/api/{*}",
+			"headers": {
+				"x-api-token": "secret"
+			}
+		}
+	]
+}
