@@ -17,6 +17,10 @@ export const registerCommand = new Command("register")
 	)
 	.argument("<fee>", "Fee amount per request in SEDA")
 	.option(
+		"--memo <string>",
+		"A custom note to attach to this Data Proxy registration",
+	)
+	.option(
 		"-pkf, --private-key-file <string>",
 		"Path where to create the private key json",
 	)
@@ -55,8 +59,11 @@ export const registerCommand = new Command("register")
 			process.exit(1);
 		}
 
+		const memo = Maybe.of(options.memo).unwrapOr("");
+
 		const hasher = new Keccak256(Buffer.from(aSedaAmount.value));
 		hasher.update(Buffer.from(payoutAddress));
+		hasher.update(Buffer.from(memo));
 		const hash = Buffer.from(hasher.digest());
 
 		const signatureRaw = ecdsaSign(hash, privateKey.value);
