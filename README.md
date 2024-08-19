@@ -5,6 +5,7 @@ Allows Data Providers to expose their (private) APIs on the SEDA network. Only e
 ## Set up
 
 Install bun:
+
 ```sh
 curl -fsSL https://bun.sh/install | bash
 ```
@@ -31,8 +32,8 @@ bun start init
 
 This will generate two files:
 
-* `config.json`: Configure where routes are going to and what to inject (ex: headers)
-* `data-proxy-private-key.json`: Private key that signs the HTTP response. This key is registered on the SEDA chain (see below). If required you can also use the `SEDA_DATA_PROXY_PRIVATE_KEY` environment variable to expose the private key to the node.
+- `config.json`: Configure where routes are going to and what to inject (ex: headers)
+- `data-proxy-private-key.json`: Private key that signs the HTTP response. This key is registered on the SEDA chain (see below). If required you can also use the `SEDA_DATA_PROXY_PRIVATE_KEY` environment variable to expose the private key to the node.
 
 Now you can run the node:
 
@@ -54,12 +55,11 @@ The node will auto sign the response and include two headers: `x-seda-signature`
 
 ## Proxy rules
 
-* Request query params are forwared to the `upstreamUrl`
-* Request headers except `host` are forwared to the `upstreamUrl`
-* Request Body is forwared to the `upstreamUrl`
-* By default only the upstream header `content-type` is given back. This can however be configured to include more.
-* The full body is given back as a response. This can be reduced with using `jsonPath`
-
+- Request query params are forwared to the `upstreamUrl`
+- Request headers except `host` are forwared to the `upstreamUrl`
+- Request Body is forwared to the `upstreamUrl`
+- By default only the upstream header `content-type` is given back. This can however be configured to include more.
+- The full body is given back as a response. This can be reduced with using `jsonPath`
 
 ## Configuration
 
@@ -67,26 +67,26 @@ The config file allows you to configure multiple routes:
 
 ```jsonc
 {
-	"routeGroup": "proxy",
-	"routes": [
-		{
-			"path": "/eth-usd",
-			"upstreamUrl": "https://myapi.com/eth-usd",
-			// Default is GET
-			"headers": {
-				"x-api-key": "some-api-key"
-			}
-		},
-		{
-			"path": "/btc-usd",
-			"upstreamUrl": "https://myapi.com/btc-usd",
-			// Allows for multiple method setting
-			"method": ["GET", "HEAD"],
-			"headers": {
-				"x-api-key": "some-api-key"
-			}
-		}
-	]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/eth-usd",
+      "upstreamUrl": "https://myapi.com/eth-usd",
+      // Default is GET
+      "headers": {
+        "x-api-key": "some-api-key",
+      },
+    },
+    {
+      "path": "/btc-usd",
+      "upstreamUrl": "https://myapi.com/btc-usd",
+      // Allows for multiple method setting
+      "method": ["GET", "HEAD"],
+      "headers": {
+        "x-api-key": "some-api-key",
+      },
+    },
+  ],
 }
 ```
 
@@ -96,19 +96,19 @@ The config.json has support for using variable routes by using `:varName`:
 
 ```jsonc
 {
-	"routeGroup": "proxy",
-	"routes": [
-		{
-			"path": "/:coinA/:coinB",
-            // Use {} to inject route variables
-			"upstreamUrl": "https://myapi.com/{:coinA}-{:coinB}",
-			"headers": {
-				"x-api-key": "some-api-key",
-                // Can also be injected in the header
-                "x-custom": "{:coinA}"
-			}
-		}
-	]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/:coinA/:coinB",
+      // Use {} to inject route variables
+      "upstreamUrl": "https://myapi.com/{:coinA}-{:coinB}",
+      "headers": {
+        "x-api-key": "some-api-key",
+        // Can also be injected in the header
+        "x-custom": "{:coinA}",
+      },
+    },
+  ],
 }
 ```
 
@@ -118,18 +118,18 @@ If you don't want to expose all API info you can use `jsonPath` to reduce the re
 
 ```jsonc
 {
-    "routeGroup": "proxy",
-    "routes": [
-        {
-            "path": "/planets/:planet",
-            "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
-            // Calling the API http://localhost:5384/proxy/planets/1 will only return "Tatooine" and omit the rest
-            "jsonPath": "$.name",
-            "headers": {
-                "x-api-key": "some-api-key"
-            }
-        }
-    ]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/planets/:planet",
+      "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
+      // Calling the API http://localhost:5384/proxy/planets/1 will only return "Tatooine" and omit the rest
+      "jsonPath": "$.name",
+      "headers": {
+        "x-api-key": "some-api-key",
+      },
+    },
+  ],
 }
 ```
 
@@ -139,21 +139,18 @@ By default the data proxy node will only forward the `content-type` as a respons
 
 ```jsonc
 {
-    "routeGroup": "proxy",
-    "routes": [
-        {
-            "path": "/planets/:planet",
-            "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
-            // Now the API will also return the server header from SWApi
-            "forwardRepsonseHeaders": [
-                "content-type",
-                "server"
-            ],
-            "headers": {
-                "x-api-key": "some-api-key"
-            }
-        }
-    ]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/planets/:planet",
+      "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
+      // Now the API will also return the server header from SWApi
+      "forwardRepsonseHeaders": ["content-type", "server"],
+      "headers": {
+        "x-api-key": "some-api-key",
+      },
+    },
+  ],
 }
 ```
 
@@ -163,17 +160,17 @@ Sometimes you don't want to expose your API key in a config file, or you have mu
 
 ```jsonc
 {
-    "routeGroup": "proxy",
-    "routes": [
-        {
-            // Everything will be injected in the URL
-            "path": "/*",
-            "upstreamUrl": "https://swapi.dev/api/{*}",
-            "headers": {
-                "x-api-key": "{$SECRET_API_KEY}"
-            }
-        }
-    ]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      // Everything will be injected in the URL
+      "path": "/*",
+      "upstreamUrl": "https://swapi.dev/api/{*}",
+      "headers": {
+        "x-api-key": "{$SECRET_API_KEY}",
+      },
+    },
+  ],
 }
 ```
 
@@ -183,16 +180,16 @@ The Data Proxy node has support for wildcard routes, which allows you to quickly
 
 ```jsonc
 {
-    "routeGroup": "proxy",
-    "routes": [
-        {
-            // Everything will be injected in the URL
-            "path": "/*",
-            "upstreamUrl": "https://swapi.dev/api/{*}",
-            "headers": {
-                "x-api-key": "some-api-key"
-            }
-        }
-    ]
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      // Everything will be injected in the URL
+      "path": "/*",
+      "upstreamUrl": "https://swapi.dev/api/{*}",
+      "headers": {
+        "x-api-key": "some-api-key",
+      },
+    },
+  ],
 }
 ```

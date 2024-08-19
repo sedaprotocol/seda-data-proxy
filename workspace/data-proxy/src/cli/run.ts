@@ -13,6 +13,7 @@ import {
 import { startProxyServer } from "../proxy-server";
 import { tryAsync, trySync } from "../utils/try";
 import { loadPrivateKey } from "./utils/private-key";
+import logger from "../logger";
 
 export const runCommand = new Command("run")
 	.description("Run the Data Proxy node")
@@ -74,6 +75,8 @@ export const runCommand = new Command("run")
 			console.error(`Invalid config: ${config.error}`);
 			process.exit(1);
 		}
+
+		logger.info(`Environment: "${options.network}" will be used`);
 
 		const dataProxy = new DataProxy(options.network as Environment, {
 			privateKey: privateKey.value,
