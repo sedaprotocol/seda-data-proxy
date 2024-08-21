@@ -10,10 +10,10 @@ import {
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
+import logger from "../logger";
 import { startProxyServer } from "../proxy-server";
 import { tryAsync, trySync } from "../utils/try";
 import { loadPrivateKey } from "./utils/private-key";
-import logger from "../logger";
 
 export const runCommand = new Command("run")
 	.description("Run the Data Proxy node")

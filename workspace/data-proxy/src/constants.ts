@@ -11,6 +11,7 @@ export const DEFAULT_ENVIRONMENT: Environment =
 export const PROOF_HEADER_KEY = "x-seda-proof";
 export const SIGNATURE_HEADER_KEY = "x-seda-signature";
 export const PUBLIC_KEY_HEADER_KEY = "x-seda-publickey";
+export const JSON_PATH_HEADER_KEY = "x-seda-json-path";
 
 export const PRIVATE_KEY_ENV_KEY = "SEDA_DATA_PROXY_PRIVATE_KEY";
 export const PRIVATE_KEY = process.env[PRIVATE_KEY_ENV_KEY];

@@ -140,9 +140,8 @@ export class DataProxy {
 	 *
 	 * @param data
 	 */
-	signData(data: unknown): SignedData {
-		const valueToSign = JSON.stringify(data);
-		const signResult = this.sign(Buffer.from(valueToSign));
+	signData(data: string): SignedData {
+		const signResult = this.sign(Buffer.from(data));
 
 		return {
 			publicKey: this.publicKey.toString("hex"),

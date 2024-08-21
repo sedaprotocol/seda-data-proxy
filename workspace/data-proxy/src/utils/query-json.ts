@@ -15,11 +15,15 @@ export function queryJson(
 		return Result.err(`Parsing as JSON failed: ${jsonData.error}`);
 	}
 
-	const data = JSONPath.query(jsonData.value, path);
+	const data = trySync(() => JSONPath.query(jsonData.value, path));
 
-	if (!data.length) {
+	if (data.isErr) {
+		return Result.err(`Could not query JSON: ${data.error}`);
+	}
+
+	if (!data.value.length) {
 		return Result.err(`Quering JSON with ${path} returned null`);
 	}
 
-	return Result.ok(data[0]);
+	return Result.ok(data.value[0]);
 }
