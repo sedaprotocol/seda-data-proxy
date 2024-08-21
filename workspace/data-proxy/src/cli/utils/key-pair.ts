@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 export const FileKeyPairSchema = v.object({
-	pubkey: v.string(),
+	pubkey: v.optional(v.string()),
 	privkey: v.string(),
 });
 
