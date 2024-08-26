@@ -177,6 +177,12 @@ export function startProxyServer(
 							headers: createSignedResponseHeaders(signature, responseHeaders),
 						});
 					},
+					{
+						config: {},
+						parse: ({ request }) => {
+							return request.text();
+						},
+					},
 				);
 			}
 		}
