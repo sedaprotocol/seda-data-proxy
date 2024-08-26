@@ -4,7 +4,8 @@
 	"version": "0.0.1",
 	"devDependencies": {
 		"@types/jsonpath": "0.2.4",
-		"@types/big.js": "^6.2.2"
+		"@types/big.js": "^6.2.2",
+		"msw": "^2.3.5"
 	},
 	"dependencies": {
 		"big.js": "6.2.1",

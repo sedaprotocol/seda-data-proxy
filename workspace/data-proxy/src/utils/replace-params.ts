@@ -1,16 +1,18 @@
 export function replaceParams(
 	input: string,
-	params: Record<string, string>,
+	params: Record<string, string> | undefined,
 ): string {
 	let result = input;
 
-	for (const [key, value] of Object.entries(params)) {
-		if (key === "*") {
-			// Special use case where they do not use : for *
-			result = result.replaceAll(`{${key}}`, value);
-		}
+	if (params) {
+		for (const [key, value] of Object.entries(params)) {
+			if (key === "*") {
+				// Special use case where they do not use : for *
+				result = result.replaceAll(`{${key}}`, value);
+			}
 
-		result = result.replaceAll(`{:${key}}`, value);
+			result = result.replaceAll(`{:${key}}`, value);
+		}
 	}
 
 	// Allow replacement of {$ENV_VARIABLE} in case data providers want to safely store their API keys
