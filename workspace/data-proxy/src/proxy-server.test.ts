@@ -12,7 +12,6 @@ import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { startProxyServer } from "./proxy-server";
 import {
 	HttpResponse,
-	TEST_LOCAL_PROXY_PORT,
 	registerHandler,
 	server,
 } from "./testutils/mock-upstream";
@@ -39,7 +38,7 @@ const dataProxy = new DataProxy(Environment.Devnet, {
 
 describe("proxy server", () => {
 	it("should forward a body without modifying it", async () => {
-		const { upstreamUrl, proxyUrl, path } = registerHandler(
+		const { upstreamUrl, proxyUrl, path, port } = registerHandler(
 			"post",
 			"/test-post-body",
 			async ({ request }) => {
@@ -48,7 +47,7 @@ describe("proxy server", () => {
 			},
 		);
 
-		startProxyServer(
+		const proxy = startProxyServer(
 			{
 				routeGroup: "",
 				routes: [
@@ -64,7 +63,7 @@ describe("proxy server", () => {
 			dataProxy,
 			{
 				disableProof: true,
-				port: TEST_LOCAL_PROXY_PORT,
+				port,
 			},
 		);
 
@@ -78,5 +77,46 @@ describe("proxy server", () => {
 		expect(result).toEqual({
 			receivedBody: '{"key": "value"}',
 		});
+
+		await proxy.stop();
+	});
+
+	it("should forward requests without params", async () => {
+		const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+			"get",
+			"/echo",
+			async ({ params }) => {
+				return HttpResponse.json({ receivedParams: params });
+			},
+		);
+
+		const proxy = startProxyServer(
+			{
+				routeGroup: "",
+				routes: [
+					{
+						method: "GET",
+						path,
+						upstreamUrl,
+						forwardRepsonseHeaders: new Set([]),
+						headers: {},
+					},
+				],
+			},
+			dataProxy,
+			{
+				disableProof: true,
+				port,
+			},
+		);
+
+		const response = await fetch(proxyUrl);
+
+		const result = await response.json();
+		expect(result).toEqual({
+			receivedParams: {},
+		});
+
+		await proxy.stop();
 	});
 });

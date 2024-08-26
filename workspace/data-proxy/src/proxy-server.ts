@@ -194,4 +194,6 @@ export function startProxyServer(
 	logger.info(
 		`Proxy routes is at http://127.0.0.1:${serverOptions.port}/${proxyGroup === "" || proxyGroup.endsWith("/") ? `${proxyGroup}` : `${proxyGroup}/`}`,
 	);
+
+	return server;
 }

@@ -4,12 +4,15 @@ export { HttpResponse } from "msw";
 
 const TEST_UPSTREAM_BASE = "https://proxy-upstream.com";
 
-export const TEST_LOCAL_PROXY_PORT = 9008;
-const TEST_LOCAL_PROXY = `http://localhost:${TEST_LOCAL_PROXY_PORT}`;
+// TODO: either reuse a single proxy entry or figure out why stopping a server doesn't actually stop it.
+// When calling `await proxy.stop()` after a test and spinning up a new proxy in the next test the first server still
+// receives the request.
+let TEST_LOCAL_PROXY_PORT = 9000;
+const TEST_LOCAL_PROXY_BASE = "http://localhost";
 
 const handlers = [
 	// Don't touch requests that go to the data proxy
-	http.all(`${TEST_LOCAL_PROXY}*`, () => {
+	http.all(`${TEST_LOCAL_PROXY_BASE}*`, () => {
 		return passthrough();
 	}),
 ];
@@ -26,13 +29,15 @@ export function registerHandler(
 	upstreamUrl: string;
 	proxyUrl: string;
 	path: string;
+	port: number;
 } {
 	const upstreamUrl = `${TEST_UPSTREAM_BASE}${path}`;
 	server.use(http[method](upstreamUrl, resolver));
 
 	return {
 		upstreamUrl,
-		proxyUrl: `${TEST_LOCAL_PROXY}${path}`,
+		proxyUrl: `${TEST_LOCAL_PROXY_BASE}:${TEST_LOCAL_PROXY_PORT}${path}`,
 		path,
+		port: TEST_LOCAL_PROXY_PORT++,
 	};
 }
