@@ -7,6 +7,7 @@ const TEST_UPSTREAM_BASE = "https://proxy-upstream.com";
 // TODO: either reuse a single proxy entry or figure out why stopping a server doesn't actually stop it.
 // When calling `await proxy.stop()` after a test and spinning up a new proxy in the next test the first server still
 // receives the request.
+// https://github.com/sedaprotocol/seda-data-proxy/issues/11
 let TEST_LOCAL_PROXY_PORT = 9000;
 const TEST_LOCAL_PROXY_BASE = "http://localhost";
 

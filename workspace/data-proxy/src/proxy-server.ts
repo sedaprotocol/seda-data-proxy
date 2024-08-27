@@ -180,6 +180,8 @@ export function startProxyServer(
 					{
 						config: {},
 						parse: ({ request }) => {
+							// TODO: forward the request body transparently.
+							// https://github.com/sedaprotocol/seda-data-proxy/issues/12
 							return request.text();
 						},
 					},
