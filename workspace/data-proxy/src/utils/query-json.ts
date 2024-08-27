@@ -1,4 +1,4 @@
-import JSONPath from "jsonpath";
+import { JSONPath } from "jsonpath-plus";
 import { Result } from "true-myth";
 import { trySync } from "./try";
 
@@ -15,7 +15,7 @@ export function queryJson(
 		return Result.err(`Parsing as JSON failed: ${jsonData.error}`);
 	}
 
-	const data = trySync(() => JSONPath.query(jsonData.value, path));
+	const data = trySync(() => JSONPath({ path, json: jsonData.value }));
 
 	if (data.isErr) {
 		return Result.err(`Could not query JSON: ${data.error}`);
