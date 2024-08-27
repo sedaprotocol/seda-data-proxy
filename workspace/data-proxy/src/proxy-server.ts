@@ -20,7 +20,7 @@ import { tryAsync } from "./utils/try";
 import { injectSearchParamsInUrl } from "./utils/url";
 
 function createErrorResponse(error: string, status: number) {
-	return new Response(JSON.stringify({ error }), {
+	return new Response(JSON.stringify({ data_proxy_error: error }), {
 		status,
 		headers: createDefaultResponseHeaders(),
 	});
@@ -123,7 +123,7 @@ export function startProxyServer(
 
 						if (upstreamTextResponse.isErr) {
 							return createErrorResponse(
-								`Parsing ${route.path} response to JSON failed: ${upstreamTextResponse.error}`,
+								`Reading ${route.path} response body failed: ${upstreamTextResponse.error}`,
 								500,
 							);
 						}
