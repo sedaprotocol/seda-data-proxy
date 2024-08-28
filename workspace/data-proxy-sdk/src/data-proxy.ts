@@ -95,20 +95,7 @@ export class DataProxy {
 	 * proof is given by the executor through the header x-proof
 	 * @param payload
 	 */
-	async verify(payload: string): Promise<Result<Unit, string>> {
-		const proofData = trySync(() => atob(payload));
-
-		if (proofData.isErr) {
-			return Result.err(`Invalid base64: ${proofData.error}`);
-		}
-
-		if (!proofData.value.includes(":")) {
-			return Result.err(
-				`Invalid proof, does not include ':'. Received ${proofData}`,
-			);
-		}
-
-		const [dataRequestId, proof] = proofData.value.split(":");
+	async verify(proof: string): Promise<Result<Unit, string>> {
 		// TODO: Get Data Request by Id
 		// Verify if eligible (right now is this one staked or not)
 		const client = await this.getCosmWasmClient();
@@ -126,7 +113,6 @@ export class DataProxy {
 		const result = await tryAsync(async () =>
 			client.value.queryContractSmart(coreContractAddress.value, {
 				is_executor_eligible: {
-					dr_id: dataRequestId,
 					proof,
 				},
 			}),
