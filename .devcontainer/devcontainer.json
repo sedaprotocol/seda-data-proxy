@@ -1,0 +1,18 @@
+{
+    "name": "seda-sdk",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "VARIANT": "1.1.26"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {},
+            "extensions": [
+                "EditorConfig.EditorConfig"
+            ]
+        }
+    },
+    "postCreateCommand": "bun install"
+}
