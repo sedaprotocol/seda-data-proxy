@@ -1,8 +1,8 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import { keccak256 } from "@cosmjs/crypto";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
-import { Maybe, Result, ResultNS, type Unit } from "true-myth";
-import { tryAsync, trySync } from "../../data-proxy/src/utils/try";
+import { Maybe, Result } from "true-myth";
+import { tryAsync } from "../../data-proxy/src/utils/try";
 import {
 	type DataProxyOptions,
 	type Environment,
@@ -95,8 +95,7 @@ export class DataProxy {
 	 * proof is given by the executor through the header x-proof
 	 * @param payload
 	 */
-	async verify(proof: string): Promise<Result<Unit, string>> {
-		// TODO: Get Data Request by Id
+	async verify(proof: string): Promise<Result<boolean, string>> {
 		// Verify if eligible (right now is this one staked or not)
 		const client = await this.getCosmWasmClient();
 		if (client.isErr) {
@@ -113,7 +112,7 @@ export class DataProxy {
 		const result = await tryAsync(async () =>
 			client.value.queryContractSmart(coreContractAddress.value, {
 				is_executor_eligible: {
-					proof,
+					data: proof,
 				},
 			}),
 		);
@@ -126,8 +125,25 @@ export class DataProxy {
 	 *
 	 * @param data
 	 */
-	signData(data: string): SignedData {
-		const signResult = this.sign(Buffer.from(data));
+	async signData(
+		requestUrl: string,
+		requestMethod: string,
+		requestBody: Buffer,
+		responseBody: Buffer,
+	): Promise<SignedData> {
+		const requestUrlHash = keccak256(Buffer.from(requestUrl));
+		const requestMethodHash = keccak256(Buffer.from(requestMethod));
+		const requestBodyHash = keccak256(requestBody);
+		const responseBodyHash = keccak256(responseBody);
+
+		const signResult = this.sign(
+			Buffer.concat([
+				requestUrlHash,
+				requestMethodHash,
+				requestBodyHash,
+				responseBodyHash,
+			]),
+		);
 
 		return {
 			publicKey: this.publicKey.toString("hex"),

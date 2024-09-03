@@ -48,7 +48,10 @@ export function startProxyServer(
 				app.route(
 					routeMethod,
 					route.path,
-					async ({ headers, params, body, query }) => {
+					async ({ headers, params, body, query, path, request }) => {
+						// requestBody is now always a string because of the parse function in this route
+						const requestBody = Maybe.of(body as string | undefined);
+
 						// Verification with the SEDA chain that the overlay node is eligible
 						if (!serverOptions.disableProof) {
 							const proofHeader = Maybe.of(headers[PROOF_HEADER_KEY]);
@@ -60,11 +63,11 @@ export function startProxyServer(
 								);
 							}
 
-							const verification = await dataProxy.verify(proofHeader.value);
+							const isValid = await dataProxy.verify(proofHeader.value);
 
-							if (verification.isErr) {
+							if (isValid.isErr || !isValid.value) {
 								return createErrorResponse(
-									`Invalid proof: ${verification.error}`,
+									`Invalid proof ${isValid.isErr ? isValid.error : ""}`,
 									401,
 								);
 							}
@@ -160,7 +163,13 @@ export function startProxyServer(
 							responseData = JSON.stringify(data.value);
 						}
 
-						const signature = dataProxy.signData(responseData);
+						const signature = await dataProxy.signData(
+							request.url,
+							request.method,
+							Buffer.from(requestBody.isJust ? requestBody.value : "", "utf-8"),
+							Buffer.from(responseData, "utf-8"),
+						);
+
 						const responseHeaders = new Headers();
 
 						// Forward all headers that are configured in the config.json

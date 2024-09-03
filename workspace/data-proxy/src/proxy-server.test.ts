@@ -111,8 +111,8 @@ describe("proxy server", () => {
 		);
 
 		const response = await fetch(proxyUrl);
-
 		const result = await response.json();
+
 		expect(result).toEqual({
 			receivedParams: {},
 		});

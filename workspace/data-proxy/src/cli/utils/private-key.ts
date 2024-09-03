@@ -48,15 +48,13 @@ export async function loadPrivateKey(
 	);
 
 	if (parsedPrivateKeyFile.isErr) {
-		let resultError = '';
+		let resultError = "";
 
 		for (const error of parsedPrivateKeyFile.error) {
 			resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
 		}
 
-		return Result.err(
-			`Failed to parse private key file: \n ${resultError}`,
-		);
+		return Result.err(`Failed to parse private key file: \n ${resultError}`);
 	}
 
 	return Result.ok(Buffer.from(parsedPrivateKeyFile.value.privkey, "hex"));

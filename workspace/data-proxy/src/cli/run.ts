@@ -84,6 +84,12 @@ export const runCommand = new Command("run")
 			coreContract: options.coreContractAddress,
 		});
 
+		if (options.disableProof) {
+			logger.warn(
+				"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
+			);
+		}
+
 		startProxyServer(config.value, dataProxy, {
 			port: Number(options.port ?? SERVER_PORT),
 			disableProof: options.disableProof,
