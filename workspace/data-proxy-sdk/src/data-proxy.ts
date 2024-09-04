@@ -136,7 +136,7 @@ export class DataProxy {
 		const requestBodyHash = keccak256(requestBody);
 		const responseBodyHash = keccak256(responseBody);
 
-		const signResult = this.sign(
+		const signResult = this.hashAndSign(
 			Buffer.concat([
 				requestUrlHash,
 				requestMethodHash,
@@ -152,7 +152,7 @@ export class DataProxy {
 		};
 	}
 
-	sign(data: Buffer) {
+	hashAndSign(data: Buffer) {
 		return ecdsaSign(keccak256(data), this.privateKey);
 	}
 }
