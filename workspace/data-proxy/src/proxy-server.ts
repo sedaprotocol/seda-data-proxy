@@ -145,7 +145,7 @@ export function startProxyServer(
 							fetch(upstreamUrl, {
 								method: routeMethod,
 								headers: upstreamHeaders,
-								body: body as BodyInit,
+								body: body as string,
 							}),
 						);
 
