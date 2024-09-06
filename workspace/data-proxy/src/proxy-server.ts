@@ -1,6 +1,7 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Elysia } from "elysia";
 import { Maybe } from "true-myth";
+import { randomUUID } from "node:crypto";
 import { type Config, getHttpMethods } from "./config-parser";
 import {
 	DEFAULT_PROXY_ROUTE_GROUP,
@@ -36,7 +37,38 @@ export function startProxyServer(
 	dataProxy: DataProxy,
 	serverOptions: ProxyServerOptions,
 ) {
-	const server = new Elysia();
+	const server = new Elysia()
+		// Assign a unique ID to every request
+		.derive(() => {
+			return {
+				requestId: randomUUID(),
+			};
+		})
+		.onBeforeHandle(
+			({
+				requestId,
+				headers,
+				body,
+				params,
+				path,
+				query,
+				request: { method },
+			}) => {
+				logger.debug("Received request", {
+					requestId,
+					headers,
+					body,
+					params,
+					path,
+					query,
+					method,
+				});
+			},
+		)
+		.onAfterResponse(({ requestId, response }) => {
+			logger.debug("Responded to request", { requestId, response });
+		});
+
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
 	server.group(proxyGroup, (app) => {
@@ -48,29 +80,32 @@ export function startProxyServer(
 				app.route(
 					routeMethod,
 					route.path,
-					async ({ headers, params, body, query, path, request }) => {
+					async ({ headers, params, body, query, requestId, request }) => {
+						const requestLogger = logger.child({ requestId });
+
 						// requestBody is now always a string because of the parse function in this route
 						const requestBody = Maybe.of(body as string | undefined);
 
 						// Verification with the SEDA chain that the overlay node is eligible
 						if (!serverOptions.disableProof) {
+							requestLogger.debug("Verifying proof");
 							const proofHeader = Maybe.of(headers[PROOF_HEADER_KEY]);
 
 							if (proofHeader.isNothing) {
-								return createErrorResponse(
-									`Header "${PROOF_HEADER_KEY}" is not provided`,
-									400,
-								);
+								const message = `Header "${PROOF_HEADER_KEY}" is not provided`;
+								requestLogger.error(message);
+								return createErrorResponse(message, 400);
 							}
 
 							const isValid = await dataProxy.verify(proofHeader.value);
 
 							if (isValid.isErr || !isValid.value) {
-								return createErrorResponse(
-									`Invalid proof ${isValid.isErr ? isValid.error : ""}`,
-									401,
-								);
+								const message = `Invalid proof ${isValid.isErr ? isValid.error : ""}`;
+								requestLogger.error(message);
+								return createErrorResponse(message, 401);
 							}
+						} else {
+							requestLogger.debug("Skipping proof verification.");
 						}
 
 						// Add the request search params (?one=two) to the upstream url
@@ -85,7 +120,7 @@ export function startProxyServer(
 
 						// Redirect all headers given by the requester
 						for (const [key, value] of Object.entries(headers)) {
-							if (!value) {
+							if (!value || key === PROOF_HEADER_KEY) {
 								continue;
 							}
 
@@ -101,8 +136,9 @@ export function startProxyServer(
 						// in the client to not return the response.
 						upstreamHeaders.delete("host");
 
-						logger.debug(
+						requestLogger.debug(
 							`${routeMethod} ${proxyGroup}${route.path} -> ${upstreamUrl}`,
+							{ headers: upstreamHeaders, body, upstreamUrl },
 						);
 
 						const upstreamResponse = await tryAsync(async () =>
@@ -114,36 +150,46 @@ export function startProxyServer(
 						);
 
 						if (upstreamResponse.isErr) {
-							return createErrorResponse(
-								`Proxying URL ${route.path} failed: ${upstreamResponse.error}`,
-								500,
-							);
+							const message = `Proxying URL ${route.path} failed: ${upstreamResponse.error}`;
+							requestLogger.error(message, { error: upstreamResponse.error });
+							return createErrorResponse(message, 500);
 						}
+
+						requestLogger.debug("Received upstream response", {
+							headers: upstreamResponse.value.headers,
+						});
 
 						const upstreamTextResponse = await tryAsync(
 							async () => await upstreamResponse.value.text(),
 						);
 
 						if (upstreamTextResponse.isErr) {
-							return createErrorResponse(
-								`Reading ${route.path} response body failed: ${upstreamTextResponse.error}`,
-								500,
-							);
+							const message = `Reading ${route.path} response body failed: ${upstreamTextResponse.error}`;
+							requestLogger.error(message, {
+								error: upstreamTextResponse.error,
+							});
+							return createErrorResponse(message, 500);
 						}
 
 						let responseData: string = upstreamTextResponse.value;
 
 						if (route.jsonPath) {
+							logger.debug(`Applying route JSONpath ${route.jsonPath}`);
 							const data = queryJson(
 								upstreamTextResponse.value,
 								route.jsonPath,
 							);
 
 							if (data.isErr) {
+								requestLogger.error(
+									`Failed to apply route JSONpath: ${route.jsonPath}`,
+									{ error: data.error },
+								);
 								return createErrorResponse(data.error, 500);
 							}
 
 							responseData = JSON.stringify(data.value);
+							logger.debug("Successfully applied route JSONpath");
 						}
 
 						const jsonPathRequestHeader = Maybe.of(
@@ -152,15 +198,23 @@ export function startProxyServer(
 
 						// TODO: Would be nice to only parse the JSON once
 						if (jsonPathRequestHeader.isJust) {
+							logger.debug(
+								`Applying request JSONpath ${jsonPathRequestHeader.value}`,
+							);
 							// We apply the JSON path to the data that's exposed by the data proxy.
 							// This allows operators to specify what data is accessible while the data request program can specify what it wants from the accessible data.
 							const data = queryJson(responseData, jsonPathRequestHeader.value);
 
 							if (data.isErr) {
+								requestLogger.error(
+									`Failed to apply JSONpath: ${jsonPathRequestHeader.value}`,
+									{ error: data.error },
+								);
 								return createErrorResponse(data.error, 400);
 							}
 
 							responseData = JSON.stringify(data.value);
+							logger.debug("Successfully applied request JSONpath");
 						}
 
 						const signature = await dataProxy.signData(
