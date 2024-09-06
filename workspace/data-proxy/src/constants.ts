@@ -1,9 +1,12 @@
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import type { HTTPMethod } from "elysia";
 
-// Environment constants
+// Server constants
 export const SERVER_PORT = process.env.SERVER_PORT ?? "5384";
 export const LOG_LEVEL = process.env.LOG_LEVEL ?? "debug";
+export const LOG_FILE_DIR = process.env.LOG_FILE_DIR ?? "";
+
+// Environment constants
 export const DEFAULT_ENVIRONMENT: Environment =
 	(process.env.SEDA_ENV as Environment) ?? Environment.Devnet;
 
