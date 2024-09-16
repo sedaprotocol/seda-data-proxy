@@ -19,9 +19,13 @@ export interface SignedData {
 
 	// Signature recover id
 	recId: number;
+
+	// Version of the signature
+	version: string;
 }
 
 export class DataProxy {
+	private version = "0.1.0";
 	public publicKey: Buffer;
 	private privateKey: Buffer;
 	public options: DataProxyOptions;
@@ -149,6 +153,7 @@ export class DataProxy {
 			publicKey: this.publicKey.toString("hex"),
 			signature: Buffer.from(signResult.signature).toString("hex"),
 			recId: signResult.recid,
+			version: this.version,
 		};
 	}
 
