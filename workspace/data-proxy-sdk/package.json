@@ -2,15 +2,10 @@
 	"name": "@seda-protocol/data-proxy-sdk",
 	"main": "./src/index.ts",
 	"type": "module",
-	"scripts": {
-		"proto": "cd proto && bunx buf generate"
-	},
-	"devDependencies": {
-		"@bufbuild/buf": "^1.36.0"
-	},
 	"dependencies": {
 		"@cosmjs/cosmwasm-stargate": "^0.32.4",
 		"@cosmjs/crypto": "^0.32.4",
+		"@seda-protocol/proto-messages": "0.3.0-dev.0-1",
 		"secp256k1": "^5.0.0",
 		"true-myth": "^8.0.0"
 	}
