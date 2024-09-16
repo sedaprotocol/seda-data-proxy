@@ -13,7 +13,7 @@ jobs:
         run: bun install
 
       - name: 📝 Check formatting
-        run: bun install
+        run: bun check-fmt
 
       - name: 🧪 Test project
         run: bun test

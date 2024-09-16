@@ -1,7 +1,7 @@
-import { createLogger, format, transports, type transport } from "winston";
+import { createLogger, format, type transport, transports } from "winston";
 import "winston-daily-rotate-file";
 import { Maybe } from "true-myth";
-import { LOG_LEVEL, LOG_FILE_DIR } from "./constants";
+import { LOG_FILE_DIR, LOG_LEVEL } from "./constants";
 
 const logFormat = format.printf((info) => {
 	const requestId = Maybe.of(info.metadata?.requestId).mapOr(" ", (t) => {

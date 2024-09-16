@@ -1,12 +1,9 @@
-import { type DataProxy, constants } from "@seda-protocol/data-proxy-sdk";
+import { randomUUID } from "node:crypto";
+import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Elysia } from "elysia";
 import { Maybe } from "true-myth";
-import { randomUUID } from "node:crypto";
 import { type Config, getHttpMethods } from "./config-parser";
-import {
-	DEFAULT_PROXY_ROUTE_GROUP,
-	JSON_PATH_HEADER_KEY,
-} from "./constants";
+import { DEFAULT_PROXY_ROUTE_GROUP, JSON_PATH_HEADER_KEY } from "./constants";
 import logger from "./logger";
 import {
 	createDefaultResponseHeaders,

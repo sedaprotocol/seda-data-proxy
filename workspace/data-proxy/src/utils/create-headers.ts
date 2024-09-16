@@ -1,4 +1,4 @@
-import { type SignedData, constants } from "@seda-protocol/data-proxy-sdk";
+import { constants, type SignedData } from "@seda-protocol/data-proxy-sdk";
 
 export function createDefaultResponseHeaders() {
 	const headers = new Headers();
