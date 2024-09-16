@@ -1,4 +1,4 @@
-import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
+import { type DataProxy, constants } from "@seda-protocol/data-proxy-sdk";
 import { Elysia } from "elysia";
 import { Maybe } from "true-myth";
 import { randomUUID } from "node:crypto";
@@ -6,8 +6,6 @@ import { type Config, getHttpMethods } from "./config-parser";
 import {
 	DEFAULT_PROXY_ROUTE_GROUP,
 	JSON_PATH_HEADER_KEY,
-	PROOF_HEADER_KEY,
-	SERVER_PORT,
 } from "./constants";
 import logger from "./logger";
 import {
@@ -89,10 +87,10 @@ export function startProxyServer(
 						// Verification with the SEDA chain that the overlay node is eligible
 						if (!serverOptions.disableProof) {
 							requestLogger.debug("Verifying proof");
-							const proofHeader = Maybe.of(headers[PROOF_HEADER_KEY]);
+							const proofHeader = Maybe.of(headers[constants.PROOF_HEADER_KEY]);
 
 							if (proofHeader.isNothing) {
-								const message = `Header "${PROOF_HEADER_KEY}" is not provided`;
+								const message = `Header "${constants.PROOF_HEADER_KEY}" is not provided`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 400);
 							}
@@ -120,7 +118,7 @@ export function startProxyServer(
 
 						// Redirect all headers given by the requester
 						for (const [key, value] of Object.entries(headers)) {
-							if (!value || key === PROOF_HEADER_KEY) {
+							if (!value || key === constants.PROOF_HEADER_KEY) {
 								continue;
 							}
 
