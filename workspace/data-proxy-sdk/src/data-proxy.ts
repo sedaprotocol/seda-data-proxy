@@ -135,18 +135,13 @@ export class DataProxy {
 		requestBody: Buffer,
 		responseBody: Buffer,
 	): Promise<SignedData> {
-		const requestUrlHash = keccak256(Buffer.from(requestUrl));
-		const requestMethodHash = keccak256(Buffer.from(requestMethod));
-		const requestBodyHash = keccak256(requestBody);
-		const responseBodyHash = keccak256(responseBody);
-
 		const signResult = this.hashAndSign(
-			Buffer.concat([
-				requestUrlHash,
-				requestMethodHash,
-				requestBodyHash,
-				responseBodyHash,
-			]),
+			this.generateMessage(
+				requestUrl,
+				requestMethod,
+				requestBody,
+				responseBody,
+			),
 		);
 
 		return {
@@ -157,7 +152,28 @@ export class DataProxy {
 		};
 	}
 
-	hashAndSign(data: Buffer) {
-		return ecdsaSign(keccak256(data), this.privateKey);
+	generateMessage(
+		requestUrl: string,
+		requestMethod: string,
+		requestBody: Buffer,
+		responseBody: Buffer,
+	) {
+		const requestUrlHash = keccak256(Buffer.from(requestUrl));
+		const requestMethodHash = keccak256(
+			Buffer.from(requestMethod.toUpperCase()),
+		);
+		const requestBodyHash = keccak256(requestBody);
+		const responseBodyHash = keccak256(responseBody);
+
+		return Buffer.concat([
+			requestUrlHash,
+			requestMethodHash,
+			requestBodyHash,
+			responseBodyHash,
+		]);
+	}
+
+	hashAndSign(message: Buffer) {
+		return ecdsaSign(keccak256(message), this.privateKey);
 	}
 }
