@@ -1,6 +1,6 @@
+import { trySync } from "@seda-protocol/utils";
 import { JSONPath } from "jsonpath-plus";
 import { Result } from "true-myth";
-import { trySync } from "./try";
 
 export function queryJson(
 	input: string | object,

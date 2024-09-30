@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
+import { tryAsync } from "@seda-protocol/utils";
 import { Elysia } from "elysia";
 import { Maybe } from "true-myth";
 import { type Config, getHttpMethods } from "./config-parser";
@@ -12,7 +13,6 @@ import {
 import { queryJson } from "./utils/query-json";
 import { replaceParams } from "./utils/replace-params";
 import { createUrlSearchParams } from "./utils/search-params";
-import { tryAsync } from "./utils/try";
 import { injectSearchParamsInUrl } from "./utils/url";
 
 function createErrorResponse(error: string, status: number) {

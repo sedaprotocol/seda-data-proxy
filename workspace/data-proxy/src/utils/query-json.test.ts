@@ -8,7 +8,7 @@ describe("queryJson", () => {
 			"$.a.b.c",
 		);
 
-		expect(result.unwrapOr("")).toBe("ok");
+		expect(result).toBeOkResult("ok");
 	});
 
 	it("should return an error when the variable was not found", () => {
@@ -17,6 +17,6 @@ describe("queryJson", () => {
 			"$.a.b.b",
 		);
 
-		expect(result.isErr).toBe(true);
+		expect(result).toBeErrResult("Quering JSON with $.a.b.b returned null");
 	});
 });

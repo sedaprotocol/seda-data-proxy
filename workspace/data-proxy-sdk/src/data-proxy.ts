@@ -1,8 +1,8 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import { keccak256 } from "@cosmjs/crypto";
+import { tryAsync } from "@seda-protocol/utils";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
-import { tryAsync } from "../../data-proxy/src/utils/try";
 import {
 	type DataProxyOptions,
 	type Environment,

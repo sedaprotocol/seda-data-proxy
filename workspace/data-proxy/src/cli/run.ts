@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Command } from "@commander-js/extra-typings";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
+import { tryAsync, trySync } from "@seda-protocol/utils";
 import { Maybe } from "true-myth";
 import { parseConfig } from "../config-parser";
 import {
@@ -12,7 +13,6 @@ import {
 } from "../constants";
 import logger from "../logger";
 import { startProxyServer } from "../proxy-server";
-import { tryAsync, trySync } from "../utils/try";
 import { loadPrivateKey } from "./utils/private-key";
 
 export const runCommand = new Command("run")

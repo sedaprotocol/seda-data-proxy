@@ -2,10 +2,10 @@ import { Command } from "@commander-js/extra-typings";
 import { Keccak256 } from "@cosmjs/crypto";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
+import { trySync } from "@seda-protocol/utils";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe } from "true-myth";
 import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
-import { trySync } from "../utils/try";
 import { sedaToAseda } from "./utils/big";
 import { loadPrivateKey } from "./utils/private-key";
 

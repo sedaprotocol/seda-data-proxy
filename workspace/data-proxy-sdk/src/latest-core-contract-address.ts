@@ -1,8 +1,8 @@
 import { QueryClient, createProtobufRpcClient } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import { sedachain } from "@seda-protocol/proto-messages";
+import { tryAsync } from "@seda-protocol/utils";
 import { Result } from "true-myth";
-import { tryAsync } from "../../data-proxy/src/utils/try";
 
 export async function getLatestCoreContractAddress(
 	rpc: string,

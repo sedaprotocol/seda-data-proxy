@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
+import { tryAsync, tryParseSync, trySync } from "@seda-protocol/utils";
 import { Result } from "true-myth";
 import {
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	PRIVATE_KEY,
 } from "../../constants";
-import { tryAsync, tryParseSync, trySync } from "../../utils/try";
 import { FileKeyPairSchema } from "./key-pair";
 
 async function readPrivateKeyFile(

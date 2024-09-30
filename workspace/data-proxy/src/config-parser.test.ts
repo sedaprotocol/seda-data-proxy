@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { assertIsOkResult } from "@seda-protocol/utils/testing";
 import { parseConfig } from "./config-parser";
-import { assertIsErrorResult, assertIsOkResult } from "./testutils/true-myth";
 
 describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
@@ -14,7 +14,7 @@ describe("parseConfig", () => {
 			],
 		});
 
-		expect(result.isOk).toBe(true);
+		expect(result).toBeOkResult();
 	});
 
 	it("should check if route parameters are using env variables and if they exist", async () => {
@@ -54,8 +54,7 @@ describe("parseConfig", () => {
 			],
 		});
 
-		assertIsErrorResult(result);
-		expect(result.error).toBe(
+		expect(result).toBeErrResult(
 			"Header x-secret required :ccccc but was not given in route /:coinA/:coinB",
 		);
 	});
@@ -74,8 +73,7 @@ describe("parseConfig", () => {
 			],
 		});
 
-		assertIsErrorResult(result);
-		expect(result.error).toBe(
+		expect(result).toBeErrResult(
 			"Header x-secret required NO_SECRET but was not available in the environment",
 		);
 	});
@@ -90,8 +88,7 @@ describe("parseConfig", () => {
 			],
 		});
 
-		assertIsErrorResult(result);
-		expect(result.error).toBe(
+		expect(result).toBeErrResult(
 			"UpstreamUrl: aaaaaa.com/{*} required {*} but path did not end with * (/:coinA/:coinB)",
 		);
 	});
@@ -106,8 +103,7 @@ describe("parseConfig", () => {
 			],
 		});
 
-		assertIsErrorResult(result);
-		expect(result.error).toBe(
+		expect(result).toBeErrResult(
 			"UpstreamUrl: aaaaaa.com/{*}/something uses {*} but was not at the end of the URL",
 		);
 	});
@@ -122,6 +118,6 @@ describe("parseConfig", () => {
 			],
 		});
 
-		assertIsOkResult(result);
+		expect(result).toBeOkResult();
 	});
 });

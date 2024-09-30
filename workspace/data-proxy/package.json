@@ -9,6 +9,7 @@
 	"dependencies": {
 		"big.js": "6.2.1",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
+		"@seda-protocol/utils": "^1.0.0",
 		"@cosmjs/crypto": "^0.32.4",
 		"secp256k1": "^5.0.0",
 		"elysia": "^1.1.6",
