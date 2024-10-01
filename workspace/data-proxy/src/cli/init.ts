@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { exists, writeFile } from "node:fs/promises";
 import { Command } from "@commander-js/extra-typings";
 import { Secp256k1 } from "@cosmjs/crypto";
+import { tryAsync } from "@seda-protocol/utils";
 import type { Config } from "../config-parser";
 import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME } from "../constants";
-import { tryAsync } from "../utils/try";
 import type { FileKeyPair } from "./utils/key-pair";
 
 export const initCommand = new Command("init")
