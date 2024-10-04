@@ -1,0 +1,19 @@
+services:
+  seda-data-proxy:
+    build: .
+    ports:
+      - "5384:5384"
+    environment:
+      # Provide the private key if available
+      SEDA_DATA_PROXY_PRIVATE_KEY: ${SEDA_DATA_PROXY_PRIVATE_KEY}
+    volumes:
+      # Mount config.json if it exists in the host folder
+      - ./config.json:/app/config.json:ro
+      # Mount a data proxy private key file if it exists in the host folder
+      - ./data-proxy-private-key.json:/app/data-proxy-private-key.json:ro
+    networks:
+      - proxy-network
+
+networks:
+  proxy-network:
+    driver: bridge
