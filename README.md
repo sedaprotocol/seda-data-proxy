@@ -74,8 +74,8 @@ The config file allows you to configure multiple routes:
       "upstreamUrl": "https://myapi.com/eth-usd",
       // Default is GET
       "headers": {
-        "x-api-key": "some-api-key",
-      },
+        "x-api-key": "some-api-key"
+      }
     },
     {
       "path": "/btc-usd",
@@ -83,10 +83,10 @@ The config file allows you to configure multiple routes:
       // Allows for multiple method setting
       "method": ["GET", "HEAD"],
       "headers": {
-        "x-api-key": "some-api-key",
-      },
-    },
-  ],
+        "x-api-key": "some-api-key"
+      }
+    }
+  ]
 }
 ```
 
@@ -105,10 +105,10 @@ The config.json has support for using variable routes by using `:varName`:
       "headers": {
         "x-api-key": "some-api-key",
         // Can also be injected in the header
-        "x-custom": "{:coinA}",
-      },
-    },
-  ],
+        "x-custom": "{:coinA}"
+      }
+    }
+  ]
 }
 ```
 
@@ -126,10 +126,10 @@ If you don't want to expose all API info you can use `jsonPath` to reduce the re
       // Calling the API http://localhost:5384/proxy/planets/1 will only return "Tatooine" and omit the rest
       "jsonPath": "$.name",
       "headers": {
-        "x-api-key": "some-api-key",
-      },
-    },
-  ],
+        "x-api-key": "some-api-key"
+      }
+    }
+  ]
 }
 ```
 
@@ -147,10 +147,10 @@ By default the data proxy node will only forward the `content-type` as a respons
       // Now the API will also return the server header from SWApi
       "forwardRepsonseHeaders": ["content-type", "server"],
       "headers": {
-        "x-api-key": "some-api-key",
-      },
-    },
-  ],
+        "x-api-key": "some-api-key"
+      }
+    }
+  ]
 }
 ```
 
@@ -167,10 +167,10 @@ Sometimes you don't want to expose your API key in a config file, or you have mu
       "path": "/*",
       "upstreamUrl": "https://swapi.dev/api/{*}",
       "headers": {
-        "x-api-key": "{$SECRET_API_KEY}",
-      },
-    },
-  ],
+        "x-api-key": "{$SECRET_API_KEY}"
+      }
+    }
+  ]
 }
 ```
 
@@ -187,9 +187,59 @@ The Data Proxy node has support for wildcard routes, which allows you to quickly
       "path": "/*",
       "upstreamUrl": "https://swapi.dev/api/{*}",
       "headers": {
-        "x-api-key": "some-api-key",
-      },
-    },
-  ],
+        "x-api-key": "some-api-key"
+      }
+    }
+  ]
 }
 ```
+
+## Status endpoints
+
+The Data Proxy node has support for exposing status information through some endpoints. This can be used to monitor the health of the node and the number of requests it has processed.
+
+The status endpoint has two routes:
+
+- `/<statusEndpointsRoot>/health`  
+  Returns a JSON object with the following structure:
+
+  ```json
+  {
+    "status": "healthy",
+    "metrics": {
+      "uptime": "P0Y0M1DT2H3M4S", // ISO 8601 duration since the node was started
+      "requests": 1024, // Number of requests processed
+      "errors": 13 // Number of errors that occurred
+    }
+  }
+  ```
+
+- `/<statusEndpointsRoot>/pubkey`  
+  Returns the public key of the node.
+  ```json
+  {
+    "pubkey": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+  }
+  ```
+
+### Configuration
+
+The status endpoints can be configured in the config file:
+
+```json
+{
+  // Other config...
+  "statusEndpoints": {
+    "root": "status",
+    // Optional
+    "apiKey": {
+      "header": "x-api-key",
+      "secret": "some-secret"
+    }
+  }
+}
+```
+
+- `root`: Root path for the status endpoints. Defaults to `status`.
+- `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.  
+  The `statusEndpoints.apiKey.secret` attribute supports the `{$MY_ENV_VARIABLE}` syntax for injecting a value from the environment during start up.

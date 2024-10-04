@@ -23,6 +23,20 @@ const RouteSchema = v.object({
 const ConfigSchema = v.object({
 	routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
 	routes: v.array(RouteSchema),
+	statusEndpoints: v.optional(
+		v.object({
+			root: v.string(),
+			apiKey: v.optional(
+				v.object({
+					header: v.string(),
+					secret: v.string(),
+				}),
+			),
+		}),
+		{
+			root: "status",
+		},
+	),
 });
 
 export type Route = v.InferOutput<typeof RouteSchema>;
@@ -37,12 +51,34 @@ export function getHttpMethods(
 	return [configuredMethod];
 }
 
+const pathRegex = new RegExp(/{(:[^}]+)}/g, "g");
+const envVariablesRegex = new RegExp(/{(\$[^}]+)}/g, "g");
+
 export function parseConfig(input: unknown): Result<Config, string> {
 	const config = v.parse(ConfigSchema, input);
 
+	if (config.statusEndpoints.apiKey) {
+		const statusApiSecretEnvMatches =
+			config.statusEndpoints.apiKey.secret.matchAll(envVariablesRegex);
+
+		for (const match of statusApiSecretEnvMatches) {
+			const envKey = match[1].replace("$", "");
+			const envVariable = process.env[envKey];
+
+			if (!envVariable) {
+				return Result.err(
+					`Status endpoint API key secret required ${envKey} but was not available in the environment`,
+				);
+			}
+
+			config.statusEndpoints.apiKey.secret = replaceParams(
+				config.statusEndpoints.apiKey.secret,
+				{},
+			);
+		}
+	}
+
 	for (const route of config.routes) {
-		const pathRegex = new RegExp(/{(:[^}]+)}/g, "g");
-		const envVariablesRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 		const urlMatches = route.upstreamUrl.matchAll(pathRegex);
 
 		// Content type should always be forwarded to the client

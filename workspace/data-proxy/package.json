@@ -7,18 +7,19 @@
 		"msw": "^2.3.5"
 	},
 	"dependencies": {
-		"big.js": "6.2.1",
+		"@commander-js/extra-typings": "^12.1.0",
+		"@cosmjs/crypto": "^0.32.4",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/utils": "^1.0.0",
-		"@cosmjs/crypto": "^0.32.4",
-		"secp256k1": "^5.0.0",
-		"elysia": "^1.1.6",
-		"winston": "^3.14.2",
-		"winston-daily-rotate-file": "^5.0.0",
-		"true-myth": "^8.0.0",
-		"jsonpath-plus": "^9.0.0",
+		"big.js": "6.2.1",
 		"commander": "^12.1.0",
-		"@commander-js/extra-typings": "^12.1.0",
-		"valibot": "0.37.0"
+		"date-fns": "^4.1.0",
+		"elysia": "^1.1.6",
+		"jsonpath-plus": "^9.0.0",
+		"secp256k1": "^5.0.0",
+		"true-myth": "^8.0.0",
+		"valibot": "0.37.0",
+		"winston": "^3.14.2",
+		"winston-daily-rotate-file": "^5.0.0"
 	}
 }

@@ -6,6 +6,7 @@ import { Maybe } from "true-myth";
 import { type Config, getHttpMethods } from "./config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP, JSON_PATH_HEADER_KEY } from "./constants";
 import logger from "./logger";
+import { StatusContext, statusPlugin } from "./status-plugin";
 import {
 	createDefaultResponseHeaders,
 	createSignedResponseHeaders,
@@ -64,9 +65,20 @@ export function startProxyServer(
 			logger.debug("Responded to request", { requestId, response });
 		});
 
+	const statusContext = new StatusContext(dataProxy.publicKey.toString("hex"));
+	server.use(statusPlugin(statusContext, config.statusEndpoints));
+
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
 	server.group(proxyGroup, (app) => {
+		// Only update the status context in routes that are part of the proxy group
+		app.onBeforeHandle(() => statusContext.incrementRequests());
+		app.onAfterHandle(({ response }) => {
+			if (response instanceof Response && !response.ok) {
+				statusContext.incrementErrors();
+			}
+		});
+
 		for (const route of config.routes) {
 			const routeMethods = getHttpMethods(route.method);
 
