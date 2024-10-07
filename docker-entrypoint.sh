@@ -25,21 +25,29 @@ else
   echo "No private key provided"
 fi
 
+run_bun_command() {
+  if ! bun "$@"; then
+    echo "Failed to run: bun $*"
+    exit 1
+  fi
+}
+
 # Determine the command to run based on the presence of config.json and private key
 if [ "$CONFIG_EXISTS" = true ] && [ "$PK_EXISTS" = true ]; then
   # Both config.json and private key are provided
   echo "Running with config and private key"
-  RUN_CMD="bun start run --config /app/config.json --private-key-file /app/data-proxy-private-key.json"
+  RUN_CMD="start run --config /app/config.json --private-key-file /app/data-proxy-private-key.json"
 elif [ "$CONFIG_EXISTS" = true ] && [ "$PK_EXISTS" = false ]; then
   # Only config.json is provided
   echo "Running with config only"
-  RUN_CMD="bun start run --config /app/config.json"
+  run_bun_command start init
+  RUN_CMD="start run --config /app/config.json"
 else
-  bun init
   # Neither config.json nor private key is provided
   echo "Running with --disable-proof"
-  RUN_CMD="bun start run --disable-proof"
+  run_bun_command start init
+  RUN_CMD="start run --disable-proof"
 fi
 
 # Execute the final command
-exec $RUN_CMD
+run_bun_command $RUN_CMD
