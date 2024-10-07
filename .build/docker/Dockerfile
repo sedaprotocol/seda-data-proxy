@@ -10,7 +10,7 @@ RUN bun install
 EXPOSE 5384
 
 # Entry script to handle conditional startup
-COPY ./docker-entrypoint.sh ./docker-entrypoint.sh
+COPY .build/docker/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
 ENTRYPOINT ["sh", "./docker-entrypoint.sh"]

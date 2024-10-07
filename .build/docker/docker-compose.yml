@@ -1,6 +1,8 @@
 services:
   seda-data-proxy:
-    build: .
+    build:
+      context: ../..
+      dockerfile: .build/docker/Dockerfile
     ports:
       - "5384:5384"
     # environment:
