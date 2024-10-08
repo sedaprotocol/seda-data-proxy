@@ -10,7 +10,7 @@ RUN bun install --frozen-lockfile
 
 RUN bun build --compile --minify --sourcemap ./workspace/data-proxy/src/index.ts --outfile dataproxy --target=${TARGET_ARCH}
 
-# Data Proxy RPC port
+# Expose the port the app runs on
 EXPOSE 5384
 
 RUN chmod +x dataproxy
