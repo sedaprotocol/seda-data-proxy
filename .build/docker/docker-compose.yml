@@ -3,6 +3,8 @@ services:
     build:
       context: ../..
       dockerfile: .build/docker/Dockerfile
+      args:
+        TARGET_ARCH: ${TARGET_ARCH:-bun-linux-arm64}
     ports:
       - "5384:5384"
     ### Provide the private key if available

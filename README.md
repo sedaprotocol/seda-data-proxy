@@ -200,7 +200,7 @@ The Data Proxy node has support for exposing status information through some end
 
 The status endpoint has two routes:
 
-- `/<statusEndpointsRoot>/health`  
+- `/<statusEndpointsRoot>/health`
   Returns a JSON object with the following structure:
 
   ```json
@@ -214,7 +214,7 @@ The status endpoint has two routes:
   }
   ```
 
-- `/<statusEndpointsRoot>/pubkey`  
+- `/<statusEndpointsRoot>/pubkey`
   Returns the public key of the node.
   ```json
   {
@@ -241,5 +241,5 @@ The status endpoints can be configured in the config file:
 ```
 
 - `root`: Root path for the status endpoints. Defaults to `status`.
-- `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.  
+- `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.
   The `statusEndpoints.apiKey.secret` attribute supports the `{$MY_ENV_VARIABLE}` syntax for injecting a value from the environment during start up.
