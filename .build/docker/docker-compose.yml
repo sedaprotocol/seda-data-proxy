@@ -5,15 +5,23 @@ services:
       dockerfile: .build/docker/Dockerfile
     ports:
       - "5384:5384"
+    ### Provide the private key if available
     # environment:
     #   # Provide the private key if available
     #   SEDA_DATA_PROXY_PRIVATE_KEY: ${SEDA_DATA_PROXY_PRIVATE_KEY}
     #
-    # volumes:
-    #   # Mount config.json if it exists in the host folder
-    #   - ./config.json:/app/config.json:ro
-    #   # Mount a data proxy private key file
-    #   - ./data-proxy-private-key.json:/app/data-proxy-private-key.json:ro
+    ### Provide the config file if available
+    volumes:
+    - type: bind
+      source: ../../config.json
+      target: /app/config.json
+      read_only: true
+      consistency: cached
+    - type: bind
+      source: ../../data-proxy-private-key.json
+      target: /app/data-proxy-private-key.json
+      read_only: true
+      consistency: cached
     networks:
       - proxy-network
 
