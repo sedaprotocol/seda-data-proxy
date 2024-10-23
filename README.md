@@ -145,7 +145,7 @@ By default the data proxy node will only forward the `content-type` as a respons
       "path": "/planets/:planet",
       "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
       // Now the API will also return the server header from SWApi
-      "forwardRepsonseHeaders": ["content-type", "server"],
+      "forwardResponseHeaders": ["content-type", "server"],
       "headers": {
         "x-api-key": "some-api-key"
       }

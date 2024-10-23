@@ -52,7 +52,7 @@ export const initCommand = new Command("init")
 						path: "/*",
 						upstreamUrl: "https://swapi.dev/api/{*}",
 						// @ts-expect-error
-						forwardRepsonseHeaders: undefined,
+						forwardResponseHeaders: undefined,
 						headers: {
 							"x-api-key": "some-api-key",
 						},

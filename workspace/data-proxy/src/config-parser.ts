@@ -11,7 +11,7 @@ const RouteSchema = v.object({
 	upstreamUrl: v.string(),
 	method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
 	jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
-	forwardRepsonseHeaders: v.pipe(
+	forwardResponseHeaders: v.pipe(
 		v.optional(v.array(v.string()), []),
 		v.transform((methods) => {
 			return new Set(methods.map((method) => method.toLowerCase()));
@@ -82,7 +82,7 @@ export function parseConfig(input: unknown): Result<Config, string> {
 		const urlMatches = route.upstreamUrl.matchAll(pathRegex);
 
 		// Content type should always be forwarded to the client
-		route.forwardRepsonseHeaders.add("content-type");
+		route.forwardResponseHeaders.add("content-type");
 
 		if (route.upstreamUrl.includes("{*}")) {
 			if (!route.upstreamUrl.endsWith("{*}")) {

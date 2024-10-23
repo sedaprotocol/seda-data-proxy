@@ -234,7 +234,7 @@ export function startProxyServer(
 						const responseHeaders = new Headers();
 
 						// Forward all headers that are configured in the config.json
-						for (const forwardHeaderKey of route.forwardRepsonseHeaders) {
+						for (const forwardHeaderKey of route.forwardResponseHeaders) {
 							const forwardHeaderValue =
 								upstreamResponse.value.headers.get(forwardHeaderKey);
 
