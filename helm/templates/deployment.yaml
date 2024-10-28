@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "seda-data-proxy.fullname" . }}
+  labels:
+    {{- include "seda-data-proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "seda-data-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "seda-data-proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            {{- range .Values.envVars }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+            - name: SEDA_DATA_PROXY_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "seda-data-proxy.fullname" . }}-secrets
+                  key: SEDA_DATA_PROXY_PRIVATE_KEY
+          args: ["run", {{ .Values.sedaProxyFlags }} ]
+          readinessProbe:
+            httpGet:
+              path: /status/health
+              port: {{ .Values.service.port }}
+          livenessProbe:
+            httpGet:
+              path: /status/health
+              port: {{ .Values.service.port }}
+          volumeMounts:
+          - name: config-volume
+            mountPath: /app/config.json
+            subPath: config.json
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "seda-data-proxy.fullname" . }}-config
