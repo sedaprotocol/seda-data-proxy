@@ -3,7 +3,7 @@ import type { HTTPMethod } from "elysia";
 
 // Server constants
 export const SERVER_PORT = process.env.SERVER_PORT ?? "5384";
-export const LOG_LEVEL = process.env.LOG_LEVEL ?? "debug";
+export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 export const LOG_FILE_DIR = process.env.LOG_FILE_DIR ?? "";
 
 // Environment constants
