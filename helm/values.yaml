@@ -19,7 +19,7 @@ replicaCount: 1
 secret:
   sedaDataProxyPrivateKey: ""
 
-# Uncomment for testing (it disables request verification)
+# WARNING: Comment next line for production. Only for development/testing.
 sedaProxyFlags: "--disable-proof"
 
 sedaProxyConfig:

@@ -243,3 +243,110 @@ The status endpoints can be configured in the config file:
 - `root`: Root path for the status endpoints. Defaults to `status`.
 - `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.  
   The `statusEndpoints.apiKey.secret` attribute supports the `{$MY_ENV_VARIABLE}` syntax for injecting a value from the environment during start up.
+
+## Deployment
+
+The SEDA Data Proxy can be deployed in several ways:
+
+- [Local Installation](#set-up) (shown above)
+- [Docker Deployment](#docker-deployment)
+- [Kubernetes Deployment](#kubernetes-deployment)
+
+### Docker Deployment
+
+Pull the latest image:
+
+```bash
+docker pull ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3
+```
+
+Initialize configuration and keys (choose one option):
+
+```bash
+# Option A: Save files to local directory
+docker run \
+  -v $PWD/config:/app/config \
+  ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 \
+  init -c ./config/config.json -pkf config/data-proxy-private-key.json
+
+# Option B: Print to console for manual setup
+docker run ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 init --print
+```
+
+Register your node:
+
+```bash
+# Option A: Using private key file
+docker run \
+  -v $PWD/config/data-proxy-private-key.json:/app/data-proxy-private-key.json \
+  ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 \
+  register <seda-address> <seda-amount>
+
+# Option B: Using environment variable
+docker run \
+  --env SEDA_DATA_PROXY_PRIVATE_KEY=$SEDA_DATA_PROXY_PRIVATE_KEY \
+  ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 \
+  register <seda-address> <seda-amount>
+```
+
+Run the proxy:
+
+```bash
+# Option A: Using private key file
+docker run -d \
+  --name seda-data-proxy \
+  -p 5384:5384 \
+  -v $PWD/config/config.json:/app/config.json \
+  -v $PWD/config/data-proxy-private-key.json:/app/data-proxy-private-key.json \
+  ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 \
+  run --disable-proof
+
+# Option B: Using environment variable
+docker run -d \
+  --name seda-data-proxy \
+  -p 5384:5384 \
+  -v $PWD/config/config.json:/app/config.json \
+  --env SEDA_DATA_PROXY_PRIVATE_KEY=$SEDA_DATA_PROXY_PRIVATE_KEY \
+  ghcr.io/sedaprotocol/seda-data-proxy:v0.0.3 \
+  run --disable-proof
+```
+
+> [!NOTE]
+> The config.json file must always be mounted as a volume.
+
+> [!IMPORTANT]
+> Remove `--disable-proof` in production environments
+
+### Kubernetes Deployment
+
+For production deployments on Kubernetes, we provide a Helm chart in the `helm/` directory. Here's a basic setup:
+
+Basic Helm configuration example:
+
+```yaml
+# values.yaml
+
+# ... other configuration ...
+
+secret:
+  sedaDataProxyPrivateKey: ""  # Will be set via CLI
+
+# Remove this flag in production - it disables request verification
+sedaProxyFlags: "--disable-proof"
+
+sedaProxyConfig:
+  routes:
+    - path: "/*"
+      upstreamUrl: "https://swapi.dev/api/"
+      methods:
+        - GET
+```
+
+Deploy using Helm from the project root:
+
+```bash
+helm install my-proxy ./helm --set secret.sedaDataProxyPrivateKey=$SEDA_DATA_PROXY_PRIVATE_KEY
+```
+
+> [!NOTE]  
+> The above is a minimal example. Your specific deployment may require additional configuration for services, ingress, resources, and security settings based on your infrastructure requirements. Please consult with your infrastructure team for production deployments.
