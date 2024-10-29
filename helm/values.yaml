@@ -19,5 +19,12 @@ replicaCount: 1
 secret:
   sedaDataProxyPrivateKey: ""
 
-# Uncomment for testing (itdisables request verification)
-# sedaProxyFlags: "--disable-proof"
+# Uncomment for testing (it disables request verification)
+sedaProxyFlags: "--disable-proof"
+
+sedaProxyConfig:
+  routes:
+    - path: "/*"
+      upstreamUrl: "https://swapi.dev/api/"
+      methods:
+        - GET

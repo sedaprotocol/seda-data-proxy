@@ -4,12 +4,4 @@ metadata:
   name: {{ include "seda-data-proxy.fullname" . }}-config
 data:
   config.json: |
-    {
-      "routes": [
-        {
-          "path": "/*",
-          "upstreamUrl": "https://swapi.dev/api/",
-          "methods": ["GET"]
-        }
-      ]
-    }
+    {{ .Values.sedaProxyConfig | toJson }}
