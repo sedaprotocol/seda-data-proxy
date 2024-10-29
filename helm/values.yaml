@@ -1,7 +1,12 @@
+imagePullSecrets: []
+
 image:
   repository: ghcr.io/sedaprotocol/seda-data-proxy
-  tag: "v0.0.2"
-  pullPolicy: IfNotPresent
+  tag: "v0.0.8"
+  pullPolicy: Always
+  pullSecrets: {}
+  os: linux
+  arch: amd64
 
 service:
   type: ClusterIP

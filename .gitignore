@@ -175,3 +175,5 @@ dist
 .DS_Store
 config.json
 data-proxy-private-key.json
+
+ubuntu-dind*
