@@ -2,8 +2,8 @@ imagePullSecrets: []
 
 image:
   repository: ghcr.io/sedaprotocol/seda-data-proxy
-  tag: "v0.0.8"
-  pullPolicy: Always
+  tag: "v0.0.3"
+  pullPolicy: IfNotPresent
   pullSecrets: {}
   os: linux
   arch: amd64
