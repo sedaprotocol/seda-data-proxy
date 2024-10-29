@@ -7,6 +7,27 @@ import type { Config } from "../config-parser";
 import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME } from "../constants";
 import type { FileKeyPair } from "./utils/key-pair";
 
+async function outputJson(
+	content: string,
+	filePath: string,
+	printOnly = false,
+) {
+	if (printOnly) {
+		console.log(`Content for ${filePath}:`);
+		console.log(content);
+		return;
+	}
+
+	const writeResult = await tryAsync(async () => writeFile(filePath, content));
+
+	if (writeResult.isErr) {
+		console.error(`Writing file to ${filePath} errored: ${writeResult.error}`);
+		process.exit(1);
+	}
+
+	console.info(`Written to ${filePath}`);
+}
+
 export const initCommand = new Command("init")
 	.description("Initializes a config.json file and generates a private key")
 	.option(
@@ -15,6 +36,7 @@ export const initCommand = new Command("init")
 		DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	)
 	.option("-c, --config <string>", "Path to config.json", "./config.json")
+	.option("--print", "Print the content instead of writing it")
 	.action(async (args) => {
 		if (!(await exists(args.privateKeyFile))) {
 			const privateKeyBuff = randomBytes(32);
@@ -26,18 +48,11 @@ export const initCommand = new Command("init")
 				privkey: Buffer.from(keyPair.privkey).toString("hex"),
 			};
 
-			const writeResult = await tryAsync(async () =>
-				writeFile(args.privateKeyFile, JSON.stringify(keyPairJson)),
+			await outputJson(
+				JSON.stringify(keyPairJson, null, 2),
+				args.privateKeyFile,
+				args.print,
 			);
-
-			if (writeResult.isErr) {
-				console.error(
-					`Writing file to ${args.privateKeyFile} errored: ${writeResult.error}`,
-				);
-				process.exit(1);
-			}
-
-			console.info(`Written private key to ${args.privateKeyFile}`);
 		} else {
 			console.warn(
 				`${args.privateKeyFile} already exists skipping creation of private key`,
@@ -62,18 +77,11 @@ export const initCommand = new Command("init")
 				],
 			};
 
-			const writeResult = await tryAsync(async () =>
-				writeFile(args.config, JSON.stringify(config, null, 4)),
+			await outputJson(
+				JSON.stringify(config, null, 2),
+				args.config,
+				args.print,
 			);
-
-			if (writeResult.isErr) {
-				console.error(
-					`Writing file to ${args.privateKeyFile} errored: ${writeResult.error}`,
-				);
-				process.exit(1);
-			}
-
-			console.info(`Written config to ${args.config}`);
 		} else {
 			console.warn(`${args.config} already exists skipping creation of config`);
 		}
