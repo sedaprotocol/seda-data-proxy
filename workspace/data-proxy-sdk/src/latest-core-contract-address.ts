@@ -1,27 +1,15 @@
-import { QueryClient, createProtobufRpcClient } from "@cosmjs/stargate";
-import { Comet38Client } from "@cosmjs/tendermint-rpc";
+import type { ProtobufRpcClient } from "@cosmjs/stargate";
 import { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
-import { Result } from "true-myth";
+import type { Result } from "true-myth";
 
 export async function getLatestCoreContractAddress(
-	rpc: string,
-): Promise<Result<string, unknown>> {
-	const cometClient = await tryAsync(async () => Comet38Client.connect(rpc));
-
-	if (cometClient.isErr) {
-		return Result.err(cometClient.error);
-	}
-
-	const queryClient = new QueryClient(cometClient.value);
-	const protoRpcClient = createProtobufRpcClient(queryClient);
-
+	protoRpcClient: ProtobufRpcClient,
+): Promise<Result<string, Error>> {
 	const sedaQueryClient = new sedachain.wasm_storage.v1.QueryClientImpl(
 		protoRpcClient,
 	);
-	const response = await tryAsync(async () =>
-		sedaQueryClient.CoreContractRegistry({}),
-	);
+	const response = await tryAsync(sedaQueryClient.CoreContractRegistry({}));
 
 	return response.map((v) => v.address);
 }
