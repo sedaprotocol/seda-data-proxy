@@ -5,8 +5,8 @@
 	"dependencies": {
 		"@cosmjs/cosmwasm-stargate": "^0.32.4",
 		"@cosmjs/crypto": "^0.32.4",
-		"@seda-protocol/proto-messages": "0.3.0-dev.0-1",
-		"@seda-protocol/utils": "^1.0.0",
+		"@seda-protocol/proto-messages": "0.4.0-dev.1",
+		"@seda-protocol/utils": "^1.2.0",
 		"secp256k1": "^5.0.0",
 		"true-myth": "^8.0.0"
 	}
