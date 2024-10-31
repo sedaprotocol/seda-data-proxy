@@ -29,9 +29,18 @@ export const runCommand = new Command("run")
 		DEFAULT_ENVIRONMENT,
 	)
 	.option(
-		"-dp, --disable-proof",
-		"Disables proofing mechanism, useful for debugging",
+		"-dbg, --debug",
+		"Runs the data proxy in debugging mode, this disables registration check and request verification. Same as --no-registration-check and --disable-proof",
 		false,
+	)
+	.option(
+		"-dp, --disable-proof",
+		"Disables request verification mechanism, useful for testing and development",
+		false,
+	)
+	.option(
+		"-nr, --no-registration-check",
+		"Runs the data proxy without checking registration, useful for testing and development",
 	)
 	.option(
 		"-cca, --core-contract-address <string>",
@@ -84,7 +93,27 @@ export const runCommand = new Command("run")
 			coreContract: options.coreContractAddress,
 		});
 
-		if (options.disableProof) {
+		logger.info(`Using public key: "${dataProxy.publicKey.toString("hex")}"`);
+
+		if (options.debug || !options.registrationCheck) {
+			logger.warn(
+				"Data Proxy will run without checking registration, this is for development and testing only. Do not use in production",
+			);
+		} else {
+			const dataProxyRegistration = await dataProxy.getDataProxyRegistration();
+			if (dataProxyRegistration.isErr) {
+				console.error(
+					`Failed to get data proxy registration: ${dataProxyRegistration.error}`,
+				);
+				process.exit(1);
+			}
+
+			logger.info(
+				`Registered fee: ${dataProxyRegistration.value.fee?.amount}${dataProxyRegistration.value.fee?.denom}`,
+			);
+		}
+
+		if (options.debug || options.disableProof) {
 			logger.warn(
 				"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
 			);
@@ -92,6 +121,6 @@ export const runCommand = new Command("run")
 
 		startProxyServer(config.value, dataProxy, {
 			port: Number(options.port ?? SERVER_PORT),
-			disableProof: options.disableProof,
+			disableProof: options.debug || options.disableProof,
 		});
 	});
