@@ -6,6 +6,7 @@ import {
 	createProtobufRpcClient,
 } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
+import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
@@ -14,6 +15,7 @@ import {
 	type Environment,
 	defaultConfig,
 } from "./config";
+import { getDataProxyRegistration } from "./data-proxy-registration";
 import { getLatestCoreContractAddress } from "./latest-core-contract-address";
 
 export interface SignedData {
@@ -133,6 +135,24 @@ export class DataProxy {
 			this.coreContractAddress = Maybe.just(t);
 			return t;
 		});
+	}
+
+	/**
+	 * Returns the data proxy registration for the public key of the data proxy instance. Returns an error
+	 * if no registration is found.
+	 */
+	async getDataProxyRegistration(): Promise<
+		Result<sedachain.data_proxy.v1.ProxyConfig, Error>
+	> {
+		const rpcClientRes = await this.getProtobufRpcClient();
+		if (rpcClientRes.isErr) {
+			return Result.err(rpcClientRes.error);
+		}
+
+		return getDataProxyRegistration(
+			rpcClientRes.value,
+			this.publicKey.toString("hex"),
+		);
 	}
 
 	/**
