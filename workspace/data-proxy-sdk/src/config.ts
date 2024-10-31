@@ -2,6 +2,7 @@ export enum Environment {
 	Mainnet = "mainnet",
 	Testnet = "testnet",
 	Devnet = "devnet",
+	Planet = "planet",
 }
 
 export interface DataProxyOptions {
@@ -29,6 +30,11 @@ export const defaultConfig: Record<Environment, DataProxyOptions> = {
 	devnet: {
 		rpcUrl: "https://rpc.devnet.seda.xyz",
 		explorerUrl: "https://devnet.explorer.seda.xyz",
+		privateKey: Buffer.from([]),
+	},
+	planet: {
+		rpcUrl: "https://rpc.planet.seda.xyz",
+		explorerUrl: "https://planet.explorer.seda.xyz",
 		privateKey: Buffer.from([]),
 	},
 };
