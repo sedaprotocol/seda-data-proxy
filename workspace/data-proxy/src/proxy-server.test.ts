@@ -6,8 +6,9 @@ import {
 	expect,
 	it,
 } from "bun:test";
-import { Secp256k1 } from "@cosmjs/crypto";
+import { Secp256k1, Secp256k1Signature, keccak256 } from "@cosmjs/crypto";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
+import { Maybe } from "true-myth";
 import { startProxyServer } from "./proxy-server";
 import {
 	HttpResponse,
@@ -52,8 +53,10 @@ describe("proxy server", () => {
 				statusEndpoints: {
 					root: "status",
 				},
+				baseURL: Maybe.nothing(),
 				routes: [
 					{
+						baseURL: Maybe.nothing(),
 						method: "POST",
 						path,
 						upstreamUrl,
@@ -98,8 +101,10 @@ describe("proxy server", () => {
 				statusEndpoints: {
 					root: "status",
 				},
+				baseURL: Maybe.nothing(),
 				routes: [
 					{
+						baseURL: Maybe.nothing(),
 						method: "GET",
 						path,
 						upstreamUrl,
@@ -125,6 +130,128 @@ describe("proxy server", () => {
 		await proxy.stop();
 	});
 
+	describe("public endpoint configuration", () => {
+		it("should support rewriting the protocol and host at the root level", async () => {
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+				"get",
+				"/root-public-endpoint",
+				async () => {
+					return HttpResponse.json({ data: "hello" });
+				},
+			);
+
+			const proxy = startProxyServer(
+				{
+					routeGroup: "",
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.of("https://seda-data-proxy.com"),
+					routes: [
+						{
+							baseURL: Maybe.nothing(),
+							method: "GET",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+						},
+					],
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+				},
+			);
+
+			const response = await fetch(proxyUrl);
+			const result = await response.json();
+
+			const message = dataProxy.generateMessage(
+				// Fake a different public URL
+				`https://seda-data-proxy.com${path}`,
+				"GET",
+				Buffer.from(""),
+				Buffer.from(JSON.stringify(result)),
+			);
+
+			const signature = Secp256k1Signature.fromFixedLength(
+				Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"),
+			);
+			const isValid = await Secp256k1.verifySignature(
+				signature,
+				keccak256(message),
+				Buffer.from(response.headers.get("x-seda-publickey") ?? "", "hex"),
+			);
+
+			expect(isValid, "Signature verification failed").toBe(true);
+
+			await proxy.stop();
+		});
+
+		it("should support rewriting the protocol and host at the route level", async () => {
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+				"get",
+				"/route-public-endpoint",
+				async () => {
+					return HttpResponse.json({ data: "hello" });
+				},
+			);
+
+			const proxy = startProxyServer(
+				{
+					routeGroup: "",
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.of("https://seda-data-proxy.com"),
+					routes: [
+						{
+							baseURL: Maybe.of(
+								"https://different-subdomain.seda-data-proxy.com",
+							),
+							method: "GET",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+						},
+					],
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+				},
+			);
+
+			const response = await fetch(proxyUrl);
+			const result = await response.json();
+
+			const message = dataProxy.generateMessage(
+				// Fake a different public URL
+				`https://different-subdomain.seda-data-proxy.com${path}`,
+				"GET",
+				Buffer.from(""),
+				Buffer.from(JSON.stringify(result)),
+			);
+
+			const signature = Secp256k1Signature.fromFixedLength(
+				Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"),
+			);
+			const isValid = await Secp256k1.verifySignature(
+				signature,
+				keccak256(message),
+				Buffer.from(response.headers.get("x-seda-publickey") ?? "", "hex"),
+			);
+
+			expect(isValid, "Signature verification failed").toBe(true);
+
+			await proxy.stop();
+		});
+	});
+
 	describe("status endpoints", () => {
 		it("should return the status of the proxy for <statusRoot>/health", async () => {
 			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
@@ -148,8 +275,10 @@ describe("proxy server", () => {
 					statusEndpoints: {
 						root: "status",
 					},
+					baseURL: Maybe.nothing(),
 					routes: [
 						{
+							baseURL: Maybe.nothing(),
 							method: "GET",
 							path,
 							upstreamUrl,
@@ -225,8 +354,10 @@ describe("proxy server", () => {
 					statusEndpoints: {
 						root: "status",
 					},
+					baseURL: Maybe.nothing(),
 					routes: [
 						{
+							baseURL: Maybe.nothing(),
 							method: "GET",
 							path,
 							upstreamUrl,
@@ -273,8 +404,10 @@ describe("proxy server", () => {
 							secret: "secret",
 						},
 					},
+					baseURL: Maybe.nothing(),
 					routes: [
 						{
+							baseURL: Maybe.nothing(),
 							method: "GET",
 							path,
 							upstreamUrl,

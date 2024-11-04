@@ -1,3 +1,4 @@
+import { maybe } from "@seda-protocol/utils/valibot";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
@@ -7,6 +8,7 @@ import { replaceParams } from "./utils/replace-params";
 const HttpMethodSchema = v.union([v.string(), v.array(v.string())]);
 
 const RouteSchema = v.object({
+	baseURL: maybe(v.string()),
 	path: v.string(),
 	upstreamUrl: v.string(),
 	method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
@@ -23,6 +25,7 @@ const RouteSchema = v.object({
 const ConfigSchema = v.object({
 	routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
 	routes: v.array(RouteSchema),
+	baseURL: maybe(v.string()),
 	statusEndpoints: v.optional(
 		v.object({
 			root: v.string(),

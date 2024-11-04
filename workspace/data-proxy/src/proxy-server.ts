@@ -87,7 +87,15 @@ export function startProxyServer(
 				app.route(
 					routeMethod,
 					route.path,
-					async ({ headers, params, body, query, requestId, request }) => {
+					async ({
+						headers,
+						params,
+						body,
+						path,
+						query,
+						requestId,
+						request,
+					}) => {
 						const requestLogger = logger.child({ requestId });
 
 						// requestBody is now always a string because of the parse function in this route
@@ -224,8 +232,23 @@ export function startProxyServer(
 							logger.debug("Successfully applied request JSONpath");
 						}
 
+						// If the route or proxy has a public endpoint we replace the protocol and host with the public endpoint.
+						const calledEndpoint = route.baseURL
+							.or(config.baseURL)
+							.mapOr(request.url, (t) => {
+								const pathIndex = request.url.indexOf(path);
+								return `${t}${request.url.slice(pathIndex)}`;
+							});
+
+						logger.debug("Signing data", {
+							calledEndpoint,
+							method: request.method,
+							body: requestBody.unwrapOr(undefined),
+							responseData,
+						});
+
 						const signature = await dataProxy.signData(
-							request.url,
+							calledEndpoint,
 							request.method,
 							Buffer.from(requestBody.isJust ? requestBody.value : "", "utf-8"),
 							Buffer.from(responseData, "utf-8"),
