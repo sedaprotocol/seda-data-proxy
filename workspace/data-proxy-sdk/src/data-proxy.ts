@@ -33,7 +33,7 @@ export interface SignedData {
 }
 
 export class DataProxy {
-	private version = "0.1.0";
+	public version = "0.1.0";
 	public publicKey: Buffer;
 	private privateKey: Buffer;
 	public options: DataProxyOptions;

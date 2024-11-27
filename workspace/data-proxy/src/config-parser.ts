@@ -1,3 +1,4 @@
+import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
@@ -5,7 +6,11 @@ import * as v from "valibot";
 import { DEFAULT_HTTP_METHODS, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { replaceParams } from "./utils/replace-params";
 
-const HttpMethodSchema = v.union([v.string(), v.array(v.string())]);
+const NotOptionsMethod = v.pipe(
+	v.string(),
+	v.notValue("OPTIONS", "OPTIONS method is reserved"),
+);
+const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 
 const RouteSchema = v.object({
 	baseURL: maybe(v.string()),
@@ -58,7 +63,27 @@ const pathRegex = new RegExp(/{(:[^}]+)}/g, "g");
 const envVariablesRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 
 export function parseConfig(input: unknown): Result<Config, string> {
-	const config = v.parse(ConfigSchema, input);
+	const configResult = tryParseSync(ConfigSchema, input);
+	if (configResult.isErr) {
+		return Result.err(
+			configResult.error
+				.map((err) => {
+					const key = err.path?.reduce((path, segment) => {
+						return path.concat(".", segment.key as string);
+					}, "");
+					return `${key}: ${err.message}`;
+				})
+				.join("\n"),
+		);
+	}
+
+	const config = configResult.value;
+
+	if (config.statusEndpoints.root === config.routeGroup) {
+		return Result.err(
+			`"statusEndpoints.root" can not be the same as "routeGroup" (value: ${DEFAULT_PROXY_ROUTE_GROUP})`,
+		);
+	}
 
 	if (config.statusEndpoints.apiKey) {
 		const statusApiSecretEnvMatches =

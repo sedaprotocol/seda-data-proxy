@@ -7,7 +7,11 @@ import {
 	it,
 } from "bun:test";
 import { Secp256k1, Secp256k1Signature, keccak256 } from "@cosmjs/crypto";
-import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
+import {
+	constants,
+	DataProxy,
+	Environment,
+} from "@seda-protocol/data-proxy-sdk";
 import { Maybe } from "true-myth";
 import { startProxyServer } from "./proxy-server";
 import {
@@ -252,6 +256,54 @@ describe("proxy server", () => {
 		});
 	});
 
+	describe("OPTIONS methods", () => {
+		it("should return the public key and version of the data proxy", async () => {
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+				"get",
+				"/test",
+				async () => {
+					return HttpResponse.json({ data: "info" });
+				},
+			);
+
+			const proxy = startProxyServer(
+				{
+					routeGroup: "",
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.nothing(),
+					routes: [
+						{
+							baseURL: Maybe.nothing(),
+							method: "GET",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+							jsonPath: "$.data",
+						},
+					],
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+				},
+			);
+
+			const response = await fetch(proxyUrl, { method: "OPTIONS" });
+			const version = response.headers.get(
+				constants.SIGNATURE_VERSION_HEADER_KEY,
+			);
+			const publicKey = response.headers.get(constants.PUBLIC_KEY_HEADER_KEY);
+
+			expect(version).toBe("0.1.0");
+			expect(publicKey).toBe(
+				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			);
+		});
+	});
 	describe("status endpoints", () => {
 		it("should return the status of the proxy for <statusRoot>/health", async () => {
 			const { upstreamUrl, proxyUrl, path, port } = registerHandler(

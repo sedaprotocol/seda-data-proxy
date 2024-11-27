@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { assertIsOkResult } from "@seda-protocol/utils/testing";
+import {
+	assertIsErrorResult,
+	assertIsOkResult,
+} from "@seda-protocol/utils/testing";
 import { parseConfig } from "./config-parser";
 
 describe("parseConfig", () => {
@@ -120,4 +123,34 @@ describe("parseConfig", () => {
 
 		expect(result).toBeOkResult();
 	});
+
+	it("should fail if the status endpoint uses a the same route group as the proxy", () => {
+		const result = parseConfig({
+			statusEndpoints: {
+				root: "proxy",
+			},
+			routes: [],
+		});
+
+		assertIsErrorResult(result);
+		expect(result.error).toContain("can not be the same");
+	});
+
+	it.each(["OPTIONS", ["OPTIONS", "GET"]])(
+		"should error when the OPTIONS method is used for a route",
+		(method) => {
+			const resultSingle = parseConfig({
+				routes: [
+					{
+						method,
+						path: "/:coinA/*",
+						upstreamUrl: "aaaaaa.com/{*}",
+					},
+				],
+			});
+
+			assertIsErrorResult(resultSingle);
+			expect(resultSingle.error).toContain("OPTIONS method is reserved");
+		},
+	);
 });

@@ -27,6 +27,5 @@ export const DEFAULT_HTTP_METHODS: HTTPMethod[] = [
 	"POST",
 	"PUT",
 	"DELETE",
-	"OPTIONS",
 	"HEAD",
 ];

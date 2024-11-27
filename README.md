@@ -114,6 +114,9 @@ The two required attributes are `path` and `upstreamUrl`. These specify how the 
 }
 ```
 
+> [!IMPORTANT]
+> The `OPTIONS` method is reserved and cannot be used for a route.
+
 #### Base URL per route
 
 In addition to specifying the `baseURL` at the root level you can also specify it per `route`. The `baseURL` at the `route` level will take precedence over one at the root level.
@@ -133,8 +136,8 @@ In addition to specifying the `baseURL` at the root level you can also specify i
       "baseURL": "https://btc.data-proxy.com",
       "path": "/btc-usd",
       "upstreamUrl": "https://myapi.com/btc-usd"
-    },
-  ],
+    }
+  ]
 }
 ```
 

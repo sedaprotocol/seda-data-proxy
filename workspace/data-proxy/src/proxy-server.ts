@@ -80,9 +80,17 @@ export function startProxyServer(
 		});
 
 		for (const route of config.routes) {
-			const routeMethods = getHttpMethods(route.method);
+			app.route("OPTIONS", route.path, () => {
+				const headers = new Headers({
+					[constants.PUBLIC_KEY_HEADER_KEY]:
+						dataProxy.publicKey.toString("hex"),
+					[constants.SIGNATURE_VERSION_HEADER_KEY]: dataProxy.version,
+				});
+				return new Response(null, { headers });
+			});
 
 			// A route can have multiple methods attach to it
+			const routeMethods = getHttpMethods(route.method);
 			for (const routeMethod of routeMethods) {
 				app.route(
 					routeMethod,
