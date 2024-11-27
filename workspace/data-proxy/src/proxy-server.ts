@@ -189,7 +189,7 @@ export function startProxyServer(
 						let responseData: string = upstreamTextResponse.value;
 
 						if (route.jsonPath) {
-							logger.debug(`Applying route JSONpath ${route.jsonPath}`);
+							requestLogger.debug(`Applying route JSONpath ${route.jsonPath}`);
 							const data = queryJson(
 								upstreamTextResponse.value,
 								route.jsonPath,
@@ -204,7 +204,7 @@ export function startProxyServer(
 							}
 
 							responseData = JSON.stringify(data.value);
-							logger.debug("Successfully applied route JSONpath");
+							requestLogger.debug("Successfully applied route JSONpath");
 						}
 
 						const jsonPathRequestHeader = Maybe.of(
@@ -213,7 +213,7 @@ export function startProxyServer(
 
 						// TODO: Would be nice to only parse the JSON once
 						if (jsonPathRequestHeader.isJust) {
-							logger.debug(
+							requestLogger.debug(
 								`Applying request JSONpath ${jsonPathRequestHeader.value}`,
 							);
 							// We apply the JSON path to the data that's exposed by the data proxy.
@@ -229,7 +229,7 @@ export function startProxyServer(
 							}
 
 							responseData = JSON.stringify(data.value);
-							logger.debug("Successfully applied request JSONpath");
+							requestLogger.debug("Successfully applied request JSONpath");
 						}
 
 						// If the route or proxy has a public endpoint we replace the protocol and host with the public endpoint.
@@ -240,7 +240,7 @@ export function startProxyServer(
 								return `${t}${request.url.slice(pathIndex)}`;
 							});
 
-						logger.debug("Signing data", {
+						requestLogger.debug("Signing data", {
 							calledEndpoint,
 							method: request.method,
 							body: requestBody.unwrapOr(undefined),
