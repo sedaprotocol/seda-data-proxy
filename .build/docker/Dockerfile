@@ -1,4 +1,4 @@
-FROM oven/bun:alpine
+FROM oven/bun:1.1.34-alpine
 
 ARG TARGET_ARCH
 
