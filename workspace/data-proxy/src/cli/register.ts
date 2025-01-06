@@ -1,5 +1,6 @@
 import { Command } from "@commander-js/extra-typings";
 import { Keccak256 } from "@cosmjs/crypto";
+import { fromBech32 } from "@cosmjs/encoding";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
 import { trySync } from "@seda-protocol/utils";
@@ -49,7 +50,11 @@ export const registerCommand = new Command("register")
 			process.exit(1);
 		}
 
-		// TODO: Validate if seda address is valid
+		if (!isValidSedaAddress(payoutAddress)) {
+			console.error(`${payoutAddress} is not a valid SEDA address`);
+			process.exit(1);
+		}
+
 		const aSedaAmount = trySync(() => sedaToAseda(fee)).map(
 			(amount) => `${amount}aseda`,
 		);
@@ -64,6 +69,7 @@ export const registerCommand = new Command("register")
 
 		hasher.update(Buffer.from(payoutAddress));
 		hasher.update(Buffer.from(memo));
+		hasher.update(Buffer.from(network.value.chainId));
 		const hash = Buffer.from(hasher.digest());
 
 		const signatureRaw = ecdsaSign(hash, privateKey.value);
@@ -87,3 +93,12 @@ export const registerCommand = new Command("register")
 		console.info("");
 		console.info(`Submit your transaction on: \n${url.toString()}`);
 	});
+
+function isValidSedaAddress(address: string): boolean {
+	try {
+		const { prefix } = fromBech32(address);
+		return prefix === "seda";
+	} catch (error) {
+		return false;
+	}
+}
