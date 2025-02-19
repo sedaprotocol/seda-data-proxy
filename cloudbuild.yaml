@@ -114,35 +114,52 @@ steps:
     - |
       set -ex  # Enable debugging and exit on error
       
-      # Install required packages
-      apt-get update && apt-get install -y git curl gnupg
-      
-      # Install GitHub CLI
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      apt-get update && apt-get install -y gh
+      # Install GitHub CLI and dependencies
+      type -p curl >/dev/null || (apt-get update && apt-get install -y curl)
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && apt-get update \
+        && apt-get install -y gh jq
 
-      # Debug: Show environment
-      echo "Current directory: $(pwd)"
-      echo "Directory contents: $(ls -la)"
-      
-      # Configure GitHub CLI auth directly with the secret
+      # Configure GitHub CLI
+      echo "Configuring GitHub CLI..."
       echo "$$GITHUB_TOKEN" | gh auth login --with-token
-      
-      # Debug: Verify auth
-      gh auth status || true
-      
-      # Create release with minimal dependencies
-      echo "Creating GitHub release..."
+      gh auth status
+
+      # Prepare release notes
+      RELEASE_NOTES=$(cat << EOF
+      Release ${TAG_NAME} of SEDA Data Proxy
+
+      ## Docker Images
+      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}\` (multi-arch manifest)
+      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern\` (AMD64)
+      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64\` (ARM64)
+
+      ## Installation
+      \`\`\`bash
+      # Pull the multi-arch image (recommended)
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
+
+      # Or pull a specific architecture
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
+      \`\`\`
+      EOF
+      )
+
+      # Create GitHub release
+      echo "Creating GitHub release ${TAG_NAME}..."
       gh release create "${TAG_NAME}" \
         --repo "sedaprotocol/seda-data-proxy" \
-        --title "${TAG_NAME}" \
-        --notes "Release ${TAG_NAME} of SEDA Data Proxy
+        --title "Release ${TAG_NAME}" \
+        --notes "${RELEASE_NOTES}" \
+        --generate-notes \
+        --verify-tag
 
-      Docker Images:
-      - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
-      - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
-      - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME} (multi-arch manifest)"
+      # Verify release was created
+      echo "Verifying release..."
+      gh release view "${TAG_NAME}" --repo "sedaprotocol/seda-data-proxy" --json url,tagName,name | jq .
 
 # ─────────────────────────────────────────────
 # Configure secrets
