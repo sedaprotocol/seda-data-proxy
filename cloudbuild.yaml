@@ -182,6 +182,5 @@ availableSecrets:
 # ─────────────────────────────────────────────
 timeout: '3600s'
 images:
-  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}'
   - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
   - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64' 
