@@ -124,7 +124,9 @@ steps:
 
       # Configure GitHub CLI
       echo "Configuring GitHub CLI..."
-      echo "$$GITHUB_TOKEN" | gh auth login --with-token
+      TOKEN="$GITHUB_TOKEN"
+      unset GITHUB_TOKEN
+      echo "$TOKEN" | gh auth login --with-token
       gh auth status
 
       # Create release notes file
