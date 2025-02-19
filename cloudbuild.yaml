@@ -131,11 +131,8 @@ steps:
       git config --global user.email "cloudbuild@example.com"
       git config --global user.name "Cloud Build"
       
-      # Debug: Show GitHub token presence (safely)
-      echo "GitHub token exists: $([[ -n "$GITHUB_TOKEN" ]] && echo 'yes' || echo 'no')"
-      
-      # Configure GitHub CLI auth directly
-      echo "$GITHUB_TOKEN" | gh auth login --with-token
+      # Configure GitHub CLI auth directly with the secret
+      echo "$$GITHUB_TOKEN" | gh auth login --with-token
       
       # Debug: Verify auth
       gh auth status || true
