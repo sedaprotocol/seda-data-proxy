@@ -127,33 +127,39 @@ steps:
       echo "$$GITHUB_TOKEN" | gh auth login --with-token
       gh auth status
 
-      # Prepare release notes
-      RELEASE_NOTES=$(cat << EOF
+      # Create release notes file
+      cat > release_notes.md << 'EOL'
       Release ${TAG_NAME} of SEDA Data Proxy
 
       ## Docker Images
-      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}\` (multi-arch manifest)
-      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern\` (AMD64)
-      - \`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64\` (ARM64)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}` (multi-arch manifest)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern` (AMD64)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64` (ARM64)
 
       ## Installation
-      \`\`\`bash
+      ```bash
       # Pull the multi-arch image (recommended)
       docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
 
       # Or pull a specific architecture
       docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
       docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
-      \`\`\`
-      EOF
-      )
+      ```
+      EOL
+
+      # Replace variables in release notes
+      sed -i "s|\${TAG_NAME}|${TAG_NAME}|g" release_notes.md
+      sed -i "s|\${_REGISTRY}|${_REGISTRY}|g" release_notes.md
+      sed -i "s|\${_PROJECT}|${_PROJECT}|g" release_notes.md
+      sed -i "s|\${_REPO}|${_REPO}|g" release_notes.md
+      sed -i "s|\${_IMAGE_NAME}|${_IMAGE_NAME}|g" release_notes.md
 
       # Create GitHub release
       echo "Creating GitHub release ${TAG_NAME}..."
       gh release create "${TAG_NAME}" \
         --repo "sedaprotocol/seda-data-proxy" \
         --title "Release ${TAG_NAME}" \
-        --notes "${RELEASE_NOTES}" \
+        --notes-file release_notes.md \
         --generate-notes \
         --verify-tag
 
