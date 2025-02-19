@@ -156,3 +156,4 @@ jobs:
             build/seda-data-proxy-linux-x64-musl
             build/seda-data-proxy-windows-x64.exe
           token: ${{ secrets.GITHUB_TOKEN }}
+
