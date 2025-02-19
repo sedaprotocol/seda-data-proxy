@@ -154,7 +154,7 @@ steps:
       docker run -d \
         --name seda-data-proxy \
         -p 5384:5384 \
-        -v $PWD/config.json:/app/config.json:ro \
+        -v /app/config.json:/app/config.json:ro \
         -e SEDA_DATA_PROXY_PRIVATE_KEY=$SEDA_DATA_PROXY_PRIVATE_KEY \
         ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
       ```
