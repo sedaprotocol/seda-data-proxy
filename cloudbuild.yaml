@@ -146,19 +146,6 @@ steps:
       | AMD64 | [`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern`](${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern) | ![Image Size](https://img.shields.io/docker/image-size/${_PROJECT}/${_REPO}/${_IMAGE_NAME}/${TAG_NAME}-bun-linux-x64-modern?label=size&logo=docker) |
       | ARM64 | [`${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64`](${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64) | ![Image Size](https://img.shields.io/docker/image-size/${_PROJECT}/${_REPO}/${_IMAGE_NAME}/${TAG_NAME}-bun-linux-arm64?label=size&logo=docker) |
 
-      ## 📦 Installation
-
-      ### Using Docker CLI
-      ```bash
-      # With environment variable
-      docker run -d \
-        --name seda-data-proxy \
-        -p 5384:5384 \
-        -v /app/config.json:/app/config.json:ro \
-        -e SEDA_DATA_PROXY_PRIVATE_KEY=$SEDA_DATA_PROXY_PRIVATE_KEY \
-        ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
-      ```
-
       ## 🔄 What's Changed
 
       <details>
