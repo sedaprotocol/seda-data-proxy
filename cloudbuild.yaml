@@ -112,31 +112,69 @@ steps:
   args:
     - '-c'
     - |
-      # Install GitHub CLI
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      apt update
-      apt install gh -y
+      set -ex  # Enable debugging and exit on error
+      
+      # Install GitHub CLI and dependencies
+      type -p curl >/dev/null || (apt-get update && apt-get install -y curl)
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && apt-get update \
+        && apt-get install -y gh jq
 
-      # Install conventional-changelog
-      npm install -g conventional-changelog-cli
+      # Configure GitHub CLI
+      echo "Configuring GitHub CLI..."
+      TOKEN="$$GITHUB_TOKEN"
+      unset GITHUB_TOKEN
+      echo "$$TOKEN" | gh auth login --with-token
+      gh auth status
 
-      # Generate changelog
-      conventional-changelog -p angular -i CHANGELOG.md -s -r 1 > release_notes.md
+      # Create release notes file
+      cat > release_notes.md << 'EOL'
+      Release ${TAG_NAME} of SEDA Data Proxy
+
+      ## Docker Images
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}` (multi-arch manifest)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern` (AMD64)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64` (ARM64)
+
+      ## Installation
+      ```bash
+      # Pull the multi-arch image (recommended)
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
+
+      # Or pull a specific architecture
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
+      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
+      ```
+      EOL
+
+      # Replace variables in release notes
+      sed -i "s|\${TAG_NAME}|${TAG_NAME}|g" release_notes.md
+      sed -i "s|\${_REGISTRY}|${_REGISTRY}|g" release_notes.md
+      sed -i "s|\${_PROJECT}|${_PROJECT}|g" release_notes.md
+      sed -i "s|\${_REPO}|${_REPO}|g" release_notes.md
+      sed -i "s|\${_IMAGE_NAME}|${_IMAGE_NAME}|g" release_notes.md
 
       # Create GitHub release
-      export GITHUB_TOKEN=$$GITHUB_TOKEN
-      gh release create ${TAG_NAME} \
-        --title "${TAG_NAME}" \
+      echo "Creating GitHub release ${TAG_NAME}..."
+      gh release create "${TAG_NAME}" \
+        --repo "sedaprotocol/seda-data-proxy" \
+        --title "Release ${TAG_NAME}" \
         --notes-file release_notes.md \
-        --generate-notes
+        --generate-notes \
+        --verify-tag
+
+      # Verify release was created
+      echo "Verifying release..."
+      gh release view "${TAG_NAME}" --repo "sedaprotocol/seda-data-proxy" --json url,tagName,name | jq .
 
 # ─────────────────────────────────────────────
 # Configure secrets
 # ─────────────────────────────────────────────
 availableSecrets:
   secretManager:
-    - versionName: projects/${_PROJECT}/secrets/github-token/versions/latest
+    - versionName: projects/${_PROJECT}/secrets/manual-github-token/versions/latest
       env: 'GITHUB_TOKEN'
 
 # ─────────────────────────────────────────────
@@ -144,6 +182,5 @@ availableSecrets:
 # ─────────────────────────────────────────────
 timeout: '3600s'
 images:
-  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}'
   - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
   - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64' 
