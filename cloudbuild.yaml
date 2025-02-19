@@ -16,7 +16,18 @@ options:
 
 steps:
 # ─────────────────────────────────────────────
-# Step 1: Set up QEMU for multi-architecture builds
+# Step 1: Configure Docker authentication
+# ─────────────────────────────────────────────
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: 'auth'
+  args:
+    - 'auth'
+    - 'configure-docker'
+    - '${_REGISTRY}'
+    - '--quiet'
+
+# ─────────────────────────────────────────────
+# Step 2: Set up QEMU for multi-architecture builds
 # ─────────────────────────────────────────────
 - name: 'gcr.io/cloud-builders/docker'
   id: 'setup-qemu'
@@ -29,7 +40,7 @@ steps:
     - 'yes'
 
 # ─────────────────────────────────────────────
-# Step 2: Build and push AMD64 image
+# Step 3: Build and push AMD64 image
 # ─────────────────────────────────────────────
 - name: 'gcr.io/cloud-builders/docker'
   id: 'build-amd64'
@@ -45,12 +56,13 @@ steps:
 
 - name: 'gcr.io/cloud-builders/docker'
   id: 'push-amd64'
+  waitFor: ['auth', 'build-amd64']
   args:
     - 'push'
     - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
 
 # ─────────────────────────────────────────────
-# Step 3: Build and push ARM64 image
+# Step 4: Build and push ARM64 image
 # ─────────────────────────────────────────────
 - name: 'gcr.io/cloud-builders/docker'
   id: 'build-arm64'
@@ -68,15 +80,17 @@ steps:
 
 - name: 'gcr.io/cloud-builders/docker'
   id: 'push-arm64'
+  waitFor: ['auth', 'build-arm64']
   args:
     - 'push'
     - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64'
 
 # ─────────────────────────────────────────────
-# Step 4: Create and push manifest list
+# Step 5: Create and push manifest list
 # ─────────────────────────────────────────────
 - name: 'gcr.io/cloud-builders/docker'
   id: 'create-manifest'
+  waitFor: ['push-amd64', 'push-arm64']
   entrypoint: 'bash'
   args:
     - '-c'
@@ -88,10 +102,11 @@ steps:
       docker manifest push ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
 
 # ─────────────────────────────────────────────
-# Step 5: Create GitHub Release with Changelog
+# Step 6: Create GitHub Release with Changelog
 # ─────────────────────────────────────────────
 - name: 'node:18'
   id: 'create-release'
+  waitFor: ['create-manifest']
   secretEnv: ['GITHUB_TOKEN']
   entrypoint: 'bash'
   args:
