@@ -126,11 +126,6 @@ steps:
       echo "Current directory: $(pwd)"
       echo "Directory contents: $(ls -la)"
       
-      # Setup git
-      git init
-      git config --global user.email "cloudbuild@example.com"
-      git config --global user.name "Cloud Build"
-      
       # Configure GitHub CLI auth directly with the secret
       echo "$$GITHUB_TOKEN" | gh auth login --with-token
       
@@ -154,7 +149,7 @@ steps:
 # ─────────────────────────────────────────────
 availableSecrets:
   secretManager:
-    - versionName: projects/${_PROJECT}/secrets/github-token/versions/latest
+    - versionName: projects/${_PROJECT}/secrets/manual-github-token/versions/latest
       env: 'GITHUB_TOKEN'
 
 # ─────────────────────────────────────────────
