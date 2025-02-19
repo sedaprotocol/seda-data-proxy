@@ -114,57 +114,43 @@ steps:
     - |
       set -ex  # Enable debugging and exit on error
       
-      # Setup git (needed for changelog generation)
+      # Install required packages
+      apt-get update && apt-get install -y git curl gnupg
+      
+      # Install GitHub CLI
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      apt-get update && apt-get install -y gh
+
+      # Debug: Show environment
+      echo "Current directory: $(pwd)"
+      echo "Directory contents: $(ls -la)"
+      
+      # Setup git
+      git init
       git config --global user.email "cloudbuild@example.com"
       git config --global user.name "Cloud Build"
       
-      # Install GitHub CLI
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && apt-get update \
-        && apt-get install -y gh git
-
-      # Install conventional-changelog
-      npm install -g conventional-changelog-cli
+      # Debug: Show GitHub token presence (safely)
+      echo "GitHub token exists: $([[ -n "$GITHUB_TOKEN" ]] && echo 'yes' || echo 'no')"
       
-      # Ensure CHANGELOG.md exists
-      touch CHANGELOG.md
+      # Configure GitHub CLI auth directly
+      echo "$GITHUB_TOKEN" | gh auth login --with-token
       
-      # Generate changelog
-      echo "Generating changelog..."
-      conventional-changelog -p angular -i CHANGELOG.md -s -r 1 > release_notes.md
+      # Debug: Verify auth
+      gh auth status || true
       
-      # Debug: Show release notes
-      echo "Release notes content:"
-      cat release_notes.md
-      
-      # Create GitHub release
+      # Create release with minimal dependencies
       echo "Creating GitHub release..."
-      export GITHUB_TOKEN=$$GITHUB_TOKEN
-      
-      # Authenticate with GitHub
-      echo "Authenticating with GitHub..."
-      gh auth setup-git
-      gh auth status
-      
-      # Create release with fallback content if changelog is empty
-      if [ -s release_notes.md ]; then
-        gh release create ${TAG_NAME} \
-          --repo "sedaprotocol/seda-data-proxy" \
-          --title "${TAG_NAME}" \
-          --notes-file release_notes.md \
-          --generate-notes
-      else
-        gh release create ${TAG_NAME} \
-          --repo "sedaprotocol/seda-data-proxy" \
-          --title "${TAG_NAME}" \
-          --notes "Release ${TAG_NAME} of SEDA Data Proxy
+      gh release create "${TAG_NAME}" \
+        --repo "sedaprotocol/seda-data-proxy" \
+        --title "${TAG_NAME}" \
+        --notes "Release ${TAG_NAME} of SEDA Data Proxy
 
       Docker Images:
       - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
       - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
       - ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME} (multi-arch manifest)"
-      fi
 
 # ─────────────────────────────────────────────
 # Configure secrets
