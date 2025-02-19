@@ -150,11 +150,13 @@ steps:
       # Create release with fallback content if changelog is empty
       if [ -s release_notes.md ]; then
         gh release create ${TAG_NAME} \
+          --repo "sedaprotocol/seda-data-proxy" \
           --title "${TAG_NAME}" \
           --notes-file release_notes.md \
           --generate-notes
       else
         gh release create ${TAG_NAME} \
+          --repo "sedaprotocol/seda-data-proxy" \
           --title "${TAG_NAME}" \
           --notes "Release ${TAG_NAME} of SEDA Data Proxy
 
