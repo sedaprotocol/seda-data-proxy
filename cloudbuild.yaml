@@ -154,7 +154,7 @@ steps:
 
 availableSecrets:
   secretManager:
-    - versionName: projects/${_PROJECT}/secrets/manual-github-token/versions/latest
+    - versionName: projects/${_PROJECT}/secrets/github-token/versions/latest
       env: 'GITHUB_TOKEN'
 
 timeout: '3600s'
