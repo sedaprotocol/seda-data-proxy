@@ -1,7 +1,7 @@
 substitutions:
   _REGISTRY: "us-central1-docker.pkg.dev"
-  _REPO: "manual-dp-build-repo"           # FIXME: Temporary repo for testing
-  _PROJECT: "perf-testing-infra-af6aff"   # FIXME: Will move to a dedicated project
+  _REPO: "seda-data-proxy"
+  _PROJECT: "seda-cloudbuild-4b791238"
   _IMAGE_NAME: "seda-data-proxy"
 
 options:
