@@ -1,5 +1,4 @@
 import { Command } from "@commander-js/extra-typings";
-import { Keccak256 } from "@cosmjs/crypto";
 import { fromBech32 } from "@cosmjs/encoding";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
@@ -8,6 +7,7 @@ import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe } from "true-myth";
 import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
 import { sedaToAseda } from "./utils/big";
+import { createHash } from "./utils/create-hash";
 import { loadPrivateKey } from "./utils/private-key";
 
 export const registerCommand = new Command("register")
@@ -82,13 +82,14 @@ export const registerCommand = new Command("register")
 		}
 
 		const memo = Maybe.of(options.memo).unwrapOr("");
-		const hasher = new Keccak256(Buffer.from(aSedaAmount.value));
 
-		hasher.update(Buffer.from(adminAddress));
-		hasher.update(Buffer.from(payoutAddress));
-		hasher.update(Buffer.from(memo));
-		hasher.update(Buffer.from(network.value.chainId));
-		const hash = Buffer.from(hasher.digest());
+		const hash = createHash(
+			fee,
+			adminAddress,
+			payoutAddress,
+			memo,
+			network.value.chainId,
+		);
 
 		const signatureRaw = ecdsaSign(hash, privateKey.value);
 		const signature = Buffer.from(signatureRaw.signature);
