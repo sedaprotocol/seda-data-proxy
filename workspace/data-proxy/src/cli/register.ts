@@ -13,8 +13,8 @@ import { loadPrivateKey } from "./utils/private-key";
 export const registerCommand = new Command("register")
 	.description("Register the Data Proxy node on the SEDA chain")
 	.argument(
-		"<payout-address>",
-		"SEDA chain address to payout for completing requests",
+		"<admin-address>",
+		"SEDA chain address to register as admin and payout address for completed requests. This should be the address with which you will be signing the transaction. Payout can also be set separately using the --payout-address flag.",
 	)
 	.argument("<fee>", "Fee amount per request in SEDA")
 	.option(
@@ -27,10 +27,14 @@ export const registerCommand = new Command("register")
 		DEFAULT_ENVIRONMENT,
 	)
 	.option(
+		"--payout-address <address>",
+		"SEDA chain address to payout for completing requests. If not provided, the admin address will be used as payout address.",
+	)
+	.option(
 		"--memo <string>",
 		"A custom note to attach to this Data Proxy registration",
 	)
-	.action(async (payoutAddress, fee, options) => {
+	.action(async (adminAddress, fee, options) => {
 		const network = Maybe.of(defaultConfig[options.network as Environment]);
 
 		if (network.isNothing) {
@@ -50,8 +54,21 @@ export const registerCommand = new Command("register")
 			process.exit(1);
 		}
 
+		const payoutAddress = Maybe.of(options.payoutAddress).unwrapOr(
+			adminAddress,
+		);
+
+		if (!isValidSedaAddress(adminAddress)) {
+			console.error(
+				`Admin address ${adminAddress} is not a valid SEDA address`,
+			);
+			process.exit(1);
+		}
+
 		if (!isValidSedaAddress(payoutAddress)) {
-			console.error(`${payoutAddress} is not a valid SEDA address`);
+			console.error(
+				`Payout address ${payoutAddress} is not a valid SEDA address`,
+			);
 			process.exit(1);
 		}
 
@@ -67,6 +84,7 @@ export const registerCommand = new Command("register")
 		const memo = Maybe.of(options.memo).unwrapOr("");
 		const hasher = new Keccak256(Buffer.from(aSedaAmount.value));
 
+		hasher.update(Buffer.from(adminAddress));
 		hasher.update(Buffer.from(payoutAddress));
 		hasher.update(Buffer.from(memo));
 		hasher.update(Buffer.from(network.value.chainId));
@@ -78,6 +96,7 @@ export const registerCommand = new Command("register")
 
 		const url = new URL("/data-proxy/register", network.value.explorerUrl);
 		url.searchParams.append("fee", aSedaAmount.value);
+		url.searchParams.append("adminAddress", adminAddress);
 		url.searchParams.append("payoutAddress", payoutAddress);
 		url.searchParams.append("publicKey", publicKey.toString("hex"));
 		url.searchParams.append("signature", signature.toString("hex"));
@@ -85,6 +104,7 @@ export const registerCommand = new Command("register")
 		url.searchParams.append("memo", memo);
 
 		console.info(`Fee amount: \t\t${fee} SEDA (${aSedaAmount.value})`);
+		console.info(`Admin address: \t\t${adminAddress}`);
 		console.info(`Payout address: \t${payoutAddress}`);
 		console.info(`Signed hash: \t\t${hash.toString("hex")}`);
 		console.info(`Public key: \t\t${publicKey.toString("hex")}`);
