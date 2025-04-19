@@ -84,7 +84,7 @@ export const registerCommand = new Command("register")
 		const memo = Maybe.of(options.memo).unwrapOr("");
 
 		const hash = createHash(
-			fee,
+			aSedaAmount.value,
 			adminAddress,
 			payoutAddress,
 			memo,
