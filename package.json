@@ -4,9 +4,11 @@
 	"main": "./src/index.ts",
 	"type": "module",
 	"scripts": {
-		"start": "bun run ./workspace/data-proxy",
+		"start": "bun run check-ts && bun run ./workspace/data-proxy",
 		"fmt": "bunx biome check --write .",
-		"check-fmt": "bunx biome check ."
+		"build": "bun run check-ts && bun run build.ts",
+		"check-fmt": "bunx biome check .",
+		"check-ts": "bunx tsc --noEmit"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.8.3",

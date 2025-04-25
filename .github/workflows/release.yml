@@ -98,6 +98,15 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
+      - name: 🥟 Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: 📦 Install Dependencies
+        run: bun install
+
+      - name: 🔨 Build binary
+        run: bun run build
+
       - name: 📝 Generate Changelog
         id: changelog
         uses: TriPSs/conventional-changelog-action@v5.3.0
@@ -108,6 +117,18 @@ jobs:
           skip-tag: true
           skip-git-pull: true
           git-push: false
+      
+      - name: 🔢 Generate Checksum
+        uses: jmgilman/actions-generate-checksum@v1
+        with:
+          patterns: |
+            build/seda-data-proxy-darwin-arm64
+            build/seda-data-proxy-darwin-x64
+            build/seda-data-proxy-linux-arm64
+            build/seda-data-proxy-linux-arm64-musl
+            build/seda-data-proxy-linux-x64
+            build/seda-data-proxy-linux-x64-musl
+            build/seda-data-proxy-windows-x64.exe
 
       - name: 🎉 Create GitHub Release
         uses: ncipollo/release-action@v1
@@ -125,4 +146,13 @@ jobs:
             - [ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }}-bun-linux-x64-modern](https://ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }}-bun-linux-x64-modern)
             - [ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }}-bun-linux-arm64](https://ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }}-bun-linux-arm64)
             - [ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }}](https://ghcr.io/sedaprotocol/seda-data-proxy:${{ github.ref_name }})
+          artifacts: | 
+            checksum.txt
+            build/seda-data-proxy-darwin-arm64
+            build/seda-data-proxy-darwin-x64
+            build/seda-data-proxy-linux-arm64
+            build/seda-data-proxy-linux-arm64-musl
+            build/seda-data-proxy-linux-x64
+            build/seda-data-proxy-linux-x64-musl
+            build/seda-data-proxy-windows-x64.exe
           token: ${{ secrets.GITHUB_TOKEN }}

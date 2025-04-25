@@ -177,3 +177,5 @@ config.json
 data-proxy-private-key.json
 
 ubuntu-dind*
+
+build/
