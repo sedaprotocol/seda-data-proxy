@@ -1,12 +1,11 @@
 substitutions:
   _REGISTRY: "us-central1-docker.pkg.dev"
   _REPO: "seda-data-proxy"
-  _PROJECT: "seda-cloudbuild-4b791238"
+  _PROJECT: "${PROJECT_ID}"
   _IMAGE_NAME: "seda-data-proxy"
 
 options:
   machineType: 'E2_HIGHCPU_8'
-  dynamic_substitutions: true
   logging: CLOUD_LOGGING_ONLY
 
 steps:
@@ -41,10 +40,12 @@ steps:
   id: 'build-amd64'
   args:
     - 'build'
+    - '--platform'
+    - 'linux/amd64'
     - '--build-arg'
-    - 'TARGET_ARCH=bun-linux-x64-modern'
+    - 'TARGET_ARCH=bun-linux-x64'
     - '-t'
-    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
+    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-amd64'
     - '-f'
     - '.build/docker/Dockerfile'
     - '.'
@@ -54,7 +55,7 @@ steps:
   waitFor: ['auth', 'build-amd64']
   args:
     - 'push'
-    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
+    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-amd64'
 
 #
 # Step 4: Build and Push ARM64 Image
@@ -68,7 +69,7 @@ steps:
     - '--build-arg'
     - 'TARGET_ARCH=bun-linux-arm64'
     - '-t'
-    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64'
+    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-arm64'
     - '-f'
     - '.build/docker/Dockerfile'
     - '.'
@@ -78,7 +79,7 @@ steps:
   waitFor: ['auth', 'build-arm64']
   args:
     - 'push'
-    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64'
+    - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-arm64'
 
 #
 # Step 5: Create and Push Manifest List
@@ -92,8 +93,8 @@ steps:
     - |
       docker manifest create \
         ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME} \
-        --amend ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern \
-        --amend ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
+        --amend ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-amd64 \
+        --amend ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-arm64
       docker manifest push ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
 
 #
@@ -126,14 +127,12 @@ steps:
 
       ## Docker Images
       - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}` (multi-arch manifest)
-      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern` (AMD64)
-      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64` (ARM64)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-amd64` (AMD64)
+      - `${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-arm64` (ARM64)
 
       ## Installation
       ```bash
       docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}
-      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern
-      docker pull ${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64
       ```
       EOL
 
@@ -159,5 +158,5 @@ availableSecrets:
 
 timeout: '3600s'
 images:
-  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-x64-modern'
-  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-bun-linux-arm64'
+  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-amd64'
+  - '${_REGISTRY}/${_PROJECT}/${_REPO}/${_IMAGE_NAME}:${TAG_NAME}-arm64'
