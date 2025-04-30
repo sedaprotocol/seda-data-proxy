@@ -1,9 +1,19 @@
 {
-	"name": "seda-sdk",
+	"name": "seda-data-proxy",
 	"build": {
 		"dockerfile": "Dockerfile",
 		"args": {
-			"VARIANT": "1.1.26"
+			"VARIANT": "latest"
+		}
+	},
+	"features": {
+		// Add your features here, for example:
+		"ghcr.io/devcontainers/features/node:1": {},
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"configureZshAsDefaultShell": true,
+			"installOhMyZsh": true
 		}
 	},
 	"customizations": {
@@ -12,5 +22,7 @@
 			"extensions": ["EditorConfig.EditorConfig"]
 		}
 	},
-	"postCreateCommand": "bun install"
+	"postCreateCommand": "bun install",
+	"remoteUser": "bun",
+	"updateRemoteUserUID": true
 }
