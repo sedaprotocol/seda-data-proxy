@@ -1,15 +1,22 @@
+import { trySync } from "@seda-protocol/utils";
+import { Result } from "true-myth";
 import { mergeUrlSearchParams } from "./search-params";
 
 export function injectSearchParamsInUrl(
 	targetUrl: string,
 	searchParams: URLSearchParams,
-): URL {
-	const target = new URL(targetUrl);
+): Result<URL, string> {
+	const target: Result<URL, unknown> = trySync(() => new URL(targetUrl));
+
+	if (target.isErr) {
+		return Result.err("Failed to parse target URL");
+	}
+
 	const finalSearchParams = mergeUrlSearchParams(
 		searchParams,
-		target.searchParams,
+		target.value.searchParams,
 	);
-	target.search = finalSearchParams.toString();
+	target.value.search = finalSearchParams.toString();
 
-	return target;
+	return Result.ok(target.value);
 }
