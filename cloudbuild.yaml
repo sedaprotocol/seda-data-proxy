@@ -100,7 +100,7 @@ steps:
 #
 # Step 6: Create GitHub Release
 #
-- name: 'node:18'
+- name: 'node:20'
   id: 'create-release'
   waitFor: ['create-manifest']
   secretEnv: ['GITHUB_TOKEN']
