@@ -1,7 +1,7 @@
 import { createLogger, format, type transport, transports } from "winston";
 import "winston-daily-rotate-file";
 import { Maybe } from "true-myth";
-import { LOG_FILE_DIR, LOG_LEVEL } from "./constants";
+import { LOG_FILE_DIR } from "./constants";
 
 const logFormat = format.printf((info) => {
 	const requestId = Maybe.of(info.metadata?.requestId).mapOr(" ", (t) => {
@@ -34,7 +34,7 @@ if (LOG_FILE_DIR) {
 }
 
 const logger = createLogger({
-	level: LOG_LEVEL,
+	level: process.env.LOG_LEVEL ?? "info",
 	format: format.combine(
 		format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
 		format.metadata({
@@ -43,6 +43,10 @@ const logger = createLogger({
 	),
 	transports: destinations,
 });
+
+export function setLogLevel(level: string) {
+	logger.level = level;
+}
 
 export default logger;
 

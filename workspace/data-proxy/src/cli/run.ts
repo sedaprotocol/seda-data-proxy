@@ -11,7 +11,7 @@ import {
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
-import logger from "../logger";
+import logger, { setLogLevel } from "../logger";
 import { startProxyServer } from "../proxy-server";
 import { loadPrivateKey } from "./utils/private-key";
 
@@ -48,6 +48,11 @@ export const runCommand = new Command("run")
 	)
 	.option("-r, --rpc <rpc-url>", "Optional RPC URL to the SEDA network")
 	.action(async (options) => {
+		// Set log level to debug if debug flag is used
+		if (options.debug) {
+			setLogLevel("debug");
+		}
+
 		const network = Maybe.of(defaultConfig[options.network as Environment]);
 
 		if (network.isNothing) {
