@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { assertIsOkResult } from "@seda-protocol/utils/testing";
 import { createUrlSearchParams } from "./search-params";
 import { injectSearchParamsInUrl } from "./url";
 
@@ -10,6 +11,7 @@ describe("url", () => {
 		});
 
 		const result = injectSearchParamsInUrl(targetUrl, injection);
-		expect(result.toString()).toBe("http://example.com/?two=2&one=1");
+		assertIsOkResult(result);
+		expect(result.value.toString()).toBe("http://example.com/?two=2&one=1");
 	});
 });
