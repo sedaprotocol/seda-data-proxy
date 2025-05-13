@@ -88,6 +88,7 @@ export const runCommand = new Command("run")
 			process.exit(1);
 		}
 
+		logger.info(`Using config: ${options.config}`);
 		const config = parseConfig(parsedConfig.value);
 		if (config.isErr) {
 			console.error(`Invalid config: ${config.error}`);
