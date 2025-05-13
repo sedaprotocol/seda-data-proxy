@@ -4,6 +4,7 @@ import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
 import { DEFAULT_HTTP_METHODS, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
+import logger from "./logger";
 import { replaceParams } from "./utils/replace-params";
 
 const NotOptionsMethod = v.pipe(
@@ -60,6 +61,8 @@ export function getHttpMethods(
 }
 
 const pathRegex = new RegExp(/{(:[^}]+)}/g, "g");
+// Match path with all the :varname in the path
+const pathRegexElysia = new RegExp(/(:[^\/]+)/g);
 const envVariablesRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 
 export function parseConfig(input: unknown): Result<Config, string> {
@@ -106,7 +109,7 @@ export function parseConfig(input: unknown): Result<Config, string> {
 		}
 	}
 
-	for (const route of config.routes) {
+	for (const [index, route] of config.routes.entries()) {
 		const urlMatches = route.upstreamUrl.matchAll(pathRegex);
 
 		// Content type should always be forwarded to the client
@@ -131,6 +134,29 @@ export function parseConfig(input: unknown): Result<Config, string> {
 			if (!route.path.includes(match[1])) {
 				return Result.err(
 					`url required ${match[1]} but was not given in route ${route.path}`,
+				);
+			}
+		}
+
+		// Also make sure we are not having any unused variables in the path
+		for (const match of route.path.matchAll(pathRegexElysia)) {
+			let isUsed = false;
+
+			if (route.upstreamUrl.includes(match[1])) {
+				isUsed = true;
+			}
+
+			// Make sure that its also not used in the headers
+			for (const [_, headerValue] of Object.entries(route.headers)) {
+				if (headerValue.includes(match[1])) {
+					isUsed = true;
+					break;
+				}
+			}
+
+			if (!isUsed) {
+				logger.warn(
+					`$.${index}.path has set ${match[1]} but was not used in $.${index}.upstreamUrl or $.${index}.headers. \nPlease either remove the variable from the path or use it in the upstreamUrl or headers (through "{${match[1]}}").`,
 				);
 			}
 		}

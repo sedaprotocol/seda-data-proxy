@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { Command } from "@commander-js/extra-typings";
+import { Command, Option } from "@commander-js/extra-typings";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
 import { tryAsync, trySync } from "@seda-protocol/utils";
@@ -17,7 +17,11 @@ import { loadPrivateKey } from "./utils/private-key";
 
 export const runCommand = new Command("run")
 	.description("Run the Data Proxy node")
-	.option("-c, --config <string>", "Path to config.json", "./config.json")
+	.addOption(
+		new Option("-c, --config <string>", "Path to config.json")
+			.default("./config.json")
+			.env("DATA_PROXY_CONFIG"),
+	)
 	.option("-p, --port <number>", "Port to run the server on", SERVER_PORT)
 	.option(
 		"-pkf, --private-key-file <string>",
