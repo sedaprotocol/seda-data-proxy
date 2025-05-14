@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mergeUrlSearchParams } from "./search-params";
+import { createUrlSearchParams, mergeUrlSearchParams } from "./search-params";
 
 describe("mergeUrlSearchParams", () => {
 	it("should be able to merge two URLSearchParams together", () => {
@@ -39,6 +39,36 @@ describe("mergeUrlSearchParams", () => {
 		});
 
 		expected.append("2", "test");
+
+		expect(result.toString()).toBe(expected.toString());
+	});
+
+	it("should keep only the allowed query params", () => {
+		const result = createUrlSearchParams(
+			{
+				"1": "one",
+				"2": "two",
+			},
+			["1"],
+		);
+
+		const expected = new URLSearchParams({
+			"1": "one",
+		});
+
+		expect(result.toString()).toBe(expected.toString());
+	});
+
+	it("should allow all query params if no allowed query params are provided", () => {
+		const result = createUrlSearchParams({
+			"1": "one",
+			"2": "two",
+		});
+
+		const expected = new URLSearchParams({
+			"1": "one",
+			"2": "two",
+		});
 
 		expect(result.toString()).toBe(expected.toString());
 	});

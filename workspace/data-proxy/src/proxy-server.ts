@@ -132,7 +132,10 @@ export function startProxyServer(
 						}
 
 						// Add the request search params (?one=two) to the upstream url
-						const requestSearchParams = createUrlSearchParams(query);
+						const requestSearchParams = createUrlSearchParams(
+							query,
+							route.allowedQueryParams,
+						);
 						let upstreamUrl = replaceParams(route.upstreamUrl, params);
 						const upstreamUrlResult = injectSearchParamsInUrl(
 							upstreamUrl,

@@ -19,6 +19,7 @@ const RouteSchema = v.object({
 	upstreamUrl: v.string(),
 	method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
 	jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
+	allowedQueryParams: v.optional(v.array(v.string())),
 	forwardResponseHeaders: v.pipe(
 		v.optional(v.array(v.string()), []),
 		v.transform((methods) => {
