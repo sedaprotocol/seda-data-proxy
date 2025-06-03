@@ -8,7 +8,7 @@ export const LOG_FILE_DIR = process.env.LOG_FILE_DIR ?? "";
 
 // Environment constants
 export const DEFAULT_ENVIRONMENT: Environment =
-	(process.env.SEDA_ENV as Environment) ?? Environment.Devnet;
+	(process.env.SEDA_ENV as Environment) ?? Environment.Testnet;
 
 // App constants
 export const JSON_PATH_HEADER_KEY = "x-seda-json-path";
