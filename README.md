@@ -71,11 +71,11 @@ The node will auto sign the response and include two headers: `x-seda-signature`
 
 ## Proxy rules
 
-- Request query params are forwared to the `upstreamUrl`
+- Only allowed query params from the request are forwared to the `upstreamUrl`. By default no query parameters are allowed.
 - Request headers except `host` are forwared to the `upstreamUrl`
-- Request Body is forwared to the `upstreamUrl`
+- Request Body is forwared to the `upstreamUrl`.
 - By default only the upstream header `content-type` is given back. This can however be configured to include more.
-- The full body is given back as a response. This can be reduced with using `jsonPath`
+- The full body is given back as a response. This can be reduced with using `jsonPath`.
 
 ## Configuration
 
@@ -157,9 +157,26 @@ In addition to specifying the `baseURL` at the root level you can also specify i
 }
 ```
 
+### Query Parameters
+
+By default no query parameters from the original request are passed through to the upstream. If you want to allow the request to send query parameters you can add them to the config.
+
+```jsonc
+{
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/eth-usd",
+      "upstreamUrl": "https://myapi.com/eth-usd",
+      "allowedQueryParams": ["format", "date"]
+    }
+  ]
+}
+```
+
 ### Upstream Request Headers
 
-Should your upstream require certain request headers you can configure those in the `routes` object. All headers specified in the `headers` attribute will be sent to the upstream in addition to headers specified by the original request.
+Should your upstream require certain request headers you can configure those in the `routes` object. All headers specified in the `headers` attribute will be sent to the upstream in addition to headers specified by the original request. The headers from the config take precedence over the headers sent in the request.
 
 ```jsonc
 {
