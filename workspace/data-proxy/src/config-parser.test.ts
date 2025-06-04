@@ -153,4 +153,68 @@ describe("parseConfig", () => {
 			expect(resultSingle.error).toContain("OPTIONS method is reserved");
 		},
 	);
+
+	describe("it should fail on unknown properties", () => {
+		it("at the root", () => {
+			const result = parseConfig({
+				notRealAttribute: "unknown",
+				routes: [],
+			});
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain(".notRealAttribute: Unknown attribute");
+		});
+
+		it("in a route", () => {
+			const result = parseConfig({
+				routes: [
+					{
+						notRealAttribute: "unknown",
+						path: "/:coinA/:coinB",
+						upstreamUrl: "aaaaaa.com?myCoin={:coinA}&coinYo={:coinA}",
+						jsonPath: "$.coin[0].{:coinB}",
+					},
+				],
+			});
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain(
+				".routes.0.notRealAttribute: Unknown attribute",
+			);
+		});
+
+		it("in a status endpoint", () => {
+			const result = parseConfig({
+				routes: [],
+				statusEndpoints: {
+					root: "health",
+					notRealAttribute: "unknown",
+				},
+			});
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain(
+				".statusEndpoints.notRealAttribute: Unknown attribute",
+			);
+		});
+
+		it("in a status apikey", () => {
+			const result = parseConfig({
+				routes: [],
+				statusEndpoints: {
+					root: "health",
+					apiKey: {
+						header: "x-api-key",
+						secret: "secret",
+						notRealAttribute: "unknown",
+					},
+				},
+			});
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain(
+				".statusEndpoints.apiKey.notRealAttribute: Unknown attribute",
+			);
+		});
+	});
 });

@@ -7,47 +7,61 @@ import { DEFAULT_HTTP_METHODS, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import logger from "./logger";
 import { replaceParams } from "./utils/replace-params";
 
+const UNKNOWN_ATTRIBUTE_ERROR = "Unknown attribute";
+
 const NotOptionsMethod = v.pipe(
 	v.string(),
 	v.notValue("OPTIONS", "OPTIONS method is reserved"),
 );
 const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 
-const RouteSchema = v.object({
-	baseURL: maybe(v.string()),
-	path: v.string(),
-	upstreamUrl: v.string(),
-	method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
-	jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
-	allowedQueryParams: v.optional(v.array(v.string())),
-	forwardResponseHeaders: v.pipe(
-		v.optional(v.array(v.string()), []),
-		v.transform((methods) => {
-			return new Set(methods.map((method) => method.toLowerCase()));
-		}),
-	),
-	headers: v.optional(v.record(v.string(), v.string()), {}),
-});
+const RouteSchema = v.strictObject(
+	{
+		baseURL: maybe(v.string()),
+		path: v.string(),
+		upstreamUrl: v.string(),
+		method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
+		jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
+		allowedQueryParams: v.optional(v.array(v.string())),
+		forwardResponseHeaders: v.pipe(
+			v.optional(v.array(v.string()), []),
+			v.transform((methods) => {
+				return new Set(methods.map((method) => method.toLowerCase()));
+			}),
+		),
+		headers: v.optional(v.record(v.string(), v.string()), {}),
+	},
+	UNKNOWN_ATTRIBUTE_ERROR,
+);
 
-const ConfigSchema = v.object({
-	routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
-	routes: v.array(RouteSchema),
-	baseURL: maybe(v.string()),
-	statusEndpoints: v.optional(
-		v.object({
-			root: v.string(),
-			apiKey: v.optional(
-				v.object({
-					header: v.string(),
-					secret: v.string(),
-				}),
+const ConfigSchema = v.strictObject(
+	{
+		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
+		routes: v.array(RouteSchema),
+		baseURL: maybe(v.string()),
+		statusEndpoints: v.optional(
+			v.strictObject(
+				{
+					root: v.string(),
+					apiKey: v.optional(
+						v.strictObject(
+							{
+								header: v.string(),
+								secret: v.string(),
+							},
+							UNKNOWN_ATTRIBUTE_ERROR,
+						),
+					),
+				},
+				UNKNOWN_ATTRIBUTE_ERROR,
 			),
-		}),
-		{
-			root: "status",
-		},
-	),
-});
+			{
+				root: "status",
+			},
+		),
+	},
+	UNKNOWN_ATTRIBUTE_ERROR,
+);
 
 export type Route = v.InferOutput<typeof RouteSchema>;
 export type Config = v.InferOutput<typeof ConfigSchema>;
