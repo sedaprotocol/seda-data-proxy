@@ -121,9 +121,13 @@ export function startProxyServer(
 							}
 
 							const isValid = await dataProxy.verify(proofHeader.value);
-
-							if (isValid.isErr || !isValid.value) {
-								const message = `Invalid proof ${isValid.isErr ? isValid.error : ""}`;
+							if (isValid.isErr) {
+								const message = `Failed to verify eligibility proof ${isValid.error}`;
+								requestLogger.error(message);
+								return createErrorResponse(message, 401);
+							}
+							if (!isValid.value) {
+								const message = "Ineligible executor";
 								requestLogger.error(message);
 								return createErrorResponse(message, 401);
 							}
