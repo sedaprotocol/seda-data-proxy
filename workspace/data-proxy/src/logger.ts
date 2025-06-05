@@ -4,12 +4,15 @@ import { Maybe } from "true-myth";
 import { LOG_FILE_DIR } from "./constants";
 
 const logFormat = format.printf((info) => {
-	const requestId = Maybe.of(info.metadata?.requestId).mapOr(" ", (t) => {
+	const metadata =
+		(info.metadata as { requestId?: string; error?: string | Error }) ?? {};
+
+	const requestId = Maybe.of(metadata.requestId).mapOr(" ", (t) => {
 		return ` [${cyan(t)}] `;
 	});
 	const logMsg = `${info.timestamp}${requestId}${info.level}`;
 
-	return Maybe.of(info.metadata?.error).mapOr(
+	return Maybe.of(metadata.error).mapOr(
 		`${logMsg}: ${info.message}`,
 		(err) => `${logMsg}: ${info.message} ${err}`,
 	);

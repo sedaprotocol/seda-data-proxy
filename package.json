@@ -11,12 +11,12 @@
 		"check-ts": "bunx tsc --noEmit"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "1.8.3",
+		"@biomejs/biome": "1.9.4",
 		"@types/bun": "latest",
 		"@types/secp256k1": "^4.0.6"
 	},
 	"workspaces": ["workspace/*"],
 	"peerDependencies": {
-		"typescript": "^5.0.0"
+		"typescript": "^5.8.3"
 	}
 }
