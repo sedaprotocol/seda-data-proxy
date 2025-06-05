@@ -17,7 +17,12 @@ export function fromDecimal(amount: BigSource, decimals: number): Big {
 }
 
 export function sedaToAseda(amount: BigSource): Big {
-	return fromDecimal(amount, SEDA_EXPONENT);
+	const aseda = fromDecimal(amount, SEDA_EXPONENT);
+	if (aseda.lt(1)) {
+		throw new Error(`${amount} is smaller than 1 aseda`);
+	}
+
+	return aseda;
 }
 
 export function asedaToSeda(amount: BigSource): Big {
