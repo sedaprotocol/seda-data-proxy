@@ -112,7 +112,21 @@ export function startProxyServer(
 						// Verification with the SEDA chain that the overlay node is eligible
 						if (!serverOptions.disableProof) {
 							requestLogger.debug("Verifying proof");
+
 							const proofHeader = Maybe.of(headers[constants.PROOF_HEADER_KEY]);
+							const heightFromHeader = Number(
+								headers[constants.HEIGHT_HEADER_KEY],
+							);
+							const eligibleHeight = Maybe.of(
+								Number.isNaN(heightFromHeader) ? undefined : heightFromHeader,
+							);
+
+							requestLogger.debug(
+								`Received proof for height ${eligibleHeight.mapOr(
+									"unknown",
+									(h) => h.toString(),
+								)}`,
+							);
 
 							if (proofHeader.isNothing) {
 								const message = `Header "${constants.PROOF_HEADER_KEY}" is not provided`;
@@ -120,17 +134,21 @@ export function startProxyServer(
 								return createErrorResponse(message, 400);
 							}
 
-							const isValid = await dataProxy.verify(proofHeader.value);
-							if (isValid.isErr) {
-								const message = `Failed to verify eligibility proof ${isValid.error}`;
+							const verification = await dataProxy.verify(proofHeader.value);
+
+							if (verification.isErr) {
+								const message = `Failed to verify eligibility proof ${verification.error}`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 401);
 							}
-							if (!isValid.value) {
-								const message = "Ineligible executor";
+
+							if (!verification.value.isValid) {
+								const message = `Ineligible executor at height ${verification.value.currentHeight}: ${verification.value.status}`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 401);
 							}
+
+							// Verification passed, we can proceed
 						} else {
 							requestLogger.debug("Skipping proof verification.");
 						}
