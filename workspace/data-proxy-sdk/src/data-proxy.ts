@@ -160,7 +160,11 @@ export class DataProxy {
 	 * proof is given by the executor through the header x-proof
 	 * @param payload
 	 */
-	async verify(proof: string): Promise<Result<boolean, string>> {
+	async verify(
+		proof: string,
+	): Promise<
+		Result<{ isValid: boolean; status: string; currentHeight: number }, string>
+	> {
 		// Verify if eligible (right now is this one staked or not)
 		const client = await this.getCosmWasmClient();
 		if (client.isErr) {
@@ -176,13 +180,19 @@ export class DataProxy {
 
 		const result = await tryAsync(
 			client.value.queryContractSmart(coreContractAddress.value, {
-				is_executor_eligible: {
+				get_executor_eligibility: {
 					data: proof,
 				},
 			}),
 		);
 
-		return result.mapErr((err) => `Error while fetching verification: ${err}`);
+		return result
+			.map((v) => ({
+				isValid: v.status === "eligible",
+				status: v.status,
+				currentHeight: v.block_height,
+			}))
+			.mapErr((err) => `Error while fetching verification: ${err}`);
 	}
 
 	/**
