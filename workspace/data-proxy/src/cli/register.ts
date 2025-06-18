@@ -10,7 +10,7 @@ import { sedaToAseda } from "./utils/big";
 import { createHash } from "./utils/create-hash";
 import { loadPrivateKey } from "./utils/private-key";
 
-export const registerCommand = new Command("register")
+export const registerCmd = new Command("register")
 	.description("Register the Data Proxy node on the SEDA chain")
 	.argument(
 		"<admin-address>",
