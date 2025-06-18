@@ -47,26 +47,26 @@ jobs:
         uses: jmgilman/actions-generate-checksum@v1
         with:
           patterns: |
-            seda-data-proxy-darwin-arm64
-            seda-data-proxy-darwin-x64
-            seda-data-proxy-linux-arm64
-            seda-data-proxy-linux-arm64-musl
-            seda-data-proxy-linux-x64
-            seda-data-proxy-linux-x64-musl
-            seda-data-proxy-windows-x64.exe
+            build/seda-data-proxy-darwin-arm64
+            build/seda-data-proxy-darwin-x64
+            build/seda-data-proxy-linux-arm64
+            build/seda-data-proxy-linux-arm64-musl
+            build/seda-data-proxy-linux-x64
+            build/seda-data-proxy-linux-x64-musl
+            build/seda-data-proxy-windows-x64.exe
 
       - name: ⬆️ Upload artifacts and checksum for release
         uses: actions/upload-artifact@v4
         with:
           name: release-assets
           path: |
-            seda-data-proxy-darwin-arm64
-            seda-data-proxy-darwin-x64
-            seda-data-proxy-linux-arm64
-            seda-data-proxy-linux-arm64-musl
-            seda-data-proxy-linux-x64
-            seda-data-proxy-linux-x64-musl
-            seda-data-proxy-windows-x64.exe
+            build/seda-data-proxy-darwin-arm64
+            build/seda-data-proxy-darwin-x64
+            build/seda-data-proxy-linux-arm64
+            build/seda-data-proxy-linux-arm64-musl
+            build/seda-data-proxy-linux-x64
+            build/seda-data-proxy-linux-x64-musl
+            build/seda-data-proxy-windows-x64.exe
             checksum.txt
 
   build_and_push_docker_images:
@@ -75,13 +75,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - platform: linux/amd64
-            target_arch: bun-linux-x64
-          - platform: linux/arm64
-            target_arch: bun-linux-arm64
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -119,12 +112,12 @@ jobs:
         with:
           context: .
           file: .build/docker/Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            TARGET_ARCH=${{ matrix.target_arch }}
+            TARGET_ARCH=bun-linux-x64
 
   create_release:
     name: 🎉 Create GitHub Release
@@ -136,6 +129,23 @@ jobs:
         with:
           name: release-assets
           path: ./release-assets
+
+      - name: 🔍 Verify artifacts
+        run: |
+          echo "Listing release assets directory:"
+          ls -la ./release-assets
+          echo "Checking if checksum file exists:"
+          if [ ! -f "./release-assets/checksum.txt" ]; then
+            echo "Checksum file not found!"
+            exit 1
+          fi
+          echo "Checking if binaries exist:"
+          for binary in seda-data-proxy-*; do
+            if [ ! -f "./release-assets/$binary" ]; then
+              echo "Binary $binary not found!"
+              exit 1
+            fi
+          done
 
       - name: 🎉 Create GitHub Release
         uses: ncipollo/release-action@v1
