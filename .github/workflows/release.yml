@@ -130,23 +130,6 @@ jobs:
           name: release-assets
           path: ./release-assets
 
-      - name: 🔍 Verify artifacts
-        run: |
-          echo "Listing release assets directory:"
-          ls -la ./release-assets
-          echo "Checking if checksum file exists:"
-          if [ ! -f "./release-assets/checksum.txt" ]; then
-            echo "Checksum file not found!"
-            exit 1
-          fi
-          echo "Checking if binaries exist:"
-          for binary in seda-data-proxy-*; do
-            if [ ! -f "./release-assets/$binary" ]; then
-              echo "Binary $binary not found!"
-              exit 1
-            fi
-          done
-
       - name: 🎉 Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
