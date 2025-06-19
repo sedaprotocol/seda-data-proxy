@@ -1,3 +1,9 @@
+import { envVarRegex } from "../config-parser";
+
+/**
+ * Replaces parameters in the input string with values from the given params object and the
+ * environment variables.
+ */
 export function replaceParams(
 	input: string,
 	params: Record<string, string> | undefined,
@@ -16,13 +22,8 @@ export function replaceParams(
 	}
 
 	// Allow replacement of {$ENV_VARIABLE} in case data providers want to safely store their API keys
-	const envVariablesRegex = new RegExp(/{(\$[^}]+)}/g, "g");
-	const envMatches = result.matchAll(envVariablesRegex);
-
-	for (const match of envMatches) {
+	for (const match of result.matchAll(envVarRegex)) {
 		const envKey = match[1].replace("$", "");
-
-		// TODO: This should be checked at config parse level
 		const envVar = process.env[envKey] ?? "";
 		result = result.replaceAll(match[0], envVar);
 	}
