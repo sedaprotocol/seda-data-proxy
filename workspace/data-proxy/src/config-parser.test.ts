@@ -7,7 +7,7 @@ import { parseConfig } from "./config-parser";
 
 describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -23,7 +23,7 @@ describe("parseConfig", () => {
 	it("should check if route parameters are using env variables and if they exist", async () => {
 		process.env.MY_SECRET = "shhh";
 
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -44,7 +44,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should error when a path arg has been used in the headers but was not set in the path", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -63,7 +63,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should check if route parameters are using env variables and if they exist", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -82,7 +82,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should check if * is used in upstream url but not in path", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -97,7 +97,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should check if * is used in upstream url but does not end with {*}", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -112,7 +112,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should allow * paths", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/*",
@@ -125,7 +125,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should fail if the status endpoint uses a the same route group as the proxy", () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			statusEndpoints: {
 				root: "proxy",
 			},
@@ -139,7 +139,7 @@ describe("parseConfig", () => {
 	it.each(["OPTIONS", ["OPTIONS", "GET"]])(
 		"should error when the OPTIONS method is used for a route",
 		(method) => {
-			const resultSingle = parseConfig({
+			const [resultSingle] = parseConfig({
 				routes: [
 					{
 						method,
@@ -156,7 +156,7 @@ describe("parseConfig", () => {
 
 	describe("it should fail on unknown properties", () => {
 		it("at the root", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				notRealAttribute: "unknown",
 				routes: [],
 			});
@@ -166,7 +166,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a route", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [
 					{
 						notRealAttribute: "unknown",
@@ -184,7 +184,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a status endpoint", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [],
 				statusEndpoints: {
 					root: "health",
@@ -199,7 +199,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a status apikey", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [],
 				statusEndpoints: {
 					root: "health",

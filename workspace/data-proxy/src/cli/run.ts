@@ -44,8 +44,14 @@ export const validateCmd = addCommonOptions(new Command("validate"))
 	.description("Validate the SEDA Data Proxy node configuration")
 	.option("-s, --silent", "Do not print the config", false)
 	.action(async (options) => {
-		await configure(options, options.silent);
-		console.log("✅ SEDA Data Proxy configuration is valid");
+		const { hasWarnings } = await configure(options, options.silent);
+		if (hasWarnings) {
+			console.log(
+				"⚠️ Configuration is valid but has warnings - check the logs above",
+			);
+		} else {
+			console.log("✅ SEDA Data Proxy configuration is valid");
+		}
 	});
 
 function addCommonOptions(command: Command) {
@@ -122,7 +128,7 @@ async function configure(
 	}
 
 	logger.info(`Using config: ${options.config}`);
-	const config = parseConfig(parsedConfig.value);
+	const [config, hasWarnings] = parseConfig(parsedConfig.value);
 	if (config.isErr) {
 		console.error(`Invalid config: ${config.error}`);
 		process.exit(1);
@@ -149,13 +155,13 @@ async function configure(
 
 		if (!silent) {
 			console.log(
-				`🎟️  Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}`,
+				`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}`,
 			);
 		}
 	}
 
 	if (!silent) {
-		console.log(`⚙️  Config: ${JSON.stringify(config.value, null, 2)}`);
+		console.log(`⚙️ Config: ${JSON.stringify(config.value, null, 2)}`);
 	}
 
 	if (options.debug || options.disableProof) {
@@ -164,5 +170,5 @@ async function configure(
 		);
 	}
 
-	return { config, dataProxy };
+	return { config, dataProxy, hasWarnings };
 }
