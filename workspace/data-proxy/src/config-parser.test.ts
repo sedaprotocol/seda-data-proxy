@@ -7,7 +7,7 @@ import { parseConfig } from "./config-parser";
 
 describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -23,7 +23,7 @@ describe("parseConfig", () => {
 	it("should check if route parameters are using env variables and if they exist", async () => {
 		process.env.MY_SECRET = "shhh";
 
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -44,7 +44,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should error when a path arg has been used in the headers but was not set in the path", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -58,12 +58,43 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"Header x-secret required :ccccc but was not given in route /:coinA/:coinB",
+			"Header x-secret requires :ccccc, but it is not provided in the route /:coinA/:coinB",
 		);
 	});
 
-	it("should check if route parameters are using env variables and if they exist", async () => {
-		const result = parseConfig({
+	it("should check if route upstream url is using env variables and if they exist", async () => {
+		const [result] = parseConfig({
+			routes: [
+				{
+					path: "/:coinA/:coinB",
+					upstreamUrl: "aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET}",
+					jsonPath: "$.coin[0].{:coinB}",
+				},
+			],
+		});
+
+		expect(result).toBeErrResult(
+			"Upstream URL aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET} requires MY_SECRET, but it is not provided as an environment variable",
+		);
+
+		process.env.MY_SECRET = "shhhh";
+
+		const [result2] = parseConfig({
+			routes: [
+				{
+					path: "/:coinA/:coinB",
+					upstreamUrl: "aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET}",
+					jsonPath: "$.coin[0].{:coinB}",
+				},
+			],
+		});
+
+		expect(result2).toBeOkResult();
+		process.env.MY_SECRET = undefined;
+	});
+
+	it("should check if route header is using env variables and if they exist", async () => {
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -77,12 +108,12 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"Header x-secret required NO_SECRET but was not available in the environment",
+			"Header x-secret requires NO_SECRET, but it is not provided as an environment variable",
 		);
 	});
 
 	it("should check if * is used in upstream url but not in path", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -92,12 +123,12 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"UpstreamUrl: aaaaaa.com/{*} required {*} but path did not end with * (/:coinA/:coinB)",
+			"Upstream URL aaaaaa.com/{*} uses {*}, but path does not end with * (/:coinA/:coinB)",
 		);
 	});
 
 	it("should check if * is used in upstream url but does not end with {*}", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/:coinB",
@@ -107,12 +138,12 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"UpstreamUrl: aaaaaa.com/{*}/something uses {*} but was not at the end of the URL",
+			"Upstream URL aaaaaa.com/{*}/something uses {*}, but it is not at the end of the URL",
 		);
 	});
 
 	it("should allow * paths", async () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			routes: [
 				{
 					path: "/:coinA/*",
@@ -125,7 +156,7 @@ describe("parseConfig", () => {
 	});
 
 	it("should fail if the status endpoint uses a the same route group as the proxy", () => {
-		const result = parseConfig({
+		const [result] = parseConfig({
 			statusEndpoints: {
 				root: "proxy",
 			},
@@ -133,13 +164,13 @@ describe("parseConfig", () => {
 		});
 
 		assertIsErrorResult(result);
-		expect(result.error).toContain("can not be the same");
+		expect(result.error).toContain("cannot be the same");
 	});
 
 	it.each(["OPTIONS", ["OPTIONS", "GET"]])(
 		"should error when the OPTIONS method is used for a route",
 		(method) => {
-			const resultSingle = parseConfig({
+			const [resultSingle] = parseConfig({
 				routes: [
 					{
 						method,
@@ -156,7 +187,7 @@ describe("parseConfig", () => {
 
 	describe("it should fail on unknown properties", () => {
 		it("at the root", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				notRealAttribute: "unknown",
 				routes: [],
 			});
@@ -166,7 +197,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a route", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [
 					{
 						notRealAttribute: "unknown",
@@ -184,7 +215,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a status endpoint", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [],
 				statusEndpoints: {
 					root: "health",
@@ -199,7 +230,7 @@ describe("parseConfig", () => {
 		});
 
 		it("in a status apikey", () => {
-			const result = parseConfig({
+			const [result] = parseConfig({
 				routes: [],
 				statusEndpoints: {
 					root: "health",

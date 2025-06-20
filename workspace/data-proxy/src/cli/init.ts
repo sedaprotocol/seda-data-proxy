@@ -28,7 +28,7 @@ async function outputJson(
 	console.info(`Written to ${filePath}`);
 }
 
-export const initCommand = new Command("init")
+export const initCmd = new Command("init")
 	.description("Initializes a config.json file and generates a private key")
 	.option(
 		"-pkf, --private-key-file <string>",
