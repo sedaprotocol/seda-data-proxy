@@ -58,11 +58,42 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"Header x-secret required :ccccc but was not given in route /:coinA/:coinB",
+			"Header x-secret requires :ccccc, but it is not provided in the route /:coinA/:coinB",
 		);
 	});
 
-	it("should check if route parameters are using env variables and if they exist", async () => {
+	it("should check if route upstream url is using env variables and if they exist", async () => {
+		const [result] = parseConfig({
+			routes: [
+				{
+					path: "/:coinA/:coinB",
+					upstreamUrl: "aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET}",
+					jsonPath: "$.coin[0].{:coinB}",
+				},
+			],
+		});
+
+		expect(result).toBeErrResult(
+			"Upstream URL aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET} requires MY_SECRET, but it is not provided as an environment variable",
+		);
+
+		process.env.MY_SECRET = "shhhh";
+
+		const [result2] = parseConfig({
+			routes: [
+				{
+					path: "/:coinA/:coinB",
+					upstreamUrl: "aaaaaa.com?myCoin={:coinA}&key={$MY_SECRET}",
+					jsonPath: "$.coin[0].{:coinB}",
+				},
+			],
+		});
+
+		expect(result2).toBeOkResult();
+		process.env.MY_SECRET = undefined;
+	});
+
+	it("should check if route header is using env variables and if they exist", async () => {
 		const [result] = parseConfig({
 			routes: [
 				{
@@ -77,7 +108,7 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"Header x-secret required NO_SECRET but was not available in the environment",
+			"Header x-secret requires NO_SECRET, but it is not provided as an environment variable",
 		);
 	});
 
@@ -92,7 +123,7 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"UpstreamUrl: aaaaaa.com/{*} required {*} but path did not end with * (/:coinA/:coinB)",
+			"Upstream URL aaaaaa.com/{*} uses {*}, but path does not end with * (/:coinA/:coinB)",
 		);
 	});
 
@@ -107,7 +138,7 @@ describe("parseConfig", () => {
 		});
 
 		expect(result).toBeErrResult(
-			"UpstreamUrl: aaaaaa.com/{*}/something uses {*} but was not at the end of the URL",
+			"Upstream URL aaaaaa.com/{*}/something uses {*}, but it is not at the end of the URL",
 		);
 	});
 
@@ -133,7 +164,7 @@ describe("parseConfig", () => {
 		});
 
 		assertIsErrorResult(result);
-		expect(result.error).toContain("can not be the same");
+		expect(result.error).toContain("cannot be the same");
 	});
 
 	it.each(["OPTIONS", ["OPTIONS", "GET"]])(

@@ -13,6 +13,7 @@ const NotOptionsMethod = v.pipe(
 	v.string(),
 	v.notValue("OPTIONS", "OPTIONS method is reserved"),
 );
+
 const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 
 const RouteSchema = v.strictObject(
@@ -107,7 +108,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 	if (config.statusEndpoints.root === config.routeGroup) {
 		return [
 			Result.err(
-				`"statusEndpoints.root" can not be the same as "routeGroup" (value: ${DEFAULT_PROXY_ROUTE_GROUP})`,
+				`"statusEndpoints.root" cannot be the same as "routeGroup" (value: ${DEFAULT_PROXY_ROUTE_GROUP})`,
 			),
 			hasWarnings,
 		];
@@ -124,7 +125,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 			if (!envVariable) {
 				return [
 					Result.err(
-						`Status endpoint API key secret required ${envKey} but was not available in the environment`,
+						`Status endpoint API key secret requires ${envKey}, but it is not provided as an environment variable`,
 					),
 					hasWarnings,
 				];
@@ -138,14 +139,14 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 	}
 
 	for (const [index, route] of config.routes.entries()) {
-		// Content type should always be forwarded to the client
+		// Content type should always be forwarded to the client.
 		route.forwardResponseHeaders.add("content-type");
 
 		if (route.upstreamUrl.includes("{*}")) {
 			if (!route.upstreamUrl.endsWith("{*}")) {
 				return [
 					Result.err(
-						`UpstreamUrl: ${route.upstreamUrl} uses {*} but was not at the end of the URL`,
+						`Upstream URL ${route.upstreamUrl} uses {*}, but it is not at the end of the URL`,
 					),
 					hasWarnings,
 				];
@@ -154,7 +155,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 			if (!route.path.endsWith("*")) {
 				return [
 					Result.err(
-						`UpstreamUrl: ${route.upstreamUrl} required {*} but path did not end with * (${route.path})`,
+						`Upstream URL ${route.upstreamUrl} uses {*}, but path does not end with * (${route.path})`,
 					),
 					hasWarnings,
 				];
@@ -166,7 +167,22 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 			if (!route.path.includes(match[1])) {
 				return [
 					Result.err(
-						`url required ${match[1]} but was not given in route ${route.path}`,
+						`Upstream URL ${route.upstreamUrl} requires ${match[1]}, but it is not given in route ${route.path}`,
+					),
+					hasWarnings,
+				];
+			}
+		}
+
+		// Ensure environment variables in the upstream URL are provided.
+		for (const match of route.upstreamUrl.matchAll(envVarRegex)) {
+			const envKey = match[1].replace("$", "");
+			const envVariable = process.env[envKey];
+
+			if (!envVariable) {
+				return [
+					Result.err(
+						`Upstream URL ${route.upstreamUrl} requires ${envKey}, but it is not provided as an environment variable`,
 					),
 					hasWarnings,
 				];
@@ -191,7 +207,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 			if (!isUsed) {
 				hasWarnings = true;
 				logger.warn(
-					`$.${index}.path has set ${match[1]} but was not used in $.${index}.upstreamUrl or $.${index}.headers. \nPlease either remove the variable from the path or use it in the upstreamUrl or headers (through "{${match[1]}}").`,
+					`$.${index}.path has ${match[1]}, but it is not used in $.${index}.upstreamUrl or $.${index}.headers. \nPlease either remove the variable from the path or use it in the upstreamUrl or headers (through "{${match[1]}}").`,
 				);
 			}
 		}
@@ -202,7 +218,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 			if (!route.path.includes(match[1])) {
 				return [
 					Result.err(
-						`jsonPath required ${match[1]} but was not given in route ${route.path}`,
+						`jsonPath requires ${match[1]}, but it is not given in route ${route.path}`,
 					),
 					hasWarnings,
 				];
@@ -215,7 +231,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 				if (!route.path.includes(match[1])) {
 					return [
 						Result.err(
-							`Header ${headerKey} required ${match[1]} but was not given in route ${route.path}`,
+							`Header ${headerKey} requires ${match[1]}, but it is not provided in the route ${route.path}`,
 						),
 						hasWarnings,
 					];
@@ -230,7 +246,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 				if (!envVariable) {
 					return [
 						Result.err(
-							`Header ${headerKey} required ${envKey} but was not available in the environment`,
+							`Header ${headerKey} requires ${envKey}, but it is not provided as an environment variable`,
 						),
 						hasWarnings,
 					];

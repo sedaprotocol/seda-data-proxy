@@ -19,7 +19,7 @@ export const runCmd = addCommonOptions(new Command("run"))
 	.description("Run the SEDA Data Proxy node")
 	.option(
 		"-dbg, --debug",
-		"Runs the data proxy in debugging mode, this disables registration check and request verification. Same as --no-registration-check and --disable-proof",
+		"Sets log level at debug and runs the node without registration check and request verification",
 		false,
 	)
 	.option(
@@ -34,9 +34,17 @@ export const runCmd = addCommonOptions(new Command("run"))
 
 		const { config, dataProxy } = await configure(options, true);
 
+		let disableProof = false;
+		if (options.debug || options.disableProof) {
+			disableProof = true;
+			logger.warn(
+				"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
+			);
+		}
+
 		startProxyServer(config.value, dataProxy, {
 			port: Number(options.port ?? SERVER_PORT),
-			disableProof: options.debug || options.disableProof,
+			disableProof: disableProof,
 		});
 	});
 
@@ -91,8 +99,6 @@ async function configure(
 		rpc?: string;
 		coreContractAddress?: string;
 		skipRegistrationCheck: boolean;
-		debug?: boolean;
-		disableProof?: boolean;
 	},
 	silent = false,
 ) {
@@ -134,7 +140,7 @@ async function configure(
 		process.exit(1);
 	}
 
-	console.log(`🌐 Network: ${options.network}`);
+	console.log(`🌐 Network: ${options.network}\n`);
 
 	const dataProxy = new DataProxy(options.network as Environment, {
 		privateKey: privateKey.value,
@@ -142,9 +148,11 @@ async function configure(
 		coreContract: options.coreContractAddress,
 	});
 
-	console.log(`🔐 Using public key: ${dataProxy.publicKey.toString("hex")}`);
-
-	if (!options.skipRegistrationCheck) {
+	const publicKey = dataProxy.publicKey.toString("hex");
+	console.log(`🔐 Using public key: ${publicKey}`);
+	if (options.skipRegistrationCheck) {
+		console.log("⚠️ Registration check was skipped\n");
+	} else {
 		const dataProxyRegistration = await dataProxy.getDataProxyRegistration();
 		if (dataProxyRegistration.isErr) {
 			console.error(
@@ -153,21 +161,23 @@ async function configure(
 			process.exit(1);
 		}
 
+		const url = new URL(
+			`/data-proxies/${publicKey}`,
+			network.value.explorerUrl,
+		);
+		console.log(
+			`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,
+		);
+
 		if (!silent) {
 			console.log(
-				`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}`,
+				`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}\n`,
 			);
 		}
 	}
 
 	if (!silent) {
-		console.log(`⚙️ Config: ${JSON.stringify(config.value, null, 2)}`);
-	}
-
-	if (options.debug || options.disableProof) {
-		logger.warn(
-			"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
-		);
+		console.log(`⚙️ Config: ${JSON.stringify(config.value, null, 2)}\n`);
 	}
 
 	return { config, dataProxy, hasWarnings };
