@@ -13,6 +13,10 @@ export const DEFAULT_ENVIRONMENT: Environment =
 // App constants
 export const JSON_PATH_HEADER_KEY = "x-seda-json-path";
 
+// Verification constants
+export const DEFAULT_VERIFICATION_MAX_RETRIES = 2;
+export const DEFAULT_VERIFICATION_RETRY_DELAY = 1000;
+
 export const PRIVATE_KEY_ENV_KEY = "SEDA_DATA_PROXY_PRIVATE_KEY";
 export const PRIVATE_KEY = process.env[PRIVATE_KEY_ENV_KEY];
 export const DEFAULT_PRIVATE_KEY_JSON_FILE_NAME =

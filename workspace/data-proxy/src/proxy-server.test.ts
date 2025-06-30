@@ -53,6 +53,8 @@ describe("proxy server", () => {
 
 		const proxy = startProxyServer(
 			{
+				verificationMaxRetries: 2,
+				verificationRetryDelay: 1000,
 				routeGroup: "",
 				statusEndpoints: {
 					root: "status",
@@ -101,6 +103,8 @@ describe("proxy server", () => {
 
 		const proxy = startProxyServer(
 			{
+				verificationMaxRetries: 2,
+				verificationRetryDelay: 1000,
 				routeGroup: "",
 				statusEndpoints: {
 					root: "status",
@@ -146,6 +150,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",
@@ -205,6 +211,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",
@@ -268,6 +276,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",
@@ -323,6 +333,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",
@@ -402,6 +414,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",
@@ -448,6 +462,8 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
 					routeGroup: "",
 					statusEndpoints: {
 						root: "status",

@@ -15,6 +15,7 @@ import { queryJson } from "./utils/query-json";
 import { replaceParams } from "./utils/replace-params";
 import { createUrlSearchParams } from "./utils/search-params";
 import { injectSearchParamsInUrl } from "./utils/url";
+import { verifyWithRetry } from "./utils/verify-with-retry";
 
 function createErrorResponse(error: string, status: number) {
 	return new Response(JSON.stringify({ data_proxy_error: error }), {
@@ -134,7 +135,14 @@ export function startProxyServer(
 								return createErrorResponse(message, 400);
 							}
 
-							const verification = await dataProxy.verify(proofHeader.value);
+							const verification = await verifyWithRetry(
+								requestLogger,
+								dataProxy,
+								proofHeader.value,
+								eligibleHeight,
+								config.verificationMaxRetries,
+								() => config.verificationRetryDelay,
+							);
 
 							if (verification.isErr) {
 								const message = `Failed to verify eligibility proof ${verification.error}`;

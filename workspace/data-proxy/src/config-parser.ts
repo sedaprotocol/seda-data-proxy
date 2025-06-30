@@ -3,7 +3,12 @@ import { maybe } from "@seda-protocol/utils/valibot";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
-import { DEFAULT_HTTP_METHODS, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
+import {
+	DEFAULT_HTTP_METHODS,
+	DEFAULT_PROXY_ROUTE_GROUP,
+	DEFAULT_VERIFICATION_MAX_RETRIES,
+	DEFAULT_VERIFICATION_RETRY_DELAY,
+} from "./constants";
 import logger from "./logger";
 import { replaceParams } from "./utils/replace-params";
 
@@ -37,6 +42,14 @@ const RouteSchema = v.strictObject(
 
 const ConfigSchema = v.strictObject(
 	{
+		verificationMaxRetries: v.optional(
+			v.number(),
+			DEFAULT_VERIFICATION_MAX_RETRIES,
+		),
+		verificationRetryDelay: v.optional(
+			v.number(),
+			DEFAULT_VERIFICATION_RETRY_DELAY,
+		),
 		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
 		routes: v.array(RouteSchema),
 		baseURL: maybe(v.string()),
