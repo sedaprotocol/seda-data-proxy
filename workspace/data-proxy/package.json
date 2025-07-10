@@ -1,7 +1,7 @@
 {
 	"name": "@seda-protocol/data-proxy",
 	"main": "./src/index.ts",
-	"version": "1.0.0-rc.12",
+	"version": "1.0.0",
 	"devDependencies": {
 		"@types/big.js": "^6.2.2",
 		"msw": "2.3.1"

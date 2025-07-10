@@ -14,7 +14,7 @@
     },
     "workspace/data-proxy": {
       "name": "@seda-protocol/data-proxy",
-      "version": "1.0.0-rc.7",
+      "version": "1.0.0",
       "dependencies": {
         "@commander-js/extra-typings": "^12.1.0",
         "@cosmjs/crypto": "^0.33.1",
@@ -41,7 +41,7 @@
       "dependencies": {
         "@cosmjs/cosmwasm-stargate": "^0.33.1",
         "@cosmjs/crypto": "^0.33.1",
-        "@seda-protocol/proto-messages": "1.0.0-rc.1",
+        "@seda-protocol/proto-messages": "1.0.0",
         "@seda-protocol/utils": "^2.0.0",
         "secp256k1": "^5.0.1",
         "true-myth": "^9.0.1",
@@ -149,7 +149,7 @@
 
     "@seda-protocol/data-proxy-sdk": ["@seda-protocol/data-proxy-sdk@workspace:workspace/data-proxy-sdk"],
 
-    "@seda-protocol/proto-messages": ["@seda-protocol/proto-messages@1.0.0-rc.1", "", { "dependencies": { "protobufjs": "^7.4.0" } }, "sha512-hBcsq3VNOxbqk4UVkBXReDjG3W86pPz01abwoaBqYwWC7FBmJWqKUO1wCfL0qFbOjjOnsXXMxE+aJdnGWwh+3Q=="],
+    "@seda-protocol/proto-messages": ["@seda-protocol/proto-messages@1.0.0", "", { "dependencies": { "protobufjs": "^7.4.0" } }, "sha512-3okvhaoTsFgIKKYAvURil0VQBrNfPPq/cdQ6BeQ0eKf0irGAm9pJmSyEwNG5xxnTOLDJdhSeGY9o1x1Shfgh1w=="],
 
     "@seda-protocol/utils": ["@seda-protocol/utils@2.0.0", "", { "peerDependencies": { "true-myth": "^9.0.1", "valibot": "^1.1.0" } }, "sha512-VVhYKkQKnnQJYvvQHTuwHP2y5+bC7nzFNu0V9+RZhMXhxUC2qi7gKsJzOWWj6uQ3px74NxaY8q26g4RlYbco0g=="],
 
