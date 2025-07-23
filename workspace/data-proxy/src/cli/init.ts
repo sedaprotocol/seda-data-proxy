@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { exists, writeFile } from "node:fs/promises";
 import { Command } from "@commander-js/extra-typings";
 import { Secp256k1 } from "@cosmjs/crypto";
+import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync } from "@seda-protocol/utils";
 import type { Config } from "../config-parser";
 import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME } from "../constants";
@@ -36,12 +37,26 @@ export const initCmd = new Command("init")
 		DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	)
 	.option("-c, --config <string>", "Path to config.json", "./config.json")
+	.option(
+		"-n, --network <string>",
+		"The SEDA network to chose",
+		Environment.Testnet,
+	)
 	.option("--print", "Print the content instead of writing it")
 	.action(async (args) => {
+		if (!Object.values(Environment).includes(args.network as Environment)) {
+			const networkList = Object.values(Environment).join(", ");
+			console.error(
+				`Invalid network '${args.network}'. Valid options: ${networkList}`,
+			);
+			process.exit(1);
+		}
+
 		if (!(await exists(args.privateKeyFile))) {
 			const privateKeyBuff = randomBytes(32);
 			const keyPair = await Secp256k1.makeKeypair(privateKeyBuff);
 			const keyPairJson: FileKeyPair = {
+				network: args.network as Environment,
 				pubkey: Buffer.from(Secp256k1.compressPubkey(keyPair.pubkey)).toString(
 					"hex",
 				),

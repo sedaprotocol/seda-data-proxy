@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync, tryParseSync, trySync } from "@seda-protocol/utils";
 import { Result } from "true-myth";
 import {
@@ -13,6 +14,46 @@ async function readPrivateKeyFile(
 	const privateKeyFile = await tryAsync(async () => readFile(path));
 
 	return privateKeyFile;
+}
+
+export async function loadNetworkFromKeyFile(
+	privateKeyFilePath?: string,
+): Promise<Result<Environment, string>> {
+	const filePath = privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME;
+	const privateKeyFile = await readPrivateKeyFile(filePath);
+
+	if (privateKeyFile.isErr) {
+		return Result.err(
+			`Failed to read private key file ${filePath}: ${privateKeyFile.error}`,
+		);
+	}
+
+	const privateKeyFileObject = trySync(() =>
+		JSON.parse(privateKeyFile.value.toString()),
+	);
+
+	if (privateKeyFileObject.isErr) {
+		return Result.err(
+			`Failed to read private key file as JSON: ${privateKeyFileObject.error}`,
+		);
+	}
+
+	const parsedPrivateKeyFile = tryParseSync(
+		FileKeyPairSchema,
+		privateKeyFileObject.value,
+	);
+
+	if (parsedPrivateKeyFile.isErr) {
+		let resultError = "";
+
+		for (const error of parsedPrivateKeyFile.error) {
+			resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
+		}
+
+		return Result.err(`Failed to parse private key file: \n ${resultError}`);
+	}
+
+	return Result.ok(parsedPrivateKeyFile.value.network);
 }
 
 export async function loadPrivateKey(

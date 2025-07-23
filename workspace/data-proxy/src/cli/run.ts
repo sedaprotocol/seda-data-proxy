@@ -13,7 +13,7 @@ import {
 } from "../constants";
 import logger, { setLogLevel } from "../logger";
 import { startProxyServer } from "../proxy-server";
-import { loadPrivateKey } from "./utils/private-key";
+import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
 export const runCmd = addCommonOptions(new Command("run"))
 	.description("Run the SEDA Data Proxy node")
@@ -77,7 +77,6 @@ function addCommonOptions(command: Command) {
 		.option(
 			"-n, --network <network>",
 			"The SEDA network to chose",
-			DEFAULT_ENVIRONMENT,
 		)
 		.option(
 			"--skip-registration-check",
@@ -93,7 +92,7 @@ function addCommonOptions(command: Command) {
 
 async function configure(
 	options: {
-		network: string;
+		network?: string;
 		privateKeyFile?: string;
 		config: string;
 		rpc?: string;
@@ -102,14 +101,30 @@ async function configure(
 	},
 	silent = false,
 ) {
-	const network = Maybe.of(defaultConfig[options.network as Environment]);
-
-	if (network.isNothing) {
-		console.error(
-			`Given network ${options.network} does not exist, please select ${Environment.Devnet}, ${Environment.Testnet} or ${Environment.Mainnet}`,
-		);
-		process.exit(1);
+	let networkEnv: Environment;
+	if (options.network) {
+		// Validate network option
+		const validNetworks = Object.values(Environment);
+		if (!validNetworks.includes(options.network as Environment)) {
+			const networkList = validNetworks.join(", ");
+			console.error(
+				`Invalid network '${options.network}'. Valid options: ${networkList}`,
+			);
+			process.exit(1);
+		}
+		networkEnv = options.network as Environment;
+	} else {
+		// Load network from private key file (defaults to Testnet if not provided)
+		const networkResult = await loadNetworkFromKeyFile(options.privateKeyFile);
+		if (networkResult.isErr) {
+			console.error(
+				`Failed to load network from private key file: ${networkResult.error}`,
+			);
+			process.exit(1);
+		}
+		networkEnv = networkResult.value;
 	}
+	const network = defaultConfig[networkEnv];
 
 	const privateKey = await loadPrivateKey(options.privateKeyFile);
 
@@ -140,9 +155,9 @@ async function configure(
 		process.exit(1);
 	}
 
-	console.log(`🌐 Network: ${options.network}\n`);
+	console.log(`🌐 Network: ${networkEnv}\n`);
 
-	const dataProxy = new DataProxy(options.network as Environment, {
+	const dataProxy = new DataProxy(networkEnv, {
 		privateKey: privateKey.value,
 		rpcUrl: options.rpc,
 		coreContract: options.coreContractAddress,
@@ -161,10 +176,7 @@ async function configure(
 			process.exit(1);
 		}
 
-		const url = new URL(
-			`/data-proxies/${publicKey}`,
-			network.value.explorerUrl,
-		);
+		const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
 		console.log(
 			`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,
 		);

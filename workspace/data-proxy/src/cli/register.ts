@@ -8,7 +8,7 @@ import { Maybe } from "true-myth";
 import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
 import { sedaToAseda } from "./utils/big";
 import { createHash } from "./utils/create-hash";
-import { loadPrivateKey } from "./utils/private-key";
+import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
 export const registerCmd = new Command("register")
 	.description("Register the Data Proxy node on the SEDA chain")
@@ -21,11 +21,7 @@ export const registerCmd = new Command("register")
 		"-pkf, --private-key-file <string>",
 		"Path where to create the private key json",
 	)
-	.option(
-		"-n, --network <network>",
-		"The SEDA network to chose",
-		DEFAULT_ENVIRONMENT,
-	)
+	.option("-n, --network <network>", "The SEDA network to chose")
 	.option(
 		"--payout-address <address>",
 		"SEDA chain address to payout for completing requests. If not provided, the admin address will be used as payout address.",
@@ -35,14 +31,32 @@ export const registerCmd = new Command("register")
 		"A custom note to attach to this Data Proxy registration",
 	)
 	.action(async (adminAddress, fee, options) => {
-		const network = Maybe.of(defaultConfig[options.network as Environment]);
-
-		if (network.isNothing) {
-			console.error(
-				`Given network ${options.network} does not exist, please select ${Environment.Devnet}, ${Environment.Testnet} or ${Environment.Mainnet}`,
+		let networkEnv: Environment;
+		if (options.network) {
+			// Validate network option
+			const validNetworks = Object.values(Environment);
+			if (!validNetworks.includes(options.network as Environment)) {
+				const networkList = validNetworks.join(", ");
+				console.error(
+					`Invalid network '${options.network}'. Valid options: ${networkList}`,
+				);
+				process.exit(1);
+			}
+			networkEnv = options.network as Environment;
+		} else {
+			// Load network from private key file (defaults to Testnet if not provided)
+			const networkResult = await loadNetworkFromKeyFile(
+				options.privateKeyFile,
 			);
-			process.exit(1);
+			if (networkResult.isErr) {
+				console.error(
+					`Failed to load network from private key file: ${networkResult.error}`,
+				);
+				process.exit(1);
+			}
+			networkEnv = networkResult.value;
 		}
+		const network = defaultConfig[networkEnv];
 
 		const privateKey = await loadPrivateKey(options.privateKeyFile);
 
@@ -88,14 +102,14 @@ export const registerCmd = new Command("register")
 			adminAddress,
 			payoutAddress,
 			memo,
-			network.value.chainId,
+			network.chainId,
 		);
 
 		const signatureRaw = ecdsaSign(hash, privateKey.value);
 		const signature = Buffer.from(signatureRaw.signature);
 		const publicKey = Buffer.from(publicKeyCreate(privateKey.value, true));
 
-		const url = new URL("/data-proxy/register", network.value.explorerUrl);
+		const url = new URL("/data-proxy/register", network.explorerUrl);
 		url.searchParams.append("fee", aSedaAmount.value);
 		url.searchParams.append("adminAddress", adminAddress);
 		url.searchParams.append("payoutAddress", payoutAddress);
