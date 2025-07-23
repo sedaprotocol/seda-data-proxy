@@ -74,10 +74,7 @@ function addCommonOptions(command: Command) {
 			"-pkf, --private-key-file <string>",
 			`Path where to find the private key json (Defaults to either env variable $${PRIVATE_KEY_ENV_KEY} or ${DEFAULT_PRIVATE_KEY_JSON_FILE_NAME})`,
 		)
-		.option(
-			"-n, --network <network>",
-			"The SEDA network to chose",
-		)
+		.option("-n, --network <network>", "The SEDA network to chose")
 		.option(
 			"--skip-registration-check",
 			"Runs the data proxy without checking registration, useful for testing and development",
