@@ -8,7 +8,6 @@ const PLATFORM_TARGETS = [
 	"bun-darwin-arm64",
 	"bun-linux-x64-musl",
 	"bun-linux-arm64-musl",
-	"bun-windows-x64",
 ];
 
 const BINARY_NAME = "seda-data-proxy";
