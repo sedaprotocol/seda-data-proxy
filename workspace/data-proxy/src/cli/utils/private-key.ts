@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { Environment } from "@seda-protocol/data-proxy-sdk";
+import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync, tryParseSync, trySync } from "@seda-protocol/utils";
 import { Result } from "true-myth";
 import {
@@ -19,6 +19,11 @@ async function readPrivateKeyFile(
 export async function loadNetworkFromKeyFile(
 	privateKeyFilePath?: string,
 ): Promise<Result<Environment, string>> {
+	// If no private key file path is provided and PRIVATE_KEY is set, use default network Testnet
+	if (!privateKeyFilePath && PRIVATE_KEY) {
+		return Result.ok(Environment.Testnet);
+	}
+
 	const filePath = privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME;
 	const privateKeyFile = await readPrivateKeyFile(filePath);
 
