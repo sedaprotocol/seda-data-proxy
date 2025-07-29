@@ -3,6 +3,20 @@ import "winston-daily-rotate-file";
 import { Maybe } from "true-myth";
 import { LOG_FILE_DIR } from "./constants";
 
+let envSecrets: Set<string> = new Set();
+
+function redactEnvSecrets(message: string | unknown) {
+	if (typeof message !== "string") {
+		return message;
+	}
+
+	let result = message;
+	for (const secret of envSecrets) {
+		result = result.replace(secret, "<redacted>");
+	}
+	return result;
+}
+
 const logFormat = format.printf((info) => {
 	const metadata =
 		(info.metadata as { requestId?: string; error?: string | Error }) ?? {};
@@ -12,9 +26,11 @@ const logFormat = format.printf((info) => {
 	});
 	const logMsg = `${info.timestamp}${requestId}${info.level}`;
 
+	const message = redactEnvSecrets(info.message);
+
 	return Maybe.of(metadata.error).mapOr(
-		`${logMsg}: ${info.message}`,
-		(err) => `${logMsg}: ${info.message} ${err}`,
+		`${logMsg}: ${message}`,
+		(err) => `${logMsg}: ${message} ${err}`,
 	);
 });
 
@@ -29,9 +45,14 @@ if (LOG_FILE_DIR) {
 		new transports.DailyRotateFile({
 			filename: "data-proxy-%DATE%.log",
 			dirname: LOG_FILE_DIR,
-			format: format.json(),
-			datePattern: "YYYY-MM-DD-HH",
+			format: format.json({
+				replacer(key, value) {
+					return redactEnvSecrets(value);
+				},
+			}),
+			datePattern: "YYYY-MM-DD",
 			maxFiles: "14d",
+			level: "debug",
 		}),
 	);
 }
@@ -49,6 +70,10 @@ const logger = createLogger({
 
 export function setLogLevel(level: string) {
 	logger.level = level;
+}
+
+export function setEnvSecrets(secrets: Set<string>) {
+	envSecrets = secrets;
 }
 
 export default logger;

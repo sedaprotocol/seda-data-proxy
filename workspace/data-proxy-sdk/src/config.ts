@@ -32,7 +32,7 @@ export const defaultConfig: Record<Environment, DataProxyOptions> = {
 	devnet: {
 		chainId: "seda-1-devnet",
 		rpcUrl: "https://rpc.devnet.seda.xyz",
-		explorerUrl: "https://devnet.explorer.seda.xyz",
+		explorerUrl: "https://devnet.test.explorer.seda.xyz",
 		privateKey: Buffer.from([]),
 	},
 };

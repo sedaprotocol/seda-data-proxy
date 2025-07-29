@@ -50,4 +50,27 @@ describe("DataProxy", async () => {
 			);
 		});
 	});
+
+	describe("decodeProof", () => {
+		it("should decode a proof", () => {
+			const proof = Buffer.from(
+				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f:1:c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
+				"utf-8",
+			);
+			const decodedProof = dataProxy.decodeProof(proof.toString("base64"));
+
+			if (decodedProof.isErr) {
+				throw decodedProof.error;
+			}
+
+			const { publicKey, drId, signature } = decodedProof.value;
+			expect(publicKey.toString("hex")).toBe(
+				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			);
+			expect(drId).toBe("1");
+			expect(signature.toString("hex")).toBe(
+				"c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
+			);
+		});
+	});
 });

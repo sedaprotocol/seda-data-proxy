@@ -373,6 +373,9 @@ describe("proxy server", () => {
 					requests: 0,
 					errors: 0,
 				},
+				version: expect.any(String),
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
 			});
 
 			// Successful proxy request
@@ -380,6 +383,9 @@ describe("proxy server", () => {
 
 			await expectStatus({
 				status: "healthy",
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
+				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 1,
@@ -392,6 +398,9 @@ describe("proxy server", () => {
 
 			await expectStatus({
 				status: "healthy",
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
+				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 2,
@@ -518,6 +527,9 @@ describe("proxy server", () => {
 			}).then((r) => r.json());
 			expect(authorizedHealthRes).toEqual({
 				status: "healthy",
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
+				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 0,

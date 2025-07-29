@@ -67,7 +67,7 @@ export function startProxyServer(
 		});
 
 	const statusContext = new StatusContext(dataProxy.publicKey.toString("hex"));
-	server.use(statusPlugin(statusContext, config.statusEndpoints));
+	server.use(statusPlugin(statusContext, dataProxy, config.statusEndpoints));
 
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
@@ -134,6 +134,17 @@ export function startProxyServer(
 								requestLogger.error(message);
 								return createErrorResponse(message, 400);
 							}
+
+							const decodedProof = dataProxy.decodeProof(proofHeader.value);
+
+							if (decodedProof.isErr) {
+								const message = `Failed to decode proof: ${decodedProof.error}, make sure the proof is a base64 encoded string`;
+								requestLogger.error(message);
+								return createErrorResponse(message, 400);
+							}
+
+							const { drId } = decodedProof.value;
+							requestLogger.debug(`Data Request Id: ${drId}`);
 
 							const verification = await verifyWithRetry(
 								requestLogger,

@@ -11,7 +11,7 @@ import {
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
-import logger, { setLogLevel } from "../logger";
+import logger, { setEnvSecrets, setLogLevel } from "../logger";
 import { startProxyServer } from "../proxy-server";
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
@@ -33,6 +33,7 @@ export const runCmd = addCommonOptions(new Command("run"))
 		}
 
 		const { config, dataProxy } = await configure(options, true);
+		setEnvSecrets(config.value.envSecrets);
 
 		let disableProof = false;
 		if (options.debug || options.disableProof) {
@@ -42,7 +43,7 @@ export const runCmd = addCommonOptions(new Command("run"))
 			);
 		}
 
-		startProxyServer(config.value, dataProxy, {
+		startProxyServer(config.value.config, dataProxy, {
 			port: Number(options.port ?? SERVER_PORT),
 			disableProof: disableProof,
 		});

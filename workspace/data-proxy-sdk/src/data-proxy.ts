@@ -247,4 +247,29 @@ export class DataProxy {
 	hashAndSign(message: Buffer) {
 		return ecdsaSign(keccak256(message), this.privateKey);
 	}
+
+	/**
+	 * Decodes a proof string into a public key, drId and signature
+	 * @param proof
+	 * @returns
+	 */
+	decodeProof(
+		proof: string,
+	): Result<{ publicKey: Buffer; drId: string; signature: Buffer }, Error> {
+		try {
+			// The proof is a base64 encoded string
+			const decoded = Buffer.from(proof, "base64");
+
+			// The proof is a string of the form `${publicKey.toString("hex")}:${drId}:${signature.toString("hex")}`;
+			const [publicKey, drId, signature] = decoded.toString("utf-8").split(":");
+
+			return Result.ok({
+				publicKey: Buffer.from(publicKey, "hex"),
+				drId: drId,
+				signature: Buffer.from(signature, "hex"),
+			});
+		} catch (error) {
+			return Result.err(new Error(`Error while decoding proof: ${error}`));
+		}
+	}
 }

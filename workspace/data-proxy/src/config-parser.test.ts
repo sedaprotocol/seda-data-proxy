@@ -37,7 +37,7 @@ describe("parseConfig", () => {
 		});
 
 		assertIsOkResult(result);
-		expect(result.value.routes[0].headers).toEqual({
+		expect(result.value.config.routes[0].headers).toEqual({
 			"x-secret": "api_key_shhh",
 		});
 		process.env.MY_SECRET = undefined;

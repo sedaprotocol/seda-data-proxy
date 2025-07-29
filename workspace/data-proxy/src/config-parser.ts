@@ -96,8 +96,13 @@ export const pathVarRegex = new RegExp(/(:[^\/]+)/g);
 // envVarRegex is a regex used to match environment variables following the {$varName} syntax.
 export const envVarRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 
-export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
+export function parseConfig(
+	input: unknown,
+): [Result<{ config: Config; envSecrets: Set<string> }, string>, boolean] {
 	let hasWarnings = false;
+
+	// Variables that we have to redact from the logs
+	const envSecrets = new Set<string>();
 
 	const configResult = tryParseSync(ConfigSchema, input);
 	if (configResult.isErr) {
@@ -144,6 +149,7 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 				];
 			}
 
+			envSecrets.add(envVariable);
 			config.statusEndpoints.apiKey.secret = replaceParams(
 				config.statusEndpoints.apiKey.secret,
 				{},
@@ -200,6 +206,8 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 					hasWarnings,
 				];
 			}
+
+			envSecrets.add(envVariable);
 		}
 
 		// Ensure variables in the path are used in the upstream URL or the headers.
@@ -265,10 +273,11 @@ export function parseConfig(input: unknown): [Result<Config, string>, boolean] {
 					];
 				}
 
+				envSecrets.add(envVariable);
 				route.headers[headerKey] = replaceParams(route.headers[headerKey], {});
 			}
 		}
 	}
 
-	return [Result.ok(config), hasWarnings];
+	return [Result.ok({ config, envSecrets }), hasWarnings];
 }
