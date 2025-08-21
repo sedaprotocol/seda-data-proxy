@@ -1,5 +1,5 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
-import { keccak256 } from "@cosmjs/crypto";
+import { keccak256, Secp256k1 } from "@cosmjs/crypto";
 import {
 	type ProtobufRpcClient,
 	QueryClient,
@@ -10,13 +10,10 @@ import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
-import {
-	type DataProxyOptions,
-	type Environment,
-	defaultConfig,
-} from "./config";
+import { type DataProxyOptions, Environment, defaultConfig } from "./config";
 import { getDataProxyRegistration } from "./data-proxy-registration";
 import { getLatestCoreContractAddress } from "./latest-core-contract-address";
+import { createSignedResponseHeaders } from "../../data-proxy/src/utils/create-headers";
 
 export interface SignedData {
 	// Hex encoded signature
@@ -271,5 +268,43 @@ export class DataProxy {
 		} catch (error) {
 			return Result.err(new Error(`Error while decoding proof: ${error}`));
 		}
+	}
+}
+
+export class TestDataProxy {
+	public dataProxy: DataProxy;
+
+	constructor() {
+		this.dataProxy = new DataProxy(Environment.Devnet, {
+			privateKey: Buffer.from(new Array(32).fill(1)),
+		});
+
+		this.dataProxy.options.chainId = "dummy-id";
+		this.dataProxy.options.coreContract = "seda1dummyaddress";
+		this.dataProxy.options.rpcUrl = "";
+		this.dataProxy.options.explorerUrl = "";
+	}
+
+	async createResponse(
+		url: string,
+		method: string,
+		status: number,
+		responseBody: Buffer,
+		requestBody?: Buffer,
+	): Promise<{}> {
+		const signResult = await this.dataProxy.signData(
+			url,
+			method,
+			requestBody || Buffer.from([]),
+			responseBody,
+		);
+
+		return {
+			status: status,
+			headers: createSignedResponseHeaders(signResult),
+			url: url,
+			bytes: responseBody,
+			content_length: responseBody.length,
+		};
 	}
 }
