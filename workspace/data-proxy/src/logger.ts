@@ -1,7 +1,12 @@
 import { createLogger, format, type transport, transports } from "winston";
 import "winston-daily-rotate-file";
 import { Maybe } from "true-myth";
-import { LOG_FILE_DIR } from "./constants";
+import {
+	LOG_FILE_DATE_PATTERN,
+	LOG_FILE_DIR,
+	LOG_FILE_LOG_LEVEL,
+	LOG_FILE_MAX_FILES,
+} from "./constants";
 
 let envSecrets: Set<string> = new Set();
 
@@ -50,9 +55,9 @@ if (LOG_FILE_DIR) {
 					return redactEnvSecrets(value);
 				},
 			}),
-			datePattern: "YYYY-MM-DD",
-			maxFiles: "14d",
-			level: "debug",
+			datePattern: LOG_FILE_DATE_PATTERN,
+			maxFiles: LOG_FILE_MAX_FILES,
+			level: LOG_FILE_LOG_LEVEL,
 		}),
 	);
 }

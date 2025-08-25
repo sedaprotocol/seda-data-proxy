@@ -343,6 +343,21 @@ The status endpoints can be configured in the config file under the statusEndpoi
 - `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.  
   The `statusEndpoints.apiKey.secret` attribute supports the `{$MY_ENV_VARIABLE}` syntax for injecting a value from the environment during start up.
 
+
+### Environment
+
+The following environment variables are available for configuration:
+
+
+| Environment variable | Description | Default |
+| --- | --- | --- |
+| `SERVER_PORT` | Port the HTTP server listens on. | `5384` |
+| `LOG_LEVEL` | Console log level. | `info` |
+| `LOG_FILE_DIR` | Directory for rotating log files. When set, file logging is enabled. | `./logs/` |
+| `LOG_FILE_LOG_LEVEL` | Log level for file transport. | `debug` |
+| `LOG_FILE_MAX_FILES` | How many log files to keep (time or count), per winston-daily-rotate-file. | `14d` |
+| `LOG_FILE_DATE_PATTERN` | Date pattern used in rotated log filenames. | `YYYY-MM-DD` |
+
 ## Deployment
 
 The SEDA Data Proxy can be deployed in several ways:
