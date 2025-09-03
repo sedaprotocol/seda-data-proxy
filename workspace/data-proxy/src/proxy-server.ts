@@ -249,7 +249,7 @@ export function startProxyServer(
 						};
 
 						if (cached) {
-							upstreamResponse = cached;
+							upstreamResponse = cached.clone();
 
 							// send the request anyways to the background and update the cache
 							// background process this
