@@ -159,6 +159,8 @@ async function configure(
 		privateKey: privateKey.value,
 		rpcUrl: options.rpc,
 		coreContract: options.coreContractAddress,
+		fastMaxProofAgeMs: config.value.config.sedaFast?.maxProofAgeMs,
+		fastAllowedClients: config.value.config.sedaFast?.allowedClients,
 	});
 
 	const publicKey = dataProxy.publicKey.toString("hex");

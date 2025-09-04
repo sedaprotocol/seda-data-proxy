@@ -14,7 +14,7 @@
     },
     "workspace/data-proxy": {
       "name": "@seda-protocol/data-proxy",
-      "version": "1.0.2",
+      "version": "1.0.4",
       "dependencies": {
         "@commander-js/extra-typings": "^12.1.0",
         "@cosmjs/crypto": "^0.33.1",
@@ -23,11 +23,11 @@
         "big.js": "7.0.1",
         "commander": "^12.1.0",
         "date-fns": "^4.1.0",
-        "effect": "^3.17.3",
+        "effect": "^3.17.13",
         "elysia": "^1.3.4",
         "jsonpath-plus": "^10.3.0",
         "secp256k1": "^5.0.1",
-        "true-myth": "^9.0.1",
+        "true-myth": "9.0.1",
         "valibot": "1.1.0",
         "winston": "^3.17.0",
         "winston-daily-rotate-file": "^5.0.0",
@@ -42,10 +42,10 @@
       "dependencies": {
         "@cosmjs/cosmwasm-stargate": "^0.33.1",
         "@cosmjs/crypto": "^0.33.1",
-        "@seda-protocol/proto-messages": "1.0.0",
+        "@seda-protocol/proto-messages": "^1.0.0",
         "@seda-protocol/utils": "^2.0.0",
         "secp256k1": "^5.0.1",
-        "true-myth": "^9.0.1",
+        "true-myth": "9.0.1",
       },
     },
   },
@@ -242,7 +242,7 @@
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
-    "effect": ["effect@3.17.3", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-FbFMr6xBXPII5Od8QJnkHz+2GTmQgq+8NPQev6C2k9cf1lcUjQ4vpw1kjbMc2X0UkjIkIWe0EtNK2RV6bl34UQ=="],
+    "effect": ["effect@3.17.13", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-JMz5oBxs/6mu4FP9Csjub4jYMUwMLrp+IzUmSDVIzn2NoeoyOXMl7x1lghfr3dLKWffWrdnv/d8nFFdgrHXPqw=="],
 
     "elliptic": ["elliptic@6.6.1", "", { "dependencies": { "bn.js": "^4.11.9", "brorand": "^1.1.0", "hash.js": "^1.0.0", "hmac-drbg": "^1.0.1", "inherits": "^2.0.4", "minimalistic-assert": "^1.0.1", "minimalistic-crypto-utils": "^1.0.1" } }, "sha512-RaddvvMatK2LJHqFJ+YA4WysVN5Ita9E35botqIYspQ4TkRAlCicdzKOjlyv/1Za5RyTNn7di//eEV0uTAfe3g=="],
 

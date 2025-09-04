@@ -6,7 +6,7 @@ import { verifyWithRetry } from "./verify-with-retry";
 
 type VerificationResult = {
 	isValid: boolean;
-	currentHeight: number;
+	currentHeight: bigint;
 	status: string;
 };
 
@@ -31,7 +31,7 @@ describe("verifyWithRetry", () => {
 	it("should return successful verification on first attempt", async () => {
 		const mockVerification = {
 			isValid: true,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "valid",
 		};
 
@@ -58,7 +58,7 @@ describe("verifyWithRetry", () => {
 	it("should retry when the verification request fails", async () => {
 		const mockVerification = {
 			isValid: true,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "valid",
 		};
 
@@ -90,13 +90,13 @@ describe("verifyWithRetry", () => {
 	it.each(["not_eligible", "data_request_not_found", "not_staker"])(
 		"should retry for status %s when height is behind but within MAX_HEIGHT_DIFFERENCE",
 		async (status) => {
-			const eligibleHeight = Maybe.just(102);
+			const eligibleHeight = Maybe.just(102n);
 
 			mockDataProxy.verify = mock(() => {
 				return Promise.resolve(
 					Result.ok({
 						isValid: false,
-						currentHeight: 100,
+						currentHeight: 100n,
 						status,
 					}),
 				);
@@ -122,7 +122,7 @@ describe("verifyWithRetry", () => {
 	it("should not retry when proof is invalid", async () => {
 		const mockVerification = {
 			isValid: false,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "invalid_signature",
 		};
 		mockDataProxy.verify = mock(() =>
@@ -133,7 +133,7 @@ describe("verifyWithRetry", () => {
 			loggerStub,
 			mockDataProxy,
 			mockProof,
-			Maybe.just(102),
+			Maybe.just(102n),
 			testDefaultMaxAttempts,
 			testDefaultRetryDelay,
 		);
@@ -148,7 +148,7 @@ describe("verifyWithRetry", () => {
 	it("should not retry when eligible height is not provided", async () => {
 		const mockVerification = {
 			isValid: false,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "height_mismatch",
 		};
 		mockDataProxy.verify = mock(() =>
@@ -172,10 +172,10 @@ describe("verifyWithRetry", () => {
 	});
 
 	it("should not retry when height difference is too large", async () => {
-		const eligibleHeight = Maybe.just(105);
+		const eligibleHeight = Maybe.just(105n);
 		const mockVerification = {
 			isValid: false,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "height_mismatch",
 		};
 		mockDataProxy.verify = mock(() =>
@@ -201,7 +201,7 @@ describe("verifyWithRetry", () => {
 	it("should respect maxAttempts parameter", async () => {
 		const mockVerification = {
 			isValid: false,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "height_mismatch",
 		};
 		mockDataProxy.verify = mock(() =>
@@ -212,7 +212,7 @@ describe("verifyWithRetry", () => {
 			loggerStub,
 			mockDataProxy,
 			mockProof,
-			Maybe.just(101),
+			Maybe.just(101n),
 			3,
 			testDefaultRetryDelay,
 		);
@@ -227,7 +227,7 @@ describe("verifyWithRetry", () => {
 	it("should use custom retry delay function", async () => {
 		const mockVerification = {
 			isValid: false,
-			currentHeight: 100,
+			currentHeight: 100n,
 			status: "not_eligible",
 		};
 		mockDataProxy.verify = mock(() => {
@@ -240,7 +240,7 @@ describe("verifyWithRetry", () => {
 			loggerStub,
 			mockDataProxy,
 			mockProof,
-			Maybe.just(101),
+			Maybe.just(101n),
 			4,
 			customDelay,
 		);

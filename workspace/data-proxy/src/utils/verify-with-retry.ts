@@ -1,5 +1,6 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
-import type { Maybe } from "true-myth";
+import * as Match from "effect/Match";
+import type { Maybe, Result } from "true-myth";
 import type { Logger } from "winston";
 
 type RetryDelay = (attempt: number) => number;
@@ -26,13 +27,16 @@ export async function verifyWithRetry(
 	logger: Logger,
 	dataProxy: DataProxy,
 	proof: string,
-	eligibleHeight: Maybe<number>,
+	eligibleHeight: Maybe<bigint>,
 	maxAttempts = 2,
 	retryDelay: RetryDelay = () => 1000,
 ) {
 	// Start at 0 so at the start of the loop we have attempt = 1
 	let attempt = 0;
-	let verificationResult: Awaited<ReturnType<typeof dataProxy.verify>>;
+	let verificationResult: Result<
+		{ isValid: boolean; status: string; currentHeight: bigint },
+		string
+	>;
 
 	do {
 		attempt++;
@@ -46,6 +50,7 @@ export async function verifyWithRetry(
 		);
 
 		verificationResult = await dataProxy.verify(proof);
+
 		// Something went wrong querying the eligibility, we should retry
 		if (verificationResult.isErr) {
 			logger.silly(`Error while verifying proof: ${verificationResult.error}`);

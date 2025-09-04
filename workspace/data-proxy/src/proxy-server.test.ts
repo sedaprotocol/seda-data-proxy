@@ -56,6 +56,11 @@ describe("proxy server", () => {
 				verificationMaxRetries: 2,
 				verificationRetryDelay: 1000,
 				routeGroup: "",
+				sedaFast: {
+					enable: true,
+					maxProofAgeMs: 1000,
+					allowedClients: [],
+				},
 				statusEndpoints: {
 					root: "status",
 				},
@@ -106,6 +111,11 @@ describe("proxy server", () => {
 				verificationMaxRetries: 2,
 				verificationRetryDelay: 1000,
 				routeGroup: "",
+				sedaFast: {
+					enable: true,
+					maxProofAgeMs: 1000,
+					allowedClients: [],
+				},
 				statusEndpoints: {
 					root: "status",
 				},
@@ -153,6 +163,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 					},
@@ -214,6 +229,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 					},
@@ -279,6 +299,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 					},
@@ -336,6 +361,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 					},
@@ -426,6 +456,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 					},
@@ -474,6 +509,11 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
 					statusEndpoints: {
 						root: "status",
 						apiKey: {

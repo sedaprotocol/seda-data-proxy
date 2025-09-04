@@ -1,5 +1,9 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
-import { keccak256 } from "@cosmjs/crypto";
+import {
+	ExtendedSecp256k1Signature,
+	Secp256k1,
+	keccak256,
+} from "@cosmjs/crypto";
 import {
 	type ProtobufRpcClient,
 	QueryClient,
@@ -8,6 +12,7 @@ import {
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
+import * as Match from "effect/Match";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
 import {
@@ -156,6 +161,59 @@ export class DataProxy {
 	}
 
 	/**
+	 * Verifies a SEDA Fast proof
+	 * Also checks if the block height is not too old (So that proofs expire)
+	 * @param proof
+	 * @param blockHeight
+	 * @returns
+	 */
+	async verifyFastProof(
+		proof: string,
+	): Promise<
+		Result<
+			{ isValid: boolean; status: string; currentUnixTimestamp: bigint },
+			string
+		>
+	> {
+		const decodedProof = this.decodeSedaFastProof(proof);
+		if (decodedProof.isErr) {
+			return Result.err(
+				`Failed to decode SEDA Fast proof: ${decodedProof.error}`,
+			);
+		}
+
+		const now = BigInt(Date.now());
+		const delta = now - decodedProof.value.unixTimestamp;
+
+		if (delta > this.options.fastMaxProofAgeMs) {
+			return Result.ok({
+				isValid: false,
+				status: "unix_timestamp_too_old",
+				currentUnixTimestamp: now,
+			});
+		}
+
+		// Check if the client is allowed
+		if (
+			!this.options.fastAllowedClients.includes(
+				decodedProof.value.publicKey.toString("hex"),
+			)
+		) {
+			return Result.ok({
+				isValid: false,
+				status: "fast_client_not_allowed",
+				currentUnixTimestamp: now,
+			});
+		}
+
+		return Result.ok({
+			isValid: true,
+			status: "eligible",
+			currentUnixTimestamp: now,
+		});
+	}
+
+	/**
 	 * Verifies if the executor is eligible or not
 	 * proof is given by the executor through the header x-proof
 	 * @param payload
@@ -163,7 +221,7 @@ export class DataProxy {
 	async verify(
 		proof: string,
 	): Promise<
-		Result<{ isValid: boolean; status: string; currentHeight: number }, string>
+		Result<{ isValid: boolean; status: string; currentHeight: bigint }, string>
 	> {
 		// Verify if eligible (right now is this one staked or not)
 		const client = await this.getCosmWasmClient();
@@ -190,7 +248,7 @@ export class DataProxy {
 			.map((v) => ({
 				isValid: v.status === "eligible",
 				status: v.status,
-				currentHeight: v.block_height,
+				currentHeight: BigInt(v.block_height),
 			}))
 			.mapErr((err) => `Error while fetching verification: ${err}`);
 	}
@@ -266,6 +324,63 @@ export class DataProxy {
 			return Result.ok({
 				publicKey: Buffer.from(publicKey, "hex"),
 				drId: drId,
+				signature: Buffer.from(signature, "hex"),
+			});
+		} catch (error) {
+			return Result.err(new Error(`Error while decoding proof: ${error}`));
+		}
+	}
+
+	/**
+	 * Decodes a seda fast proof string into a public key, drId and signature
+	 * This is usually in the header x-seda-fast-proof
+	 *
+	 * @param proof
+	 * @returns
+	 */
+	decodeSedaFastProof(proof: string): Result<
+		{
+			unixTimestamp: bigint;
+			userPublicKey: string;
+			signature: Buffer;
+			publicKey: Buffer;
+		},
+		Error
+	> {
+		try {
+			// The format is "{unixTimestamp}:{userPublicKey}:{signatureAsHexString}:{clientChainId}"
+			const decoded = Buffer.from(proof, "base64");
+			const [unixTimestamp, userPublicKey, signature, clientChainId] = decoded
+				.toString("utf-8")
+				.split(":");
+
+			if (clientChainId !== this.options.chainId) {
+				return Result.err(
+					new Error(
+						`Invalid client chain id: ${clientChainId}, wanted: ${this.options.chainId}`,
+					),
+				);
+			}
+
+			const unixTimestampBuffer = Buffer.alloc(8); // 64-bit = 8 bytes
+			unixTimestampBuffer.writeBigUInt64BE(BigInt(unixTimestamp));
+			const userPublicKeyHash = keccak256(Buffer.from(userPublicKey));
+			const chainIdBytes = Buffer.from(this.options.chainId);
+
+			const messageHash = keccak256(
+				Buffer.concat([unixTimestampBuffer, userPublicKeyHash, chainIdBytes]),
+			);
+
+			const extendSignatures = ExtendedSecp256k1Signature.fromFixedLength(
+				Buffer.from(signature, "hex"),
+			);
+			const pubKey = Secp256k1.recoverPubkey(extendSignatures, messageHash);
+			const compressedPubKey = Secp256k1.compressPubkey(pubKey);
+
+			return Result.ok({
+				publicKey: Buffer.from(compressedPubKey),
+				unixTimestamp: BigInt(unixTimestamp),
+				userPublicKey,
 				signature: Buffer.from(signature, "hex"),
 			});
 		} catch (error) {

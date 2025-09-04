@@ -1,4 +1,5 @@
 export const PROOF_HEADER_KEY = "x-seda-proof";
+export const SEDA_FAST_PROOF_HEADER_KEY = "x-seda-fast-proof";
 export const HEIGHT_HEADER_KEY = "x-seda-blockheight";
 export const SIGNATURE_HEADER_KEY = "x-seda-signature";
 export const PUBLIC_KEY_HEADER_KEY = "x-seda-publickey";

@@ -50,6 +50,13 @@ const ConfigSchema = v.strictObject(
 			v.number(),
 			DEFAULT_VERIFICATION_RETRY_DELAY,
 		),
+		sedaFast: v.optional(
+			v.object({
+				enable: v.boolean(),
+				allowedClients: v.array(v.string()),
+				maxProofAgeMs: v.optional(v.number()),
+			}),
+		),
 		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
 		routes: v.array(RouteSchema),
 		baseURL: maybe(v.string()),
@@ -276,6 +283,17 @@ export function parseConfig(
 				envSecrets.add(envVariable);
 				route.headers[headerKey] = replaceParams(route.headers[headerKey], {});
 			}
+		}
+	}
+
+	if (config.sedaFast?.enable) {
+		if (config.sedaFast.allowedClients.length === 0) {
+			return [
+				Result.err(
+					"sedaFast.allowedClients must be provided if sedaFast.enable is true",
+				),
+				hasWarnings,
+			];
 		}
 	}
 

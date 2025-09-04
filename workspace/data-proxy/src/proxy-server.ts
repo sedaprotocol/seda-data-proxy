@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync } from "@seda-protocol/utils";
+import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import { Elysia } from "elysia";
 import { Maybe } from "true-myth";
 import { type Config, getHttpMethods } from "./config-parser";
@@ -68,7 +70,6 @@ export function startProxyServer(
 
 	const statusContext = new StatusContext(dataProxy.publicKey.toString("hex"));
 	server.use(statusPlugin(statusContext, dataProxy, config.statusEndpoints));
-
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
 	server.group(proxyGroup, (app) => {
@@ -114,12 +115,20 @@ export function startProxyServer(
 						if (!serverOptions.disableProof) {
 							requestLogger.debug("Verifying proof");
 
-							const proofHeader = Maybe.of(headers[constants.PROOF_HEADER_KEY]);
+							const proofHeader = Option.fromNullable(
+								headers[constants.PROOF_HEADER_KEY],
+							);
+							const sedaFastProofHeader = Option.fromNullable(
+								headers[constants.SEDA_FAST_PROOF_HEADER_KEY],
+							);
+
 							const heightFromHeader = Number(
 								headers[constants.HEIGHT_HEADER_KEY],
 							);
 							const eligibleHeight = Maybe.of(
-								Number.isNaN(heightFromHeader) ? undefined : heightFromHeader,
+								Number.isNaN(heightFromHeader)
+									? undefined
+									: BigInt(heightFromHeader),
 							);
 
 							requestLogger.debug(
@@ -129,40 +138,101 @@ export function startProxyServer(
 								)}`,
 							);
 
-							if (proofHeader.isNothing) {
-								const message = `Header "${constants.PROOF_HEADER_KEY}" is not provided`;
+							if (
+								Option.isNone(proofHeader) &&
+								Option.isNone(sedaFastProofHeader)
+							) {
+								const message = `Header "${constants.PROOF_HEADER_KEY}" or "${constants.SEDA_FAST_PROOF_HEADER_KEY}" is not provided`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 400);
 							}
 
-							const decodedProof = dataProxy.decodeProof(proofHeader.value);
-
-							if (decodedProof.isErr) {
-								const message = `Failed to decode proof: ${decodedProof.error}, make sure the proof is a base64 encoded string`;
+							// Disable SEDA Fast usage
+							if (
+								!config.sedaFast?.enable &&
+								Option.isSome(sedaFastProofHeader)
+							) {
+								const message = `Header "${constants.SEDA_FAST_PROOF_HEADER_KEY}" is not allowed`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 400);
 							}
 
-							const { drId } = decodedProof.value;
-							requestLogger.debug(`Data Request Id: ${drId}`);
-
-							const verification = await verifyWithRetry(
-								requestLogger,
-								dataProxy,
-								proofHeader.value,
-								eligibleHeight,
-								config.verificationMaxRetries,
-								() => config.verificationRetryDelay,
+							const proofInfo = Match.value(proofHeader).pipe(
+								Match.when(Option.isSome, (header) => {
+									return {
+										decodedProof: dataProxy.decodeProof(header.value),
+										rawProof: header.value,
+										type: "seda-core" as const,
+									};
+								}),
+								Match.when(Option.isNone, () => {
+									// Should not throw since we checked for both headers above
+									return {
+										decodedProof: dataProxy.decodeSedaFastProof(
+											Option.getOrThrow(sedaFastProofHeader),
+										),
+										rawProof: Option.getOrThrow(sedaFastProofHeader),
+										type: "seda-fast" as const,
+									};
+								}),
+								Match.exhaustive,
 							);
 
-							if (verification.isErr) {
-								const message = `Failed to verify eligibility proof ${verification.error}`;
+							if (proofInfo.decodedProof.isErr) {
+								const message = `Failed to decode proof: ${proofInfo.decodedProof.error}, make sure the proof is a base64 encoded string`;
+								requestLogger.error(message);
+								return createErrorResponse(message, 400);
+							}
+
+							const proofId =
+								proofInfo.type === "seda-core"
+									? proofInfo.decodedProof.value.drId
+									: proofInfo.decodedProof.value.userPublicKey;
+
+							const idType =
+								proofInfo.type === "seda-core"
+									? "Data Request Id"
+									: "SEDA Fast User Id";
+							requestLogger.debug(`${idType}: ${proofId}`);
+
+							const verificationResult = await Match.value(proofInfo.type).pipe(
+								Match.when("seda-fast", async () => {
+									return {
+										verification: await dataProxy.verifyFastProof(
+											proofInfo.rawProof,
+										),
+										type: "seda-fast" as const,
+									};
+								}),
+								Match.when("seda-core", async () => {
+									return {
+										verification: await verifyWithRetry(
+											requestLogger,
+											dataProxy,
+											proofInfo.rawProof,
+											eligibleHeight,
+											config.verificationMaxRetries,
+											() => config.verificationRetryDelay,
+										),
+										type: "seda-core" as const,
+									};
+								}),
+								Match.exhaustive,
+							);
+
+							if (verificationResult.verification.isErr) {
+								const message = `Failed to verify eligibility proof ${verificationResult.verification.error}`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 401);
 							}
 
-							if (!verification.value.isValid) {
-								const message = `Ineligible executor at height ${verification.value.currentHeight}: ${verification.value.status}`;
+							if (!verificationResult.verification.value.isValid) {
+								const heightOrTimestamp =
+									verificationResult.type === "seda-core"
+										? verificationResult.verification.value.currentHeight
+										: verificationResult.verification.value
+												.currentUnixTimestamp;
+								const message = `Ineligible executor at height/timestamp ${heightOrTimestamp}: ${verificationResult.verification.value.status}`;
 								requestLogger.error(message);
 								return createErrorResponse(message, 401);
 							}
