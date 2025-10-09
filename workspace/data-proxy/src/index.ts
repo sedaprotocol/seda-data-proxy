@@ -17,24 +17,6 @@ const dotenvResult = dotenv.config({
 	overload: true, // Override existing environment variables
 });
 
-// Debug: Log which variables were loaded (only show the first few characters)
-if (process.env.NODE_ENV === "development" || process.env.DEBUG) {
-	console.log("Loaded environment variables:");
-	if (process.env.SEDA_DATA_PROXY_PRIVATE_KEY) {
-		console.log(
-			`  SEDA_DATA_PROXY_PRIVATE_KEY: ${process.env.SEDA_DATA_PROXY_PRIVATE_KEY.substring(0, 8)}...`,
-		);
-	}
-	if (process.env.ALCHEMY_API_KEY) {
-		console.log(
-			`  ALCHEMY_API_KEY: ${process.env.ALCHEMY_API_KEY.substring(0, 8)}...`,
-		);
-	}
-	if (process.env.DATA_PROXY_CONFIG) {
-		console.log(`  DATA_PROXY_CONFIG: ${process.env.DATA_PROXY_CONFIG}`);
-	}
-}
-
 const program = new Command()
 	.description("SEDA Data Proxy CLI")
 	.version(version)
