@@ -77,6 +77,38 @@ The node will auto sign the response and include two headers: `x-seda-signature`
 - By default only the upstream header `content-type` is given back. This can however be configured to include more.
 - The full body is given back as a response. This can be reduced with using `jsonPath`.
 
+## Environment Variables and Secrets
+
+The SEDA Data Proxy supports secure environment variable management using [dotenvx](https://dotenvx.com/) for encryption and decryption of sensitive configuration values.
+
+### Using dotenvx for Secure Environment Variables
+
+The Data Proxy automatically loads environment variables using dotenvx configuration. This allows you to encrypt sensitive values like private keys and API secrets while keeping the encrypted `.env` file in version control, or injecting `.env` as a part of the CI/CD process.
+
+#### Setup
+
+1. **Create a `.env` file** in the `workspace/data-proxy/` directory:
+   ```bash
+   # Example .env file
+   DATA_PROXY_CONFIG=./config.json
+   SEDA_DATA_PROXY_PRIVATE_KEY=your_private_key_here
+   PORT=5384
+   ```
+
+2. **Encrypt sensitive values** (optional):
+   ```bash
+   # Install dotenvx globally
+   npm install -g @dotenvx/dotenvx
+   
+   # Encrypt sensitive values in your .env file
+   dotenvx encrypt
+   ```
+
+3. **Configure decryption keys location** (optional):
+   - Default keys file: `~/.dotenvx/data-proxy.keys`
+   - Custom path via environment variable: `DOTENV_KEYS_PATH=/path/to/keys`
+   - Custom .env file path: `DOTENV_CONFIG_PATH=/path/to/.env`
+
 ## Configuration
 
 ### Route Group

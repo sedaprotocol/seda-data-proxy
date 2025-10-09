@@ -99,12 +99,15 @@ web_modules/
 .yarn-integrity
 
 # dotenv environment variable files
-
+# Allow encrypted .env files but ignore unencrypted ones
 .env
+.env.local
 .env.development.local
 .env.test.local
 .env.production.local
-.env.local
+
+# dotenvx keys (should be kept secret and stored separately)
+*.keys
 
 # parcel-bundler cache (https://parceljs.org/)
 
