@@ -9,7 +9,7 @@
 	"dependencies": {
 		"@commander-js/extra-typings": "^12.1.0",
 		"@cosmjs/crypto": "^0.33.1",
-		"@dotenvx/dotenvx": "^1.48.4",
+		"@dotenvx/dotenvx": "^1.51.0",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
