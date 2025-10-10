@@ -14,10 +14,16 @@ service:
 
 replicaCount: 1
 
-# export SEDA_PRIVATE_KEY=<KEY>
-# helm install my-release ./chart-name --set secret.sedaDataProxyPrivateKey=$SEDA_PRIVATE_KEY
+# export DOTENVX_KEY=<KEY>
+# export DOTENV_CONFIG_PATH=<PATH>
+# helm install my-release ./chart-name --set secret.dotenvxKey=$DOTENVX_KEY --set secret.dotenvConfigPath=$DOTENV_CONFIG_PATH
 secret:
-  sedaDataProxyPrivateKey: ""
+  dotenvxKey: ""
+  dotenvConfigPath: ""
+
+# Encrypted .env file content
+dotenvContent: |
+  SEDA_DATA_PROXY_PRIVATE_KEY="encrypted:your-encrypted-key-here"
 
 # WARNING: Comment next line for production. Only for development/testing.
 sedaProxyFlags: "--disable-proof"

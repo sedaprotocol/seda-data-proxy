@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "seda-data-proxy.fullname" . }}-dotenv
+  labels:
+    {{- include "seda-data-proxy.labels" . | nindent 4 }}
+data:
+  .env: |
+    {{- .Values.dotenvContent | nindent 4 }}

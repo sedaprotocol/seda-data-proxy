@@ -25,11 +25,11 @@ spec:
             - name: {{ .name }}
               value: {{ .value }}
             {{- end }}
-            - name: SEDA_DATA_PROXY_PRIVATE_KEY
+            - name: DOTENV_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "seda-data-proxy.fullname" . }}-secrets
-                  key: SEDA_DATA_PROXY_PRIVATE_KEY
+                  key: DOTENVX_KEY
           args: ["run", {{ .Values.sedaProxyFlags }} ]
           readinessProbe:
             httpGet:
@@ -43,7 +43,13 @@ spec:
           - name: config-volume
             mountPath: /app/config.json
             subPath: config.json
+          - name: dotenv-volume
+            mountPath: /app/.env
+            subPath: .env
       volumes:
         - name: config-volume
           configMap:
             name: {{ include "seda-data-proxy.fullname" . }}-config
+        - name: dotenv-volume
+          configMap:
+            name: {{ include "seda-data-proxy.fullname" . }}-dotenv
