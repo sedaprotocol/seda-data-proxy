@@ -155,15 +155,6 @@ async function configure(
 
 	console.log(`🌐 Network: ${networkEnv}\n`);
 
-	// Diagnostic logging before creating DataProxy
-	console.log("🔍 DEBUG [run.ts]: About to create DataProxy");
-	console.log(
-		`🔍 DEBUG [run.ts]: privateKey buffer length: ${privateKey.value.length} bytes`,
-	);
-	console.log(
-		`🔍 DEBUG [run.ts]: privateKey buffer (hex): ${privateKey.value.toString("hex").substring(0, 20)}...`,
-	);
-
 	const dataProxy = new DataProxy(networkEnv, {
 		privateKey: privateKey.value,
 		rpcUrl: options.rpc,

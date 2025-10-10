@@ -66,22 +66,6 @@ export class DataProxy {
 		};
 
 		this.privateKey = this.options.privateKey;
-
-		// Diagnostic logging
-		console.log("🔍 DEBUG [DataProxy constructor]: Received privateKey");
-		console.log(
-			`🔍 DEBUG [DataProxy constructor]: privateKey buffer length: ${this.privateKey.length} bytes`,
-		);
-		console.log(
-			`🔍 DEBUG [DataProxy constructor]: privateKey is Buffer: ${Buffer.isBuffer(this.privateKey)}`,
-		);
-		console.log(
-			`🔍 DEBUG [DataProxy constructor]: privateKey is Uint8Array: ${this.privateKey instanceof Uint8Array}`,
-		);
-		console.log(
-			`🔍 DEBUG [DataProxy constructor]: privateKey first 10 bytes (hex): ${this.privateKey.subarray(0, 10).toString("hex")}`,
-		);
-
 		this.publicKey = Buffer.from(publicKeyCreate(this.privateKey, true));
 
 		if (this.options.coreContract) {
