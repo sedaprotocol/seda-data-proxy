@@ -23,6 +23,23 @@ export const DEFAULT_VERIFICATION_RETRY_DELAY = 1000;
 
 export const PRIVATE_KEY_ENV_KEY = "SEDA_DATA_PROXY_PRIVATE_KEY";
 export const PRIVATE_KEY = process.env[PRIVATE_KEY_ENV_KEY];
+
+// Diagnostic logging for environment variable
+if (PRIVATE_KEY) {
+	console.log("🔍 DEBUG [constants.ts]: SEDA_DATA_PROXY_PRIVATE_KEY is set");
+	console.log(`🔍 DEBUG [constants.ts]: Value length: ${PRIVATE_KEY.length}`);
+	console.log(
+		`🔍 DEBUG [constants.ts]: First 10 chars: "${PRIVATE_KEY.substring(0, 10)}"`,
+	);
+	console.log(
+		`🔍 DEBUG [constants.ts]: Last 10 chars: "${PRIVATE_KEY.substring(PRIVATE_KEY.length - 10)}"`,
+	);
+} else {
+	console.log(
+		"🔍 DEBUG [constants.ts]: SEDA_DATA_PROXY_PRIVATE_KEY is NOT set",
+	);
+}
+
 export const DEFAULT_PRIVATE_KEY_JSON_FILE_NAME =
 	"./data-proxy-private-key.json";
 

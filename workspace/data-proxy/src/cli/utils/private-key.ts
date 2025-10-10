@@ -65,7 +65,38 @@ export async function loadPrivateKey(
 	privateKeyFilePath?: string,
 ): Promise<Result<Buffer, string>> {
 	if (!privateKeyFilePath && PRIVATE_KEY) {
-		return Result.ok(Buffer.from(PRIVATE_KEY, "hex"));
+		// Diagnostic logging
+		console.log("🔍 DEBUG: Loading private key from environment variable");
+		console.log(`🔍 DEBUG: PRIVATE_KEY raw length: ${PRIVATE_KEY.length}`);
+		console.log(
+			`🔍 DEBUG: PRIVATE_KEY first 10 chars: "${PRIVATE_KEY.substring(0, 10)}"`,
+		);
+		console.log(
+			`🔍 DEBUG: PRIVATE_KEY last 4 chars: "${PRIVATE_KEY.substring(PRIVATE_KEY.length - 4)}"`,
+		);
+		console.log(
+			`🔍 DEBUG: PRIVATE_KEY has newline at end: ${PRIVATE_KEY.endsWith("\n")}`,
+		);
+		console.log(
+			`🔍 DEBUG: PRIVATE_KEY has carriage return at end: ${PRIVATE_KEY.endsWith("\r")}`,
+		);
+		console.log(
+			`🔍 DEBUG: PRIVATE_KEY char codes (last 5): ${Array.from(
+				PRIVATE_KEY.slice(-5),
+			)
+				.map((c) => c.charCodeAt(0))
+				.join(",")}`,
+		);
+
+		const trimmedKey = PRIVATE_KEY.trim();
+		console.log(`🔍 DEBUG: After trim() length: ${trimmedKey.length}`);
+
+		const buffer = Buffer.from(trimmedKey, "hex");
+		console.log(
+			`🔍 DEBUG: Buffer length: ${buffer.length} bytes (expected: 32)`,
+		);
+
+		return Result.ok(buffer);
 	}
 
 	const privateKeyFile = await readPrivateKeyFile(
@@ -103,5 +134,22 @@ export async function loadPrivateKey(
 		return Result.err(`Failed to parse private key file: \n ${resultError}`);
 	}
 
-	return Result.ok(Buffer.from(parsedPrivateKeyFile.value.privkey, "hex"));
+	// Diagnostic logging for file-based private key
+	const rawPrivkey = parsedPrivateKeyFile.value.privkey;
+	console.log("🔍 DEBUG: Loading private key from file");
+	console.log(`🔍 DEBUG: File privkey raw length: ${rawPrivkey.length}`);
+	console.log(
+		`🔍 DEBUG: File privkey first 10 chars: "${rawPrivkey.substring(0, 10)}"`,
+	);
+	console.log(
+		`🔍 DEBUG: File privkey last 10 chars: "${rawPrivkey.substring(rawPrivkey.length - 10)}"`,
+	);
+
+	const trimmedPrivkey = rawPrivkey.trim();
+	console.log(`🔍 DEBUG: After trim() length: ${trimmedPrivkey.length}`);
+
+	const buffer = Buffer.from(trimmedPrivkey, "hex");
+	console.log(`🔍 DEBUG: Buffer length: ${buffer.length} bytes (expected: 32)`);
+
+	return Result.ok(buffer);
 }
