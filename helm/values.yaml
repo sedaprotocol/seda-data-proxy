@@ -22,8 +22,11 @@ secret:
   dotenvConfigPath: ""
 
 # Encrypted .env file content
-dotenvContent: |
-  SEDA_DATA_PROXY_PRIVATE_KEY="encrypted:your-encrypted-key-here"
+# Example:
+# dotenvContent: |
+#   SEDA_DATA_PROXY_PRIVATE_KEY="encrypted:BJ3Q1hLg9u..."
+#   ALCHEMY_API_KEY="encrypted:ABC123..."
+dotenvContent: ""
 
 # WARNING: Comment next line for production. Only for development/testing.
 sedaProxyFlags: "--disable-proof"
