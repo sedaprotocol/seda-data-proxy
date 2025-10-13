@@ -73,4 +73,64 @@ describe("DataProxy", async () => {
 			);
 		});
 	});
+
+	describe("decodeFastProof", () => {
+		it("should decode a valid SEDA Fast proof", () => {
+			const proof = Buffer.from(
+				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
+				"utf-8",
+			);
+			const decodedProof = dataProxy.decodeSedaFastProof(
+				proof.toString("base64"),
+			);
+
+			if (decodedProof.isErr) {
+				expect.unreachable("Failed to decode proof");
+			}
+
+			const { publicKey, unixTimestamp, signature } = decodedProof.value;
+			expect(unixTimestamp).toBe(0n);
+			expect(publicKey.toString("hex")).toBe(
+				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			);
+			expect(signature.toString("hex")).toBe(
+				"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+			);
+		});
+
+		it("should not recover the expected public key from the proof if it was tampered with", () => {
+			const proof = Buffer.from(
+				"1000:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
+				"utf-8",
+			);
+			const decodedProof = dataProxy.decodeSedaFastProof(
+				proof.toString("base64"),
+			);
+
+			if (decodedProof.isErr) {
+				expect.unreachable("Failed to decode proof");
+			}
+
+			const { publicKey } = decodedProof.value;
+			expect(publicKey.toString("hex")).not.toBe(
+				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			);
+		});
+
+		it("should return an error if the chain id is invalid", () => {
+			const proof = Buffer.from(
+				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-testnet",
+				"utf-8",
+			);
+			const decodedProof = dataProxy.decodeSedaFastProof(
+				proof.toString("base64"),
+			);
+
+			if (decodedProof.isOk) {
+				expect.unreachable("Should not be able to decode proof");
+			}
+
+			expect(decodedProof.error.message).toContain("Invalid client chain id");
+		});
+	});
 });

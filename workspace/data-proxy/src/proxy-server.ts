@@ -147,7 +147,7 @@ export function startProxyServer(
 								return createErrorResponse(message, 400);
 							}
 
-							// Disable SEDA Fast usage
+							// Disallow SEDA Fast usage if it's not enabled
 							if (
 								!config.sedaFast?.enable &&
 								Option.isSome(sedaFastProofHeader)
@@ -187,29 +187,34 @@ export function startProxyServer(
 							const proofId =
 								proofInfo.type === "seda-core"
 									? proofInfo.decodedProof.value.drId
-									: proofInfo.decodedProof.value.userPublicKey;
+									: proofInfo.decodedProof.value.publicKey.toString("hex");
 
 							const idType =
 								proofInfo.type === "seda-core"
 									? "Data Request Id"
-									: "SEDA Fast User Id";
+									: "SEDA Fast Public Key";
 							requestLogger.debug(`${idType}: ${proofId}`);
 
-							const verificationResult = await Match.value(proofInfo.type).pipe(
-								Match.when("seda-fast", async () => {
+							const verificationResult = await Match.value(proofInfo).pipe(
+								Match.when({ type: "seda-fast" }, async (proof) => {
+									// Should not happen since we already checked for this above, but we need to satisfy the type checker
+									if (proof.decodedProof.isErr) {
+										throw new Error("Failed to decode proof");
+									}
+
 									return {
 										verification: await dataProxy.verifyFastProof(
-											proofInfo.rawProof,
+											proof.decodedProof.value,
 										),
 										type: "seda-fast" as const,
 									};
 								}),
-								Match.when("seda-core", async () => {
+								Match.when({ type: "seda-core" }, async (proof) => {
 									return {
 										verification: await verifyWithRetry(
 											requestLogger,
 											dataProxy,
-											proofInfo.rawProof,
+											proof.rawProof,
 											eligibleHeight,
 											config.verificationMaxRetries,
 											() => config.verificationRetryDelay,
