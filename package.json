@@ -13,7 +13,8 @@
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
 		"@types/bun": "latest",
-		"@types/secp256k1": "^4.0.7"
+		"@types/secp256k1": "^4.0.7",
+		"@seda-protocol/utils": "2.0.0"
 	},
 	"workspaces": ["workspace/*"],
 	"peerDependencies": {

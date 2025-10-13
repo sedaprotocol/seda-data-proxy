@@ -5,6 +5,7 @@
       "name": "seda-data-proxy",
       "devDependencies": {
         "@biomejs/biome": "1.9.4",
+        "@seda-protocol/utils": "2.0.0",
         "@types/bun": "latest",
         "@types/secp256k1": "^4.0.7",
       },
@@ -14,10 +15,11 @@
     },
     "workspace/data-proxy": {
       "name": "@seda-protocol/data-proxy",
-      "version": "1.0.4",
+      "version": "1.1.0",
       "dependencies": {
         "@commander-js/extra-typings": "^12.1.0",
         "@cosmjs/crypto": "^0.33.1",
+        "@cosmjs/encoding": "^0.33.1",
         "@dotenvx/dotenvx": "^1.51.0",
         "@seda-protocol/data-proxy-sdk": "workspace:*",
         "@seda-protocol/utils": "^2.0.0",
@@ -43,8 +45,11 @@
       "dependencies": {
         "@cosmjs/cosmwasm-stargate": "^0.33.1",
         "@cosmjs/crypto": "^0.33.1",
+        "@cosmjs/stargate": "^0.33.1",
+        "@cosmjs/tendermint-rpc": "^0.33.1",
         "@seda-protocol/proto-messages": "^1.0.0",
         "@seda-protocol/utils": "^2.0.0",
+        "effect": "^3.18.4",
         "secp256k1": "^5.0.1",
         "true-myth": "9.0.1",
       },
@@ -518,6 +523,8 @@
     "@inquirer/core/@inquirer/type": ["@inquirer/type@2.0.0", "", { "dependencies": { "mute-stream": "^1.0.0" } }, "sha512-XvJRx+2KR3YXyYtPUUy+qd9i7p+GO9Ko6VIIpWlBrpWwXDv8WLFeHTxz35CfQFUiBMLXlGHhGzys7lqit9gWag=="],
 
     "@inquirer/core/signal-exit": ["signal-exit@4.1.0", "", {}, "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="],
+
+    "@seda-protocol/data-proxy-sdk/effect": ["effect@3.18.4", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-b1LXQJLe9D11wfnOKAk3PKxuqYshQ0Heez+y5pnkd3jLj1yx9QhM72zZ9uUrOQyNvrs2GZZd/3maL0ZV18YuDA=="],
 
     "ansi-escapes/type-fest": ["type-fest@0.21.3", "", {}, "sha512-t0rzBq87m3fVcduHDUFhKmyyX+9eo6WQjZvf51Ea/M0Q7+T374Jp1aUiyUl0GKxp8M/OETVHSDvmkyPgvX+X2w=="],
 
