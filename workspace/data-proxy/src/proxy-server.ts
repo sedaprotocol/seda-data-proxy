@@ -31,6 +31,24 @@ export interface ProxyServerOptions {
 	disableProof: boolean;
 }
 
+function getLastUtcBucket(): number {
+	const now = new Date();
+	const utcHour = now.getUTCHours();
+
+	// Define the buckets
+	const buckets = [0, 4, 8, 12, 16, 20];
+
+	// Find the last bucket <= current hour
+	let lastBucket = 0;
+	for (const bucket of buckets) {
+		if (utcHour >= bucket) {
+			lastBucket = bucket;
+		}
+	}
+
+	return lastBucket;
+}
+
 export function startProxyServer(
 	config: Config,
 	dataProxy: DataProxy,
@@ -247,6 +265,8 @@ export function startProxyServer(
 							query,
 							route.allowedQueryParams,
 						);
+						const latestUtcBucket = getLastUtcBucket();
+						requestSearchParams.set("utcHour", latestUtcBucket.toString());
 						let upstreamUrl = replaceParams(route.upstreamUrl, params);
 						const upstreamUrlResult = injectSearchParamsInUrl(
 							upstreamUrl,
