@@ -275,8 +275,9 @@ export function startProxyServer(
 						}
 
 						// Inject all configured headers by the data proxy node configuration
+						// Important: configured headers take precedence over headers sent in the request
 						for (const [key, value] of Object.entries(route.headers)) {
-							upstreamHeaders.append(key, replaceParams(value, params));
+							upstreamHeaders.set(key, replaceParams(value, params));
 						}
 
 						// Host doesn't match since we are proxying. Returning the upstream host while the URL does not match results
@@ -324,7 +325,7 @@ export function startProxyServer(
 							requestLogger.debug(`Applying route JSONpath ${route.jsonPath}`);
 							const data = queryJson(
 								upstreamTextResponse.value,
-								route.jsonPath,
+								replaceParams(route.jsonPath, params),
 							);
 
 							if (data.isErr) {

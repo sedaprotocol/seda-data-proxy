@@ -284,7 +284,7 @@ The Data Proxy node has support for wildcard routes, which allows you to quickly
 
 ### JSON Path
 
-If you don't want to expose all API info you can use `jsonPath` to return a subset of the response:
+If you don't want to expose all API info you can use `jsonPath` to return a subset of the response.
 
 ```jsonc
 {
@@ -295,6 +295,25 @@ If you don't want to expose all API info you can use `jsonPath` to return a subs
       "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
       // Calling the API http://localhost:5384/proxy/planets/1 will only return "Tatooine" and omit the rest
       "jsonPath": "$.name",
+      "headers": {
+        "x-api-key": "some-api-key"
+      }
+    }
+  ]
+}
+```
+
+The JSON Path also supports path parameters using the `{:PARAM}` syntax:
+
+```jsonc
+{
+  "routeGroup": "proxy",
+  "routes": [
+    {
+      "path": "/planets/:planet/:attribute",
+      "upstreamUrl": "https://swapi.dev/api/planets/{:planet}",
+      // Calling the API http://localhost:5384/proxy/planets/1/name will only return "Tatooine" and omit the rest
+      "jsonPath": "$.{:attribute}",
       "headers": {
         "x-api-key": "some-api-key"
       }
