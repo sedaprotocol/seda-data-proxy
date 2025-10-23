@@ -45,9 +45,11 @@ export function statusPlugin(
 				});
 			});
 
-			group.get("pubkey", () => {
+			group.get("info", () => {
 				return Response.json({
 					pubKey: context.getPublicKey(),
+					fastConfig: context.getFastConfig(),
+					version: getVersions().proxy,
 				});
 			});
 

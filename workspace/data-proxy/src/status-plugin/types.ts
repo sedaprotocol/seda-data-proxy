@@ -1,3 +1,5 @@
+import type { Config } from "../config-parser";
+
 export interface Context {
 	getPublicKey(): string;
 
@@ -6,4 +8,6 @@ export interface Context {
 		requests: number;
 		errors: number;
 	};
+
+	getFastConfig(): Config["sedaFast"];
 }

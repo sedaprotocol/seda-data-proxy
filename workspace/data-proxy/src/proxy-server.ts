@@ -68,7 +68,10 @@ export function startProxyServer(
 			logger.debug("Responded to request", { requestId, response });
 		});
 
-	const statusContext = new StatusContext(dataProxy.publicKey.toString("hex"));
+	const statusContext = new StatusContext(
+		dataProxy.publicKey.toString("hex"),
+		config.sedaFast,
+	);
 	server.use(statusPlugin(statusContext, dataProxy, config.statusEndpoints));
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 

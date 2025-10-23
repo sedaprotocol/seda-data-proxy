@@ -1,4 +1,5 @@
 import { formatISODuration, intervalToDuration } from "date-fns";
+import type { Config } from "../config-parser";
 import type { Context } from "./types";
 
 export class StatusContext implements Context {
@@ -6,7 +7,10 @@ export class StatusContext implements Context {
 	private requests = 0;
 	private errors = 0;
 
-	constructor(private publicKey: string) {
+	constructor(
+		private publicKey: string,
+		private fastConfig: Config["sedaFast"],
+	) {
 		this.publicKey = publicKey;
 	}
 
@@ -16,6 +20,10 @@ export class StatusContext implements Context {
 
 	incrementErrors() {
 		this.errors++;
+	}
+
+	getFastConfig() {
+		return this.fastConfig ?? { enable: false, allowedClients: [] };
 	}
 
 	getPublicKey() {
