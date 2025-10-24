@@ -403,9 +403,6 @@ describe("proxy server", () => {
 					requests: 0,
 					errors: 0,
 				},
-				version: expect.any(String),
-				chainId: expect.any(String),
-				rpcChainId: expect.any(String),
 			});
 
 			// Successful proxy request
@@ -413,9 +410,6 @@ describe("proxy server", () => {
 
 			await expectStatus({
 				status: "healthy",
-				chainId: expect.any(String),
-				rpcChainId: expect.any(String),
-				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 1,
@@ -428,9 +422,6 @@ describe("proxy server", () => {
 
 			await expectStatus({
 				status: "healthy",
-				chainId: expect.any(String),
-				rpcChainId: expect.any(String),
-				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 2,
@@ -441,7 +432,7 @@ describe("proxy server", () => {
 			await proxy.stop();
 		});
 
-		it("should return the pubkey of the proxy for <statusRoot>/pubkey", async () => {
+		it("should return the pubkey of the proxy for <statusRoot>/info", async () => {
 			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
 				"get",
 				// Empty path to make it easier to query the status endpoint
@@ -483,12 +474,20 @@ describe("proxy server", () => {
 				},
 			);
 
-			const response = await fetch(`${proxyUrl}/status/pubkey`);
+			const response = await fetch(`${proxyUrl}/status/info`);
 			const result = await response.json();
 
 			expect(result).toEqual({
 				pubKey:
 					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				fastConfig: {
+					enable: true,
+					allowedClients: [],
+					maxProofAgeMs: 1000,
+				},
+				version: expect.any(String),
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
 			});
 
 			await proxy.stop();
@@ -540,9 +539,9 @@ describe("proxy server", () => {
 				},
 			);
 
-			const unauthorizedPubkeyRes = await fetch(
-				`${proxyUrl}/status/pubkey`,
-			).then((r) => r.text());
+			const unauthorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`).then(
+				(r) => r.text(),
+			);
 			expect(unauthorizedPubkeyRes).toEqual("Unauthorized");
 
 			const unauthorizedHealthRes = await fetch(
@@ -550,7 +549,7 @@ describe("proxy server", () => {
 			).then((r) => r.text());
 			expect(unauthorizedHealthRes).toEqual("Unauthorized");
 
-			const authorizedPubkeyRes = await fetch(`${proxyUrl}/status/pubkey`, {
+			const authorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`, {
 				headers: {
 					"X-API-Key": "secret",
 				},
@@ -558,6 +557,14 @@ describe("proxy server", () => {
 			expect(authorizedPubkeyRes).toEqual({
 				pubKey:
 					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				fastConfig: {
+					enable: true,
+					allowedClients: [],
+					maxProofAgeMs: 1000,
+				},
+				version: expect.any(String),
+				chainId: expect.any(String),
+				rpcChainId: expect.any(String),
 			});
 
 			const authorizedHealthRes = await fetch(`${proxyUrl}/status/health`, {
@@ -567,9 +574,6 @@ describe("proxy server", () => {
 			}).then((r) => r.json());
 			expect(authorizedHealthRes).toEqual({
 				status: "healthy",
-				chainId: expect.any(String),
-				rpcChainId: expect.any(String),
-				version: expect.any(String),
 				metrics: {
 					uptime: expect.any(String),
 					requests: 0,
