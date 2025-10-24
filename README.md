@@ -326,10 +326,10 @@ The JSON Path also supports path parameters using the `{:PARAM}` syntax:
 
 The Data Proxy node has support for exposing status information through some endpoints. This can be used to monitor the health of the node and the number of requests it has processed.
 
-The status endpoint has two routes:
+The status endpoint has three routes:
 
 - `/status/health`  
-  Returns a JSON object with the following strucuture:
+  Returns health status and operational metrics:
   ```jsonc
   {
     "status": "healthy",
@@ -340,11 +340,19 @@ The status endpoint has two routes:
     }
   }
   ```
-- `/status/pubkey`  
-  Returns the public key of the node.
+
+- `/status/info`  
+  Returns comprehensive information about the node including public key, SEDA FAST configuration, version, and chain information:
   ```jsonc
   {
-    "pubkey": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+    "pubKey": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "fastConfig": {
+      "enable": false,
+      "allowedClients": []
+    },
+    "version": "1.2.0",
+    "chainId": "seda-1",
+    "rpcChainId": "seda-1"
   }
   ```
 
@@ -370,11 +378,9 @@ The status endpoints can be configured in the config file under the statusEndpoi
 - `apiKey`: Optionally secure the status endpoints with an API key. The `header` attribute is the header key that needs to be set, and `secret` is the value that it needs to be set to.  
   The `statusEndpoints.apiKey.secret` attribute supports the `{$MY_ENV_VARIABLE}` syntax for injecting a value from the environment during start up.
 
-
 ### Environment
 
 The following environment variables are available for configuration:
-
 
 | Environment variable | Description | Default |
 | --- | --- | --- |
@@ -384,6 +390,70 @@ The following environment variables are available for configuration:
 | `LOG_FILE_LOG_LEVEL` | Log level for file transport. | `debug` |
 | `LOG_FILE_MAX_FILES` | How many log files to keep (time or count), per winston-daily-rotate-file. | `14d` |
 | `LOG_FILE_DATE_PATTERN` | Date pattern used in rotated log filenames. | `YYYY-MM-DD` |
+
+## SEDA FAST Support
+
+SEDA FAST is an opt-in feature that exposes your data proxy to the SEDA FAST service, enabling low-latency access for pre-authorized clients. The authentication mechanism is based on allow-listed public keys instead of the standard proof verification.
+
+### Enabling SEDA FAST
+
+To enable SEDA FAST on your data proxy, use the `enable-fast` command:
+
+```sh
+# Enable SEDA FAST with a single client public key (most common use case)
+bun start enable-fast "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+
+# Enable SEDA FAST with multiple client public keys (comma-separated)
+bun start enable-fast "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f,02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+
+# Update existing clients (will prompt for confirmation)
+bun start enable-fast "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+
+# Use a custom config file
+bun start enable-fast "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f" --config ./my-config.json
+
+# Preview the configuration without saving
+bun start enable-fast "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f" --print
+```
+
+### SEDA FAST Configuration
+
+The `enable-fast` command automatically adds the following configuration to your `config.json`:
+
+```jsonc
+{
+  "sedaFast": {
+    "enable": true,
+    "allowedClients": [
+      "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+    ],
+    "maxProofAgeMs": 300000
+  }
+}
+```
+
+Configuration options:
+- `enable`: Boolean flag to enable/disable SEDA FAST
+- `allowedClients`: Array of compressed secp256k1 public keys (33 bytes, 66 hex characters) that are allowed to use FAST mode
+- `maxProofAgeMs`: Maximum age of FAST proofs in milliseconds (default: 5 minutes)
+
+> [!IMPORTANT]
+> Public keys must be in compressed secp256k1 format (33 bytes, starting with 0x02 or 0x03). The `enable-fast` command will validate the format of provided public keys.
+
+### Disabling SEDA FAST
+
+To disable SEDA FAST, manually edit your `config.json` and set:
+
+```jsonc
+{
+  "sedaFast": {
+    "enable": false
+  }
+}
+```
+
+Or remove the `sedaFast` section entirely.
 
 ## Deployment
 
