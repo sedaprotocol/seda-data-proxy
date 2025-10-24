@@ -217,7 +217,7 @@ export function parseConfig(
 			envSecrets.add(envVariable);
 		}
 
-		// Ensure variables in the path are used in the upstream URL or the headers.
+		// Ensure variables in the path are used in the upstream URL, the headers or the jsonPath.
 		for (const match of route.path.matchAll(pathVarRegex)) {
 			let isUsed = false;
 
@@ -230,6 +230,10 @@ export function parseConfig(
 					isUsed = true;
 					break;
 				}
+			}
+
+			if (route.jsonPath?.includes(match[1])) {
+				isUsed = true;
 			}
 
 			if (!isUsed) {
