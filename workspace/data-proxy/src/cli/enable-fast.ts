@@ -1,6 +1,7 @@
 import { exists, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { Command, Option } from "@commander-js/extra-typings";
+import { parseConfig } from "../config-parser";
 
 export const enableFastCmd = new Command("enable-fast")
 	.description("Enable Seda Fast with allowed client public keys")
@@ -19,119 +20,142 @@ async function enableFastConfig(
 	allowedClients: string | undefined,
 	printOnly = false,
 ) {
-	try {
-		// If config file doesn't exist, return error
-		if (!(await exists(configPath))) {
+	// If config file doesn't exist, return error
+	if (!(await exists(configPath))) {
+		console.error(
+			`Config file ${configPath} does not exist, please run 'bun start init' to create it`,
+		);
+		process.exit(1);
+	}
+
+	// Read config file
+	console.log(`Reading config from: ${configPath}`);
+	const configFile = await readFile(configPath);
+	const config = JSON.parse(configFile.toString());
+
+	// Initialize sedaFast if it doesn't exist
+	if (!config.sedaFast) {
+		config.sedaFast = {};
+	}
+
+	// Get existing clients
+	const existingClients = config.sedaFast.allowedClients || [];
+	const existingSet = new Set(existingClients);
+
+	// Parse new clients if provided
+	let newClients: string[] = [];
+	if (allowedClients?.trim()) {
+		newClients = allowedClients
+			.split(",")
+			.map((key: string) => key.trim())
+			.filter((key: string) => key.length > 0);
+
+		if (newClients.length === 0) {
+			console.error("No valid client public keys provided");
 			console.error(
-				`Config file ${configPath} does not exist, please run 'bun start init' to create it`,
+				'Please provide client public keys: bun start enable-fast "pubkey1,pubkey2"',
 			);
 			process.exit(1);
 		}
-
-		// Read config file
-		console.log(`Using config: ${configPath}`);
-		const configFile = await readFile(configPath);
-		const config = JSON.parse(configFile.toString());
-
-		// Initialize sedaFast if it doesn't exist
-		if (!config.sedaFast) {
-			config.sedaFast = {};
-		}
-
-		let uniqueClients: string[] = [];
-
-		// Handle allowed clients argument
-		if (allowedClients?.trim()) {
-			// Parse and validate clients
-			const newClients = allowedClients
-				.split(",")
-				.map((key: string) => key.trim())
-				.filter((key: string) => key.length > 0);
-
-			if (newClients.length === 0) {
-				console.error("No valid client public keys provided");
-				console.error(
-					'Please provide client public keys: bun start fast-enable "pubkey1,pubkey2"',
-				);
-				process.exit(1);
-			}
-
-			uniqueClients = [...new Set(newClients)];
+	} else {
+		// No new clients provided, use existing ones if available
+		if (existingClients.length > 0) {
+			console.log("No new clients provided, keeping existing ones...");
 		} else {
-			// No new clients provided, use existing ones if available
-			if (config.sedaFast.allowedClients?.length > 0) {
-				uniqueClients = config.sedaFast.allowedClients;
-				console.log("No new clients provided, keeping existing ones...");
-			} else {
-				console.error("No allowed clients provided and none exist in config");
-				console.error(
-					'Please provide client public keys: bun start fast-enable "pubkey1,pubkey2"',
-				);
-				process.exit(1);
-			}
-		}
-
-		// Check if there are existing clients and ask for confirmation (only if we're replacing them)
-		if (allowedClients?.trim() && config.sedaFast.allowedClients?.length > 0) {
-			const status = config.sedaFast.enable ? "enabled" : "disabled";
-			console.log(`⚠️  Seda Fast is ${status} but has existing clients:`);
-
-			config.sedaFast.allowedClients.forEach(
-				(client: string, index: number) => {
-					console.log(`- [${index + 1}]: ${client}`);
-				},
+			console.error("No allowed clients provided and none exist in config");
+			console.error(
+				'Please provide client public keys: bun start enable-fast "pubkey1,pubkey2"',
 			);
+			process.exit(1);
+		}
+	}
 
-			console.log("\nReplace with:");
-			uniqueClients.forEach((client: string, index: number) => {
+	// Check what's new and what already exists
+	const alreadyExists = newClients.filter((client) => existingSet.has(client));
+	const actuallyNew = newClients.filter((client) => !existingSet.has(client));
+
+	// Show what's happening
+	if (newClients.length > 0) {
+		if (existingClients.length > 0) {
+			console.log("\nCurrent allowed clients:");
+			existingClients.forEach((client: string, index: number) => {
 				console.log(`- [${index + 1}]: ${client}`);
 			});
-
-			if (!printOnly) {
-				const confirmed = await askForConfirmation("\nContinue? (y/N): ");
-				if (!confirmed) {
-					console.log("Operation cancelled");
-					process.exit(0);
-				}
-			}
-			console.log("");
 		}
 
-		// Check if we're actually changing anything
-		const wasEnabled = config.sedaFast.enable;
-		const clientsChanged =
-			JSON.stringify(config.sedaFast.allowedClients) !==
-			JSON.stringify(uniqueClients);
-
-		// Update configuration
-		config.sedaFast.enable = true;
-		config.sedaFast.allowedClients = uniqueClients;
-
-		if (printOnly) {
-			console.log("⚙️ Updated configuration file content:");
-			console.log(JSON.stringify(config, null, 2));
-		} else {
-			// Write back to file
-			await writeFile(configPath, JSON.stringify(config, null, 2));
-
-			// Show appropriate success message
-			if (!wasEnabled) {
-				console.log(
-					`✅ Seda Fast enabled successfully with ${uniqueClients.length} clients`,
-				);
-			} else if (clientsChanged) {
-				console.log(
-					`✅ Seda Fast clients updated successfully (${uniqueClients.length} clients)`,
-				);
-			} else {
-				console.log(
-					`Seda Fast is already enabled with ${uniqueClients.length} clients`,
-				);
-			}
+		if (alreadyExists.length > 0) {
+			console.log("\nAlready exists (will be skipped):");
+			alreadyExists.forEach((client: string, index: number) => {
+				console.log(`- [${index + 1}]: ${client}`);
+			});
 		}
-	} catch (error) {
-		console.error(`Failed to update config: ${error}`);
+
+		if (actuallyNew.length > 0) {
+			console.log("\nAdding new clients:");
+			actuallyNew.forEach((client: string, index: number) => {
+				console.log(`- [${index + 1}]: ${client}`);
+			});
+		}
+
+		// Show final result
+		const finalClients = [...existingClients, ...actuallyNew];
+		console.log("\nFinal allowed clients:");
+		finalClients.forEach((client: string, index: number) => {
+			console.log(`- [${index + 1}]: ${client}`);
+		});
+
+		// Ask for confirmation only if there are existing clients that might be affected
+		if (actuallyNew.length > 0 && !printOnly && existingClients.length > 0) {
+			const confirmed = await askForConfirmation("\nContinue? (y/N): ");
+			if (!confirmed) {
+				console.log("Operation cancelled");
+				process.exit(0);
+			}
+		} else if (actuallyNew.length === 0) {
+			console.log(
+				"\nNo new clients to add. All provided clients already exist.",
+			);
+			process.exit(0);
+		}
+	}
+
+	// Check if we're actually changing anything
+	const wasEnabled = config.sedaFast.enable;
+	const finalClients = [...existingClients, ...actuallyNew];
+
+	// Update configuration
+	config.sedaFast.enable = true;
+	config.sedaFast.allowedClients = finalClients;
+
+	// Validate the updated config using the parser
+	const [parseResult] = parseConfig(config);
+	if (parseResult.isErr) {
+		console.error("\nConfiguration validation failed:");
+		console.error(parseResult.error);
 		process.exit(1);
+	}
+
+	if (printOnly) {
+		console.log("\n📄 Content of the updated configuration file:");
+		console.log(JSON.stringify(config, null, 2));
+	} else {
+		// Write back the original config (with our SEDA FAST changes)
+		await writeFile(configPath, JSON.stringify(config, null, 2));
+
+		// Show appropriate success message
+		if (!wasEnabled) {
+			console.log(
+				`\n✅ SEDA FAST enabled successfully with ${finalClients.length} client${finalClients.length === 1 ? "" : "s"}`,
+			);
+		} else if (actuallyNew.length > 0) {
+			console.log(
+				`\n✅ SEDA FAST clients updated successfully (${finalClients.length} total client${finalClients.length === 1 ? "" : "s"})`,
+			);
+		} else {
+			console.log(
+				`\n✅ SEDA FAST is already enabled with ${finalClients.length} client${finalClients.length === 1 ? "" : "s"}`,
+			);
+		}
 	}
 }
 
