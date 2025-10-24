@@ -1,3 +1,4 @@
+import { Secp256k1 } from "@cosmjs/crypto";
 import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
 import type { HTTPMethod } from "elysia";
@@ -40,6 +41,33 @@ const RouteSchema = v.strictObject(
 	UNKNOWN_ATTRIBUTE_ERROR,
 );
 
+// Only compressed secp256k1 public keys are supported here as that's the format exposed by SEDA FAST.
+const Secp256k1PublicKeySchema = v.pipe(
+	v.string(),
+	v.length(66, "Public key must be exactly 66 characters (33 bytes in hex)"),
+	v.regex(
+		/^[0-9a-fA-F]+$/,
+		"Public key must contain only hexadecimal characters",
+	),
+	v.check(
+		(key) => key.startsWith("02") || key.startsWith("03"),
+		"Public key must start with '02' or '03' (compressed secp256k1 format)",
+	),
+	v.check(
+		(key) => {
+			try {
+				const publicKeyBuffer = Buffer.from(key, "hex");
+				Secp256k1.uncompressPubkey(publicKeyBuffer);
+				return true;
+			} catch (error) {
+				// Return false so Valibot can collect the error with proper field path
+				return false;
+			}
+		},
+		(param) => `Invalid secp256k1 public key: "${param.input}"`,
+	),
+);
+
 const ConfigSchema = v.strictObject(
 	{
 		verificationMaxRetries: v.optional(
@@ -53,8 +81,24 @@ const ConfigSchema = v.strictObject(
 		sedaFast: v.optional(
 			v.object({
 				enable: v.boolean(),
-				allowedClients: v.array(v.string()),
-				maxProofAgeMs: v.optional(v.number()),
+				allowedClients: v.pipe(
+					v.array(Secp256k1PublicKeySchema),
+					v.minLength(
+						1,
+						"At least one allowed client is required when SEDA FAST is enabled",
+					),
+					v.check((clients) => {
+						const unique = new Set(clients);
+						return unique.size === clients.length;
+					}, "Duplicate public keys are not allowed"),
+				),
+				maxProofAgeMs: v.optional(
+					v.pipe(
+						v.number(),
+						v.integer(),
+						v.minValue(1, "maxProofAgeMs must be a positive integer"),
+					),
+				),
 			}),
 		),
 		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
