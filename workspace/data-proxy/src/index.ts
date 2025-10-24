@@ -14,6 +14,7 @@ dotenv.config({
 
 import { Command } from "@commander-js/extra-typings";
 import { version } from "../package.json";
+import { enableFastCmd } from "./cli/enable-fast";
 import { initCmd } from "./cli/init";
 import { registerCmd } from "./cli/register";
 import { runCmd, validateCmd } from "./cli/run";
@@ -26,6 +27,7 @@ const program = new Command()
 	.addCommand(validateCmd)
 	.addCommand(initCmd)
 	.addCommand(registerCmd)
+	.addCommand(enableFastCmd)
 	.helpOption(undefined, "Display this help");
 
 program.parse(process.argv);

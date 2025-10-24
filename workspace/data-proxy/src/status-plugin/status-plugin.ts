@@ -1,6 +1,7 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
 import Elysia from "elysia";
 import type { Config } from "../config-parser";
+import logger from "../logger";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
 import { effectToAsyncResult } from "../utils/effect-utils";
 import { getVersions } from "../utils/versions";
@@ -26,6 +27,13 @@ export function statusPlugin(
 					}
 				});
 			}
+
+			// List all available endpoints
+			group.get("", () => {
+				return Response.json({
+					endpoints: [`${options.root}/health`, `${options.root}/info`],
+				});
+			});
 
 			group.get("health", async ({ set }) => {
 				const chainId = await effectToAsyncResult(
@@ -56,6 +64,9 @@ export function statusPlugin(
 			return group;
 		});
 
+		logger.info(
+			`Status endpoints: /${options.root}/health, /${options.root}/info`,
+		);
 		return app.use(plugin);
 	};
 }
