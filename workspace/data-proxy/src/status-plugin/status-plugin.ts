@@ -41,23 +41,25 @@ export function statusPlugin(
 				);
 				const hasCorrectChainId =
 					chainId.isOk && chainId.value === dataProxy.options.chainId;
-
 				set.status = chainId.isOk && hasCorrectChainId ? 200 : 500;
 
 				return Response.json({
 					status: chainId.isOk && hasCorrectChainId ? "healthy" : "unhealthy",
 					metrics: context.getMetrics(),
-					version: getVersions().proxy,
-					chainId: dataProxy.options.chainId,
-					rpcChainId: chainId.isOk ? chainId.value : null,
 				});
 			});
 
-			group.get("info", () => {
+			group.get("info", async () => {
+				const chainId = await effectToAsyncResult(
+					getRpcChainId(dataProxy.options.rpcUrl),
+				);
+
 				return Response.json({
 					pubKey: context.getPublicKey(),
 					fastConfig: context.getFastConfig(),
 					version: getVersions().proxy,
+					chainId: dataProxy.options.chainId,
+					rpcChainId: chainId.isOk ? chainId.value : null,
 				});
 			});
 
