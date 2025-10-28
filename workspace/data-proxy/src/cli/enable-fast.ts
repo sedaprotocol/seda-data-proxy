@@ -53,7 +53,7 @@ async function enableFastConfig(
 		if (newClients.length === 0) {
 			console.error("No valid client public keys provided");
 			console.error(
-				'Please provide client public keys: bun start enable-fast "pubkey1,pubkey2"',
+				'Please provide client public keys, use `enable-fast "pubkey1,pubkey2"`',
 			);
 			process.exit(1);
 		}
@@ -64,7 +64,7 @@ async function enableFastConfig(
 		} else {
 			console.error("No allowed clients provided and none exist in config");
 			console.error(
-				'Please provide client public keys: bun start enable-fast "pubkey1,pubkey2"',
+				'Please provide client public keys, use `enable-fast "pubkey1,pubkey2"`',
 			);
 			process.exit(1);
 		}
@@ -156,6 +156,8 @@ async function enableFastConfig(
 				`\n✅ SEDA FAST is already enabled with ${finalClients.length} client${finalClients.length === 1 ? "" : "s"}`,
 			);
 		}
+
+		console.log("\nRestart the data proxy service to apply the changes");
 	}
 }
 
