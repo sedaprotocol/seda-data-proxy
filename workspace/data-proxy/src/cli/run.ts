@@ -166,7 +166,7 @@ async function configure(
 	const publicKey = dataProxy.publicKey.toString("hex");
 	console.log(`🔐 Using public key: ${publicKey}`);
 	if (options.skipRegistrationCheck) {
-		console.log("⚠️ Registration check was skipped\n");
+		console.log("⚠️  Registration check was skipped\n");
 	} else {
 		const dataProxyRegistration = await dataProxy.getDataProxyRegistration();
 		if (dataProxyRegistration.isErr) {
@@ -186,6 +186,15 @@ async function configure(
 				`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}\n`,
 			);
 		}
+	}
+
+	console.log(
+		`🚀 SEDA FAST enabled: ${config.value.config.sedaFast?.enable ? "Yes" : "No"}`,
+	);
+	if (config.value.config.sedaFast?.enable) {
+		console.log(
+			`🔐 Allowed FAST clients: ${config.value.config.sedaFast?.allowedClients?.join(", ")}`,
+		);
 	}
 
 	if (!silent) {

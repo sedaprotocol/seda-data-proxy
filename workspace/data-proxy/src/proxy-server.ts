@@ -53,7 +53,7 @@ export function startProxyServer(
 				query,
 				request: { method },
 			}) => {
-				logger.debug("Received request", {
+				logger.debug(`Received request ${method} ${path}`, {
 					requestId,
 					headers,
 					body,
