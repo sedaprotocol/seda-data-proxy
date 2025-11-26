@@ -105,7 +105,6 @@ export function startProxyServer(
 						params,
 						body,
 						path,
-						query,
 						requestId,
 						request,
 					}) => {
@@ -250,9 +249,13 @@ export function startProxyServer(
 							requestLogger.debug("Skipping proof verification.");
 						}
 
+						// Parse the request URL to get the search params,
+						// this is to support query params that can be repeated, such as ?one=one&one=two
+						const requestUrl = new URL(request.url);
+
 						// Add the request search params (?one=two) to the upstream url
 						const requestSearchParams = createUrlSearchParams(
-							query,
+							requestUrl.searchParams,
 							route.allowedQueryParams,
 						);
 						let upstreamUrl = replaceParams(route.upstreamUrl, params);

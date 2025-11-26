@@ -1,16 +1,26 @@
 export function createUrlSearchParams(
-	queryParams: Record<string, string | undefined>,
+	queryParams: URLSearchParams,
 	allowedQueryParams?: string[],
 ): URLSearchParams {
 	const result = new URLSearchParams();
 
-	for (const [key, value] of Object.entries(queryParams)) {
+	// .forEach() is the only way to correctly iterate over the query params
+	// without losing values that can be repeated, such as ?one=one&one=two
+	queryParams.forEach((value, key) => {
 		if (allowedQueryParams && !allowedQueryParams.includes(key)) {
-			continue;
+			return;
 		}
 
-		result.append(key, value ?? "");
-	}
+		// If the value is an array, append each value to the result
+		// This is to support query params that can be repeated, such as ?one=one&one=two
+		if (Array.isArray(value)) {
+			for (const v of value) {
+				result.append(key, v);
+			}
+		} else {
+			result.append(key, value ?? "");
+		}
+	});
 
 	return result;
 }

@@ -44,13 +44,12 @@ describe("mergeUrlSearchParams", () => {
 	});
 
 	it("should keep only the allowed query params", () => {
-		const result = createUrlSearchParams(
-			{
-				"1": "one",
-				"2": "two",
-			},
-			["1"],
-		);
+		const queryParams = new URLSearchParams({
+			"1": "one",
+			"2": "two",
+		});
+
+		const result = createUrlSearchParams(queryParams, ["1"]);
 
 		const expected = new URLSearchParams({
 			"1": "one",
@@ -60,10 +59,12 @@ describe("mergeUrlSearchParams", () => {
 	});
 
 	it("should allow all query params if no allowed query params are provided", () => {
-		const result = createUrlSearchParams({
+		const queryParams = new URLSearchParams({
 			"1": "one",
 			"2": "two",
 		});
+
+		const result = createUrlSearchParams(queryParams);
 
 		const expected = new URLSearchParams({
 			"1": "one",
@@ -71,5 +72,44 @@ describe("mergeUrlSearchParams", () => {
 		});
 
 		expect(result.toString()).toBe(expected.toString());
+	});
+
+	it("should support query params that can be repeated", () => {
+		const queryParams = new URLSearchParams({
+			"1": "one",
+			"2": "two",
+		});
+
+		queryParams.append("1", "anotherone");
+
+		const result = createUrlSearchParams(queryParams);
+
+		expect(result.toString()).toBe("1=one&2=two&1=anotherone");
+	});
+
+	it("should support query params that can be repeated and allowed query params are provided", () => {
+
+		const queryParams = new URLSearchParams({
+			"1": "one",
+			"2": "two",
+		});
+
+		queryParams.append("1", "anotherone");
+
+		const result = createUrlSearchParams(queryParams, ["1"]);
+
+		expect(result.toString()).toBe("1=one&1=anotherone");
+	});
+
+	it("should remove query params that are not allowed with multiple values", () => {
+		const queryParams = new URLSearchParams({
+			"1": "one",
+			"2": "two",
+		});
+
+		queryParams.append("1", "anotherone");
+
+		const result = createUrlSearchParams(queryParams, ["2"]);
+		expect(result.toString()).toBe("2=two");
 	});
 });
