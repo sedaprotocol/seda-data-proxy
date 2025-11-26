@@ -100,14 +100,7 @@ export function startProxyServer(
 				app.route(
 					routeMethod,
 					route.path,
-					async ({
-						headers,
-						params,
-						body,
-						path,
-						requestId,
-						request,
-					}) => {
+					async ({ headers, params, body, path, requestId, request }) => {
 						const requestLogger = logger.child({ requestId });
 
 						// requestBody is now always a string because of the parse function in this route

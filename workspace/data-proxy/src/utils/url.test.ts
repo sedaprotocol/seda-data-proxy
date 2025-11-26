@@ -12,7 +12,7 @@ describe("url", () => {
 
 		const injection = createUrlSearchParams(targetSearchParams);
 		const result = injectSearchParamsInUrl(targetUrl, injection);
-		
+
 		assertIsOkResult(result);
 		expect(result.value.toString()).toBe("http://example.com/?two=2&one=1");
 	});

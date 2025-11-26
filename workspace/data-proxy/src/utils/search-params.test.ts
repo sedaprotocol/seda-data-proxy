@@ -88,7 +88,6 @@ describe("mergeUrlSearchParams", () => {
 	});
 
 	it("should support query params that can be repeated and allowed query params are provided", () => {
-
 		const queryParams = new URLSearchParams({
 			"1": "one",
 			"2": "two",
