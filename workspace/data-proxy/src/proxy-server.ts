@@ -302,6 +302,30 @@ export function startProxyServer(
 							return createErrorResponse(message, 500);
 						}
 
+						if (!upstreamResponse.value.ok) {
+							const body = await tryAsync(
+								async () => await upstreamResponse.value.text(),
+							);
+
+							// Rare case where the upstream response is not a text parseable response
+							if (body.isErr) {
+								const message = `Upstream response for ${route.path} is not ok: ${upstreamResponse.value.status} err: ${body.error}`;
+								requestLogger.error(message, { error: body.error });
+								return createErrorResponse(
+									message,
+									upstreamResponse.value.status,
+								);
+							}
+
+							const message = `Upstream response for ${route.path} is not ok: ${upstreamResponse.value.status} body: ${body.value}`;
+							requestLogger.error(message);
+
+							return createErrorResponse(
+								message,
+								upstreamResponse.value.status,
+							);
+						}
+
 						requestLogger.debug("Received upstream response", {
 							headers: upstreamResponse.value.headers,
 						});

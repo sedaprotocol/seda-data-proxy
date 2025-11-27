@@ -15,13 +15,22 @@ export function queryJson(
 		return Result.err(`Parsing as JSON failed: ${jsonData.error}`);
 	}
 
-	const data = trySync(() => JSONPath({ path, json: jsonData.value }));
+	// biome-ignore lint/suspicious/noExplicitAny: JSONPath returns any
+	const data: Result<any, Error> = trySync(() =>
+		JSONPath({ path, json: jsonData.value }),
+	);
 
 	if (data.isErr) {
 		return Result.err(`Could not query JSON: ${data.error}`);
 	}
 
-	if (!data.value.length) {
+	if (!Array.isArray(data.value)) {
+		return Result.err(
+			`Quering JSON with ${path} returned not an array: ${JSON.stringify(data.value)}`,
+		);
+	}
+
+	if (data.value.length === 0) {
 		return Result.err(`Quering JSON with ${path} returned null`);
 	}
 

@@ -19,4 +19,12 @@ describe("queryJson", () => {
 
 		expect(result).toBeErrResult("Quering JSON with $.a.b.b returned null");
 	});
+
+	it("should return an error when the JSON body is not an object", () => {
+		const result = queryJson(JSON.stringify(""), "$.a.b.b");
+
+		expect(result).toBeErrResult(
+			"Quering JSON with $.a.b.b returned not an array: undefined",
+		);
+	});
 });
