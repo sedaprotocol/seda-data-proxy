@@ -24,12 +24,19 @@ function redactEnvSecrets(message: string | unknown) {
 
 const logFormat = format.printf((info) => {
 	const metadata =
-		(info.metadata as { requestId?: string; error?: string | Error }) ?? {};
+		(info.metadata as {
+			requestId?: string;
+			error?: string | Error;
+			path?: string;
+		}) ?? {};
 
 	const requestId = Maybe.of(metadata.requestId).mapOr(" ", (t) => {
 		return ` [${cyan(t)}] `;
 	});
-	const logMsg = `${info.timestamp}${requestId}${info.level}`;
+	const path = Maybe.of(metadata.path).mapOr(" ", (t) => {
+		return `[${cyan(t)}] `;
+	});
+	const logMsg = `${info.timestamp}${requestId}${path}${info.level}`;
 
 	const message = redactEnvSecrets(info.message);
 

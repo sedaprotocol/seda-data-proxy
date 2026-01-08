@@ -21,17 +21,24 @@ export function queryJson(
 	);
 
 	if (data.isErr) {
-		return Result.err(`Could not query JSON: ${data.error}`);
+		const slicedInput = JSON.stringify(input).slice(0, 100);
+		return Result.err(
+			`Could not query JSON: ${data.error} with input ${slicedInput}...`,
+		);
 	}
 
 	if (!Array.isArray(data.value)) {
+		const slicedInput = JSON.stringify(input).slice(0, 100);
 		return Result.err(
-			`Quering JSON with ${path} returned not an array: ${JSON.stringify(data.value)}`,
+			`Quering JSON with ${path} returned not an array: ${JSON.stringify(data.value)} with input ${slicedInput}...`,
 		);
 	}
 
 	if (data.value.length === 0) {
-		return Result.err(`Quering JSON with ${path} returned null`);
+		const slicedInput = JSON.stringify(input).slice(0, 100);
+		return Result.err(
+			`Quering JSON with ${path} returned null with input ${slicedInput}...`,
+		);
 	}
 
 	return Result.ok(data.value[0]);
