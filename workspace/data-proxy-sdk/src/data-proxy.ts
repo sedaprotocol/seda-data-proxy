@@ -1,24 +1,23 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
 import {
 	ExtendedSecp256k1Signature,
-	Secp256k1,
 	keccak256,
+	Secp256k1,
 } from "@cosmjs/crypto";
 import {
+	createProtobufRpcClient,
 	type ProtobufRpcClient,
 	QueryClient,
-	createProtobufRpcClient,
 } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
-import * as Match from "effect/Match";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
 import {
 	type DataProxyOptions,
-	type Environment,
 	defaultConfig,
+	type Environment,
 } from "./config";
 import { getDataProxyRegistration } from "./data-proxy-registration";
 import { getLatestCoreContractAddress } from "./latest-core-contract-address";
@@ -117,7 +116,9 @@ export class DataProxy {
 			return Result.err(cometClientRes.error);
 		}
 
-		const client = await tryAsync(CosmWasmClient.create(cometClientRes.value));
+		const client = await tryAsync(async () =>
+			CosmWasmClient.create(cometClientRes.value),
+		);
 		return client.map((t) => {
 			this.cosmwasmClient = Maybe.just(t);
 			return t;

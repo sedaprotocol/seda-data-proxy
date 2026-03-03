@@ -59,7 +59,7 @@ const Secp256k1PublicKeySchema = v.pipe(
 				const publicKeyBuffer = Buffer.from(key, "hex");
 				Secp256k1.uncompressPubkey(publicKeyBuffer);
 				return true;
-			} catch (error) {
+			} catch (_error) {
 				// Return false so Valibot can collect the error with proper field path
 				return false;
 			}
@@ -143,7 +143,7 @@ export function getHttpMethods(
 // varRegex is a regex used to match variables following the {:varName} syntax.
 export const varRegex = new RegExp(/{(:[^}]+)}/g, "g");
 // pathVarRegex is a regex used to match variables following the :varName syntax.
-export const pathVarRegex = new RegExp(/(:[^\/]+)/g);
+export const pathVarRegex = new RegExp(/(:[^/]+)/g);
 // envVarRegex is a regex used to match environment variables following the {$varName} syntax.
 export const envVarRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 

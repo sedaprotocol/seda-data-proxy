@@ -1,5 +1,6 @@
-import { http, type HttpResponseResolver, passthrough } from "msw";
+import { type HttpResponseResolver, http, passthrough } from "msw";
 import { setupServer } from "msw/node";
+
 export { HttpResponse } from "msw";
 
 const TEST_UPSTREAM_BASE = "https://proxy-upstream.com";

@@ -27,7 +27,9 @@ export function createUrlSearchParams(
 
 export function mergeUrlSearchParams(a: URLSearchParams, b: URLSearchParams) {
 	const result = new URLSearchParams(a);
-	b.forEach((value, key) => result.append(key, value));
+	b.forEach((value, key) => {
+		result.append(key, value);
+	});
 
 	return result;
 }

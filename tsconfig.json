@@ -1,4 +1,6 @@
 {
+	"include": ["workspace/**/*", "*.ts"],
+	"exclude": ["node_modules"],
 	"compilerOptions": {
 		// Enable latest features
 		"lib": ["ESNext", "DOM"],

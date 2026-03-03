@@ -5,7 +5,7 @@ import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
 import { trySync } from "@seda-protocol/utils";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe } from "true-myth";
-import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
+import { PRIVATE_KEY_ENV_KEY } from "../constants";
 import { sedaToAseda } from "./utils/big";
 import { createHash } from "./utils/create-hash";
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
@@ -133,7 +133,7 @@ function isValidSedaAddress(address: string): boolean {
 	try {
 		const { prefix } = fromBech32(address);
 		return prefix === "seda";
-	} catch (error) {
+	} catch (_error) {
 		return false;
 	}
 }

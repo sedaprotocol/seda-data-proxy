@@ -11,13 +11,22 @@
 		"check-ts": "bunx tsc --noEmit"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "1.9.4",
-		"@types/bun": "latest",
+		"@biomejs/biome": "2.4.5",
+		"@types/bun": "^1.3.10",
 		"@types/secp256k1": "^4.0.7",
-		"@seda-protocol/utils": "2.0.0"
+		"@seda-protocol/utils": "2.0.0",
+		"true-myth": "9.3.1"
 	},
-	"workspaces": ["workspace/*"],
+	"overrides": {
+		"true-myth": "9.3.1"
+	},
+	"workspaces": [
+		"workspace/*"
+	],
 	"peerDependencies": {
-		"typescript": "^5.8.3"
+		"typescript": "^5.9.3"
+	},
+	"patchedDependencies": {
+		"@seda-protocol/utils@2.0.0": "patches/@seda-protocol%2Futils@2.0.0.patch"
 	}
 }

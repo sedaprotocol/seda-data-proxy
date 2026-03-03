@@ -3,14 +3,14 @@
 	"main": "./src/index.ts",
 	"type": "module",
 	"dependencies": {
-		"@cosmjs/cosmwasm-stargate": "^0.33.1",
-		"@cosmjs/crypto": "^0.33.1",
-		"@cosmjs/stargate": "^0.33.1",
-		"@cosmjs/tendermint-rpc": "^0.33.1",
-		"@seda-protocol/proto-messages": "^1.0.0",
+		"@cosmjs/cosmwasm-stargate": "^0.38.1",
+		"@cosmjs/crypto": "^0.38.1",
+		"@cosmjs/stargate": "^0.38.1",
+		"@cosmjs/tendermint-rpc": "^0.38.1",
+		"@seda-protocol/proto-messages": "^1.0.1-dev.1",
 		"@seda-protocol/utils": "^2.0.0",
-		"effect": "^3.18.4",
+		"effect": "^3.19.19",
 		"secp256k1": "^5.0.1",
-		"true-myth": "9.0.1"
+		"true-myth": "9.3.1"
 	}
 }

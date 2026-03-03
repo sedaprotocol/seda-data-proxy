@@ -1,11 +1,14 @@
 {
-	"$schema": "https://biomejs.dev/schemas/1.8.3/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
 	"files": {
-		"ignore": ["./workspace/data-proxy-sdk/gen"]
+		"includes": [
+			"**",
+			"!workspace/data-proxy-sdk/gen",
+			"!config.json",
+			"!data-proxy-private-key.json"
+		]
 	},
-	"organizeImports": {
-		"enabled": true
-	},
+	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"linter": {
 		"enabled": true,
 		"rules": {

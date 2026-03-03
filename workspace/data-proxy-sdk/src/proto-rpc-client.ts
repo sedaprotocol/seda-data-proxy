@@ -1,7 +1,7 @@
 import {
+	createProtobufRpcClient,
 	type ProtobufRpcClient,
 	QueryClient,
-	createProtobufRpcClient,
 } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import { tryAsync } from "@seda-protocol/utils";

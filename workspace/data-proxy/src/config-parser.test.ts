@@ -167,23 +167,23 @@ describe("parseConfig", () => {
 		expect(result.error).toContain("cannot be the same");
 	});
 
-	it.each(["OPTIONS", ["OPTIONS", "GET"]])(
-		"should error when the OPTIONS method is used for a route",
-		(method) => {
-			const [resultSingle] = parseConfig({
-				routes: [
-					{
-						method,
-						path: "/:coinA/*",
-						upstreamUrl: "aaaaaa.com/{*}",
-					},
-				],
-			});
+	it.each([
+		"OPTIONS",
+		["OPTIONS", "GET"],
+	])("should error when the OPTIONS method is used for a route", (method) => {
+		const [resultSingle] = parseConfig({
+			routes: [
+				{
+					method,
+					path: "/:coinA/*",
+					upstreamUrl: "aaaaaa.com/{*}",
+				},
+			],
+		});
 
-			assertIsErrorResult(resultSingle);
-			expect(resultSingle.error).toContain("OPTIONS method is reserved");
-		},
-	);
+		assertIsErrorResult(resultSingle);
+		expect(resultSingle.error).toContain("OPTIONS method is reserved");
+	});
 
 	describe("it should fail on unknown properties", () => {
 		it("at the root", () => {

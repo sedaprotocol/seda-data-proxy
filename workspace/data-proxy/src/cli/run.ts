@@ -3,10 +3,8 @@ import { Command, Option } from "@commander-js/extra-typings";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
 import { tryAsync, trySync } from "@seda-protocol/utils";
-import { Maybe } from "true-myth";
 import { parseConfig } from "../config-parser";
 import {
-	DEFAULT_ENVIRONMENT,
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,

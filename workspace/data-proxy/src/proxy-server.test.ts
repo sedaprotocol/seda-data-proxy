@@ -6,7 +6,7 @@ import {
 	expect,
 	it,
 } from "bun:test";
-import { Secp256k1, Secp256k1Signature, keccak256 } from "@cosmjs/crypto";
+import { keccak256, Secp256k1, Secp256k1Signature } from "@cosmjs/crypto";
 import {
 	constants,
 	DataProxy,
@@ -294,7 +294,7 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
+			const _proxy = startProxyServer(
 				{
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,

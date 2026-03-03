@@ -58,7 +58,7 @@ if (LOG_FILE_DIR) {
 			filename: "data-proxy-%DATE%.log",
 			dirname: LOG_FILE_DIR,
 			format: format.json({
-				replacer(key, value) {
+				replacer(_key, value) {
 					return redactEnvSecrets(value);
 				},
 			}),

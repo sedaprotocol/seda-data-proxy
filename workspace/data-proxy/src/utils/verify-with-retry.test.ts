@@ -87,37 +87,38 @@ describe("verifyWithRetry", () => {
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(2);
 	});
 
-	it.each(["not_eligible", "data_request_not_found", "not_staker"])(
-		"should retry for status %s when height is behind but within MAX_HEIGHT_DIFFERENCE",
-		async (status) => {
-			const eligibleHeight = Maybe.just(102n);
+	it.each([
+		"not_eligible",
+		"data_request_not_found",
+		"not_staker",
+	])("should retry for status %s when height is behind but within MAX_HEIGHT_DIFFERENCE", async (status) => {
+		const eligibleHeight = Maybe.just(102n);
 
-			mockDataProxy.verify = mock(() => {
-				return Promise.resolve(
-					Result.ok({
-						isValid: false,
-						currentHeight: 100n,
-						status,
-					}),
-				);
-			});
-
-			const result = await verifyWithRetry(
-				loggerStub,
-				mockDataProxy,
-				mockProof,
-				eligibleHeight,
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
+		mockDataProxy.verify = mock(() => {
+			return Promise.resolve(
+				Result.ok({
+					isValid: false,
+					currentHeight: 100n,
+					status,
+				}),
 			);
+		});
 
-			expect(result.isOk).toBe(true);
-			const verification = result.unwrapOr(null);
-			expect(verification).not.toBeNull();
-			expect((verification as VerificationResult).status).toBe(status);
-			expect(mockDataProxy.verify).toHaveBeenCalledTimes(2);
-		},
-	);
+		const result = await verifyWithRetry(
+			loggerStub,
+			mockDataProxy,
+			mockProof,
+			eligibleHeight,
+			testDefaultMaxAttempts,
+			testDefaultRetryDelay,
+		);
+
+		expect(result.isOk).toBe(true);
+		const verification = result.unwrapOr(null);
+		expect(verification).not.toBeNull();
+		expect((verification as VerificationResult).status).toBe(status);
+		expect(mockDataProxy.verify).toHaveBeenCalledTimes(2);
+	});
 
 	it("should not retry when proof is invalid", async () => {
 		const mockVerification = {

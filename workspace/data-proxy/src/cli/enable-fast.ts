@@ -1,6 +1,6 @@
 import { exists, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { Command, Option } from "@commander-js/extra-typings";
+import { Command } from "@commander-js/extra-typings";
 import { parseConfig } from "../config-parser";
 
 export const enableFastCmd = new Command("enable-fast")
