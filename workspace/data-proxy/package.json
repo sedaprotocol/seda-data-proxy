@@ -11,6 +11,7 @@
 		"@cosmjs/crypto": "^0.33.1",
 		"@cosmjs/encoding": "^0.33.1",
 		"@dotenvx/dotenvx": "^1.51.4",
+		"@pythnetwork/pyth-lazer-sdk": "^6.0.0",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
