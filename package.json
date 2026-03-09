@@ -17,6 +17,9 @@
 		"@seda-protocol/utils": "2.0.0"
 	},
 	"workspaces": ["workspace/*"],
+	"overrides": {
+		"effect": "3.19.19"
+	},
 	"peerDependencies": {
 		"typescript": "^5.8.3"
 	}

@@ -1,18 +1,19 @@
-import { readFile } from "node:fs/promises";
 import { Command, Option } from "@commander-js/extra-typings";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
-import { tryAsync, trySync } from "@seda-protocol/utils";
-import { Maybe } from "true-myth";
+import { Effect, Either, LogLevel, Logger } from "effect";
 import { parseConfig } from "../config-parser";
 import {
-	DEFAULT_ENVIRONMENT,
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
+	LOG_LEVEL,
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
-import logger, { setEnvSecrets, setLogLevel } from "../logger";
+import { logBootstrap, setEnvSecrets } from "../logger";
 import { startProxyServer } from "../proxy-server";
+import { HttpClientService } from "../services/http-client";
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
 export const runCmd = addCommonOptions(new Command("run"))
@@ -27,40 +28,68 @@ export const runCmd = addCommonOptions(new Command("run"))
 		"Disables request verification mechanism, useful for testing and development",
 		false,
 	)
-	.action(async (options) => {
-		if (options.debug) {
-			setLogLevel("debug");
-		}
+	.action((options) => {
+		const program = Effect.gen(function* () {
+			const { config, dataProxy } = yield* configure(options, true);
 
-		const { config, dataProxy } = await configure(options, true);
-		setEnvSecrets(config.value.envSecrets);
+			setEnvSecrets(config.value.envSecrets);
 
-		let disableProof = false;
-		if (options.debug || options.disableProof) {
-			disableProof = true;
-			logger.warn(
-				"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
+			let disableProof = false;
+			if (options.debug || options.disableProof) {
+				disableProof = true;
+
+				yield* Effect.logWarning(
+					"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
+				);
+			}
+
+			yield* startProxyServer(config.value.config, dataProxy, {
+				port: Number(options.port ?? SERVER_PORT),
+				disableProof: disableProof,
+				enableKeepAliveFiber: true,
+			});
+		}).pipe(Effect.provide(HttpClientService.Default()));
+
+		const bootstrap = Effect.gen(function* () {
+			let logLevel = yield* LOG_LEVEL;
+
+			if (options.debug) {
+				logLevel = "Debug";
+			}
+
+			return yield* program.pipe(
+				logBootstrap(options.debug),
+				Effect.scoped,
+				Effect.provide(NodeFileSystem.layer),
+				Effect.provide(NodePath.layer),
+				Logger.withMinimumLogLevel(LogLevel.fromLiteral(logLevel)),
 			);
-		}
+		});
 
-		startProxyServer(config.value.config, dataProxy, {
-			port: Number(options.port ?? SERVER_PORT),
-			disableProof: disableProof,
+		return NodeRuntime.runMain(bootstrap, {
+			disablePrettyLogger: true,
 		});
 	});
 
 export const validateCmd = addCommonOptions(new Command("validate"))
 	.description("Validate the SEDA Data Proxy node configuration")
 	.option("-s, --silent", "Do not print the config", false)
-	.action(async (options) => {
-		const { hasWarnings } = await configure(options, options.silent);
-		if (hasWarnings) {
-			console.log(
-				"⚠️ Configuration is valid but has warnings - check the logs above",
-			);
-		} else {
-			console.log("✅ SEDA Data Proxy configuration is valid");
-		}
+	.action((options) => {
+		const program = Effect.gen(function* () {
+			const { hasWarnings } = yield* configure(options, options.silent);
+
+			if (hasWarnings) {
+				yield* Effect.logWarning(
+					"⚠️ Configuration is valid but has warnings - check the logs above",
+				);
+			} else {
+				yield* Effect.logInfo("✅ SEDA Data Proxy configuration is valid");
+			}
+		}).pipe(Effect.provide(NodeFileSystem.layer));
+
+		return NodeRuntime.runMain(program, {
+			disablePrettyLogger: false,
+		});
 	});
 
 function addCommonOptions(command: Command) {
@@ -88,7 +117,7 @@ function addCommonOptions(command: Command) {
 		.option("-r, --rpc <rpc-url>", "Optional RPC URL to the SEDA network");
 }
 
-async function configure(
+const configure = (
 	options: {
 		network?: string;
 		privateKeyFile?: string;
@@ -98,108 +127,119 @@ async function configure(
 		skipRegistrationCheck: boolean;
 	},
 	silent = false,
-) {
-	let networkEnv: Environment;
-	if (options.network) {
-		// Validate network option
-		const validNetworks = Object.values(Environment);
-		if (!validNetworks.includes(options.network as Environment)) {
-			const networkList = validNetworks.join(", ");
-			console.error(
-				`Invalid network '${options.network}'. Valid options: ${networkList}`,
-			);
-			process.exit(1);
-		}
-		networkEnv = options.network as Environment;
-	} else {
-		// Load network from private key file (defaults to Testnet if not provided)
-		const networkResult = await loadNetworkFromKeyFile(options.privateKeyFile);
-		if (networkResult.isErr) {
-			console.error(
-				`Failed to load network from private key file: ${networkResult.error}`,
-			);
-			process.exit(1);
-		}
-		networkEnv = networkResult.value;
-	}
-	const network = defaultConfig[networkEnv];
+) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem;
 
-	const privateKey = await loadPrivateKey(options.privateKeyFile);
+		let networkEnv: Environment;
+		if (options.network) {
+			// Validate network option
+			const validNetworks = Object.values(Environment);
+			if (!validNetworks.includes(options.network as Environment)) {
+				const networkList = validNetworks.join(", ");
+				yield* Effect.logError(
+					`Invalid network '${options.network}'. Valid options: ${networkList}`,
+				);
+				process.exit(1);
+			}
+			networkEnv = options.network as Environment;
+		} else {
+			// Load network from private key file (defaults to Testnet if not provided)
+			networkEnv = yield* loadNetworkFromKeyFile(options.privateKeyFile);
+		}
 
-	if (privateKey.isErr) {
-		console.error(privateKey.error);
-		console.error(
-			`Please make sure either the environment variable ${PRIVATE_KEY_ENV_KEY} is set or you pass in the -pkf argument`,
+		const network = defaultConfig[networkEnv];
+		const privateKey = yield* Effect.either(
+			loadPrivateKey(options.privateKeyFile),
 		);
-		process.exit(1);
-	}
 
-	const configFile = await tryAsync(async () => readFile(options.config));
-	if (configFile.isErr) {
-		console.error(`Failed to read config: ${configFile.error}`);
-		process.exit(1);
-	}
-
-	const parsedConfig = trySync(() => JSON.parse(configFile.value.toString()));
-	if (parsedConfig.isErr) {
-		console.error(`Parsing config failed: ${parsedConfig.error}`);
-		process.exit(1);
-	}
-
-	logger.info(`Using config: ${options.config}`);
-	const [config, hasWarnings] = parseConfig(parsedConfig.value);
-	if (config.isErr) {
-		console.error(`Invalid config: ${config.error}`);
-		process.exit(1);
-	}
-
-	console.log(`🌐 Network: ${networkEnv}\n`);
-
-	const dataProxy = new DataProxy(networkEnv, {
-		privateKey: privateKey.value,
-		rpcUrl: options.rpc,
-		coreContract: options.coreContractAddress,
-		fastMaxProofAgeMs: config.value.config.sedaFast?.maxProofAgeMs,
-		fastAllowedClients: config.value.config.sedaFast?.allowedClients,
-	});
-
-	const publicKey = dataProxy.publicKey.toString("hex");
-	console.log(`🔐 Using public key: ${publicKey}`);
-	if (options.skipRegistrationCheck) {
-		console.log("⚠️  Registration check was skipped\n");
-	} else {
-		const dataProxyRegistration = await dataProxy.getDataProxyRegistration();
-		if (dataProxyRegistration.isErr) {
-			console.error(
-				`Failed to get data proxy registration: ${dataProxyRegistration.error}`,
+		if (Either.isLeft(privateKey)) {
+			yield* Effect.logError(privateKey.left);
+			yield* Effect.logError(
+				`Please make sure either the environment variable ${PRIVATE_KEY_ENV_KEY} is set or you pass in the -pkf argument`,
 			);
 			process.exit(1);
 		}
 
-		const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
-		console.log(
-			`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,
+		const configFile = yield* Effect.either(fs.readFile(options.config));
+		if (Either.isLeft(configFile)) {
+			yield* Effect.logError(`Failed to read config: ${configFile.left}`);
+			process.exit(1);
+		}
+
+		const parsedConfig = yield* Effect.either(
+			Effect.try(() => JSON.parse(configFile.right.toString())),
 		);
+		if (Either.isLeft(parsedConfig)) {
+			yield* Effect.logError(`Parsing config failed: ${parsedConfig.left}`);
+			process.exit(1);
+		}
+
+		yield* Effect.logInfo(`Using config: ${options.config}`);
+		const [config, hasWarnings] = yield* parseConfig(parsedConfig.right);
+		if (config.isErr) {
+			yield* Effect.logError(`Invalid config: ${config.error}`);
+			process.exit(1);
+		}
+
+		yield* Effect.logInfo(`🌐 Network: ${networkEnv}\n`);
+
+		const dataProxy = new DataProxy(networkEnv, {
+			privateKey: privateKey.right,
+			rpcUrl: options.rpc,
+			coreContract: options.coreContractAddress,
+			fastMaxProofAgeMs: config.value.config.sedaFast?.maxProofAgeMs,
+			fastAllowedClients: config.value.config.sedaFast?.allowedClients,
+		});
+
+		const publicKey = dataProxy.publicKey.toString("hex");
+		yield* Effect.logInfo(`🔐 Using public key: ${publicKey}`);
+		if (options.skipRegistrationCheck) {
+			console.log("⚠️  Registration check was skipped\n");
+		} else {
+			const dataProxyRegistration = yield* Effect.either(
+				dataProxy.getDataProxyRegistration(),
+			);
+			if (Either.isLeft(dataProxyRegistration)) {
+				yield* Effect.logError(
+					`Failed to get data proxy registration: ${dataProxyRegistration.left}`,
+				);
+				process.exit(1);
+			}
+
+			const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
+			yield* Effect.logInfo(
+				`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,
+			);
+
+			if (!silent) {
+				yield* Effect.logInfo(
+					`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.right, null, 2)}\n`,
+				);
+			}
+		}
+
+		yield* Effect.logInfo(
+			`🚀 SEDA FAST enabled: ${config.value.config.sedaFast?.enable ? "Yes" : "No"}`,
+		);
+		if (config.value.config.sedaFast?.enable) {
+			yield* Effect.logInfo(
+				`🔐 Allowed FAST clients: ${config.value.config.sedaFast?.allowedClients?.join(", ")}`,
+			);
+		}
 
 		if (!silent) {
-			console.log(
-				`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.value, null, 2)}\n`,
+			yield* Effect.logInfo(
+				`⚙️ Config: ${JSON.stringify(config.value, null, 2)}\n`,
 			);
 		}
-	}
 
-	console.log(
-		`🚀 SEDA FAST enabled: ${config.value.config.sedaFast?.enable ? "Yes" : "No"}`,
+		return { config, dataProxy, hasWarnings };
+	}).pipe(
+		Effect.catchAll((error) =>
+			Effect.gen(function* () {
+				yield* Effect.logError(error);
+				process.exit(1);
+			}),
+		),
 	);
-	if (config.value.config.sedaFast?.enable) {
-		console.log(
-			`🔐 Allowed FAST clients: ${config.value.config.sedaFast?.allowedClients?.join(", ")}`,
-		);
-	}
-
-	if (!silent) {
-		console.log(`⚙️ Config: ${JSON.stringify(config.value, null, 2)}\n`);
-	}
-
-	return { config, dataProxy, hasWarnings };
-}

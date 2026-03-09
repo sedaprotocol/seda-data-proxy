@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Secp256k1 } from "@cosmjs/crypto";
+import { Effect, Either } from "effect";
 import { Environment } from "./config";
 import { DataProxy } from "./data-proxy";
 
@@ -13,14 +14,16 @@ describe("DataProxy", async () => {
 
 	describe("signData", () => {
 		it("should sign valid data", async () => {
-			const signature = await dataProxy.signData(
-				"https://example.com",
-				"get",
-				Buffer.from([]),
-				Buffer.from(
-					JSON.stringify({
-						name: "data-proxy",
-					}),
+			const signature = await Effect.runPromise(
+				dataProxy.signData(
+					"https://example.com",
+					"get",
+					Buffer.from([]),
+					Buffer.from(
+						JSON.stringify({
+							name: "data-proxy",
+						}),
+					),
 				),
 			);
 
@@ -52,18 +55,20 @@ describe("DataProxy", async () => {
 	});
 
 	describe("decodeProof", () => {
-		it("should decode a proof", () => {
+		it("should decode a proof", async () => {
 			const proof = Buffer.from(
 				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f:1:c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
 				"utf-8",
 			);
-			const decodedProof = dataProxy.decodeProof(proof.toString("base64"));
+			const decodedProof = await Effect.runPromise(
+				Effect.either(dataProxy.decodeProof(proof.toString("base64"))),
+			);
 
-			if (decodedProof.isErr) {
-				throw decodedProof.error;
+			if (Either.isLeft(decodedProof)) {
+				throw decodedProof.left.error;
 			}
 
-			const { publicKey, drId, signature } = decodedProof.value;
+			const { publicKey, drId, signature } = decodedProof.right;
 			expect(publicKey.toString("hex")).toBe(
 				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
 			);
@@ -75,20 +80,20 @@ describe("DataProxy", async () => {
 	});
 
 	describe("decodeFastProof", () => {
-		it("should decode a valid SEDA Fast proof", () => {
+		it("should decode a valid SEDA Fast proof", async () => {
 			const proof = Buffer.from(
 				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
 				"utf-8",
 			);
-			const decodedProof = dataProxy.decodeSedaFastProof(
-				proof.toString("base64"),
+			const decodedProof = await Effect.runPromise(
+				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
 			);
 
-			if (decodedProof.isErr) {
+			if (Either.isLeft(decodedProof)) {
 				expect.unreachable("Failed to decode proof");
 			}
 
-			const { publicKey, unixTimestamp, signature } = decodedProof.value;
+			const { publicKey, unixTimestamp, signature } = decodedProof.right;
 			expect(unixTimestamp).toBe(0n);
 			expect(publicKey.toString("hex")).toBe(
 				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
@@ -98,39 +103,39 @@ describe("DataProxy", async () => {
 			);
 		});
 
-		it("should not recover the expected public key from the proof if it was tampered with", () => {
+		it("should not recover the expected public key from the proof if it was tampered with", async () => {
 			const proof = Buffer.from(
 				"1000:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
 				"utf-8",
 			);
-			const decodedProof = dataProxy.decodeSedaFastProof(
-				proof.toString("base64"),
+			const decodedProof = await Effect.runPromise(
+				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
 			);
 
-			if (decodedProof.isErr) {
+			if (Either.isLeft(decodedProof)) {
 				expect.unreachable("Failed to decode proof");
 			}
 
-			const { publicKey } = decodedProof.value;
+			const { publicKey } = decodedProof.right;
 			expect(publicKey.toString("hex")).not.toBe(
 				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
 			);
 		});
 
-		it("should return an error if the chain id is invalid", () => {
+		it("should return an error if the chain id is invalid", async () => {
 			const proof = Buffer.from(
 				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-testnet",
 				"utf-8",
 			);
-			const decodedProof = dataProxy.decodeSedaFastProof(
-				proof.toString("base64"),
+			const decodedProof = await Effect.runPromise(
+				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
 			);
 
-			if (decodedProof.isOk) {
+			if (Either.isRight(decodedProof)) {
 				expect.unreachable("Should not be able to decode proof");
 			}
 
-			expect(decodedProof.error.message).toContain("Invalid client chain id");
+			expect(decodedProof.left.error).toContain("Invalid client chain id");
 		});
 	});
 });

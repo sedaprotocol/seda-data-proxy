@@ -1,22 +1,28 @@
-import { trySync } from "@seda-protocol/utils";
-import { Result } from "true-myth";
+import { Data, Effect } from "effect";
 import { mergeUrlSearchParams } from "./search-params";
 
-export function injectSearchParamsInUrl(
+export class FailedToParseTargetUrlError extends Data.TaggedError(
+	"FailedToParseTargetUrlError",
+)<{ error: string | unknown }> {
+	message = `Failed to parse target URL: ${this.error}`;
+}
+
+export const injectSearchParamsInUrl = (
 	targetUrl: string,
 	searchParams: URLSearchParams,
-): Result<URL, string> {
-	const target: Result<URL, unknown> = trySync(() => new URL(targetUrl));
+) =>
+	Effect.gen(function* () {
+		const target = yield* Effect.try({
+			try: () => new URL(targetUrl),
+			catch: (error) => new FailedToParseTargetUrlError({ error }),
+		});
 
-	if (target.isErr) {
-		return Result.err("Failed to parse target URL");
-	}
+		const finalSearchParams = mergeUrlSearchParams(
+			searchParams,
+			target.searchParams,
+		);
 
-	const finalSearchParams = mergeUrlSearchParams(
-		searchParams,
-		target.value.searchParams,
-	);
-	target.value.search = finalSearchParams.toString();
+		target.search = finalSearchParams.toString();
 
-	return Result.ok(target.value);
-}
+		return target;
+	});

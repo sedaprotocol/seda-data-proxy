@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import { Result } from "true-myth";
+import { Effect, Option } from "effect";
+import { type Maybe, Result } from "true-myth";
 
 /**
  * Converts a Promise to an Effect, handling error conversion.
@@ -166,4 +166,8 @@ export function effectToSyncResult<T, E>(
 
 		return Result.err(new Error(String(error)));
 	}
+}
+
+export function maybeToOption<T>(maybe: Maybe<T>): Option.Option<T> {
+	return maybe.isJust ? Option.some(maybe.value) : Option.none();
 }

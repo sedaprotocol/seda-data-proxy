@@ -1,14 +1,22 @@
+import { resolve } from "node:path";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
+import { Config } from "effect";
+import type { Literal } from "effect/LogLevel";
 import type { HTTPMethod } from "elysia";
+import { firstLetterToUpperCase } from "./utils/string-utils";
 
 // Server constants
 export const SERVER_PORT = process.env.SERVER_PORT ?? "5384";
-export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
-export const LOG_FILE_DIR = process.env.LOG_FILE_DIR ?? "./logs/";
+export const LOG_FILE_DIR = Config.string("LOG_FILE_DIR").pipe(
+	Config.withDefault(`${resolve(process.cwd(), "logs")}`),
+);
 export const LOG_FILE_LOG_LEVEL = process.env.LOG_FILE_LOG_LEVEL ?? "debug";
-export const LOG_FILE_MAX_FILES = process.env.LOG_FILE_MAX_FILES ?? "14d";
-export const LOG_FILE_DATE_PATTERN =
-	process.env.LOG_FILE_DATE_PATTERN ?? "YYYY-MM-DD";
+export const LOG_FILE_MAX_FILES = Config.number("LOG_FILE_MAX_FILES").pipe(
+	Config.withDefault(7),
+);
+export const LOG_FILE_DATE_PATTERN = Config.string(
+	"LOG_FILE_DATE_PATTERN",
+).pipe(Config.withDefault("yyyy-MM-dd"));
 
 // Environment constants
 export const DEFAULT_ENVIRONMENT: Environment =
@@ -42,3 +50,25 @@ export const DEFAULT_HTTP_METHODS: HTTPMethod[] = [
 	"DELETE",
 	"HEAD",
 ];
+
+export const LOG_LEVEL = Config.literal(
+	"None",
+	"All",
+	"Fatal",
+	"Error",
+	"Warning",
+	"Info",
+	"Debug",
+	"Trace",
+	// Allows us to support the old log level format
+	"none",
+	"all",
+	"fatal",
+	"error",
+	"warning",
+	"info",
+	"debug",
+	"trace",
+)("LOG_LEVEL")
+	.pipe(Config.withDefault("Info"))
+	.pipe(Config.map((input) => firstLetterToUpperCase(input) as Literal));

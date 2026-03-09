@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import logger from "../logger";
 import { asyncToEffect } from "../utils/effect-utils";
 
 export const getRpcChainId = (rpc: string) =>
@@ -10,8 +9,11 @@ export const getRpcChainId = (rpc: string) =>
 
 		return data.result.node_info.network;
 	}).pipe(
-		Effect.catchAll((error) => {
-			logger.error(`Error while getting RPC chain id: ${error}`);
-			return Effect.fail(error);
-		}),
+		Effect.catchAll((error) =>
+			Effect.gen(function* () {
+				yield* Effect.logError(`Error while getting RPC chain id: ${error}`);
+
+				return Effect.fail(error);
+			}),
+		),
 	);

@@ -1,34 +1,43 @@
 import type { ProtobufRpcClient } from "@cosmjs/stargate";
 import { sedachain } from "@seda-protocol/proto-messages";
-import { tryAsync } from "@seda-protocol/utils";
-import { Result } from "true-myth";
+import { Effect } from "effect";
+import { FailedToGetDataProxyRegistrationError } from "./errors";
 
-export async function getDataProxyRegistration(
+export const getDataProxyRegistration = (
 	protoRpcClient: ProtobufRpcClient,
 	publicKeyHex: string,
-): Promise<Result<sedachain.data_proxy.v1.ProxyConfig, Error>> {
-	const sedaQueryClient = new sedachain.data_proxy.v1.QueryClientImpl(
-		protoRpcClient,
-	);
-	const response = await tryAsync(
-		sedaQueryClient.DataProxyConfig({
-			pubKey: publicKeyHex,
-		}),
-	);
+) =>
+	Effect.gen(function* () {
+		const sedaQueryClient = new sedachain.data_proxy.v1.QueryClientImpl(
+			protoRpcClient,
+		);
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				sedaQueryClient.DataProxyConfig({
+					pubKey: publicKeyHex,
+				}),
+			catch: (error) => {
+				const errorAsString = `${error}`;
 
-	if (response.isErr) {
-		if (response.error.message.includes("not found")) {
-			return Result.err(
-				new Error(`No registration found for "${publicKeyHex}"`),
+				if (errorAsString.includes("not found")) {
+					return new FailedToGetDataProxyRegistrationError({
+						error: `No registration found for "${publicKeyHex}"`,
+					});
+				}
+
+				return new FailedToGetDataProxyRegistrationError({
+					error: errorAsString,
+				});
+			},
+		});
+
+		if (!response.config) {
+			return yield* Effect.fail(
+				new FailedToGetDataProxyRegistrationError({
+					error: `No registration found for "${publicKeyHex}"`,
+				}),
 			);
 		}
 
-		return Result.err(response.error);
-	}
-
-	if (response.value.config) {
-		return Result.ok(response.value.config);
-	}
-
-	return Result.err(new Error(`No registration found for "${publicKeyHex}"`));
-}
+		return response.config;
+	});

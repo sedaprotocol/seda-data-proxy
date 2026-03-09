@@ -1,111 +1,115 @@
 import { readFile } from "node:fs/promises";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
-import { tryAsync, tryParseSync, trySync } from "@seda-protocol/utils";
-import { Result } from "true-myth";
+import { tryParseSync } from "@seda-protocol/utils";
+import { Data, Effect } from "effect";
 import {
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	getPrivateKey,
 } from "../../constants";
 import { FileKeyPairSchema } from "./key-pair";
 
-async function readPrivateKeyFile(
-	path: string,
-): Promise<Result<Buffer, unknown>> {
-	const privateKeyFile = await tryAsync(async () => readFile(path));
-
-	return privateKeyFile;
+export class FailedToReadPrivateKeyFileError extends Data.TaggedError(
+	"FailedToReadPrivateKeyFileError",
+)<{ error: string | unknown }> {
+	message = `Failed to read private key file: ${this.error}`;
 }
 
-export async function loadNetworkFromKeyFile(
-	privateKeyFilePath?: string,
-): Promise<Result<Environment, string>> {
-	// If no private key file path is provided and private key env var is set, use default network Testnet
-	if (!privateKeyFilePath && getPrivateKey()) {
-		return Result.ok(Environment.Testnet);
-	}
+const readPrivateKeyFile = (path: string) =>
+	Effect.gen(function* () {
+		const privateKeyFile = yield* Effect.tryPromise({
+			try: () => readFile(path),
+			catch: (error) => new FailedToReadPrivateKeyFileError({ error }),
+		});
 
-	const filePath = privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME;
-	const privateKeyFile = await readPrivateKeyFile(filePath);
+		return privateKeyFile;
+	});
 
-	if (privateKeyFile.isErr) {
-		return Result.err(
-			`Failed to read private key file ${filePath}: ${privateKeyFile.error}`,
-		);
-	}
+export class FailedToParsePrivateKeyFileError extends Data.TaggedError(
+	"FailedToParsePrivateKeyFileError",
+)<{ error: string | unknown }> {
+	message = `Failed to parse private key file: ${this.error}`;
+}
 
-	const privateKeyFileObject = trySync(() =>
-		JSON.parse(privateKeyFile.value.toString()),
-	);
-
-	if (privateKeyFileObject.isErr) {
-		return Result.err(
-			`Failed to read private key file as JSON: ${privateKeyFileObject.error}`,
-		);
-	}
-
-	const parsedPrivateKeyFile = tryParseSync(
-		FileKeyPairSchema,
-		privateKeyFileObject.value,
-	);
-
-	if (parsedPrivateKeyFile.isErr) {
-		let resultError = "";
-
-		for (const error of parsedPrivateKeyFile.error) {
-			resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
+export const loadNetworkFromKeyFile = (privateKeyFilePath?: string) =>
+	Effect.gen(function* () {
+		// If no private key file path is provided and private key env var is set, use default network Testnet
+		if (!privateKeyFilePath && getPrivateKey()) {
+			return yield* Effect.succeed(Environment.Testnet);
 		}
 
-		return Result.err(`Failed to parse private key file: \n ${resultError}`);
-	}
+		const filePath = privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME;
+		const privateKeyFile = yield* readPrivateKeyFile(filePath);
 
-	return Result.ok(parsedPrivateKeyFile.value.network);
-}
+		const privateKeyFileObject = (yield* Effect.try({
+			try: () => JSON.parse(privateKeyFile.toString()),
+			catch: (error) =>
+				new FailedToParsePrivateKeyFileError({
+					error: `[loadNetworkFromKeyFile] JSON.parse failed: ${error}`,
+				}),
+		})) as unknown;
 
-export async function loadPrivateKey(
-	privateKeyFilePath?: string,
-): Promise<Result<Buffer, string>> {
-	const privateKey = getPrivateKey();
-
-	if (!privateKeyFilePath && privateKey) {
-		return Result.ok(Buffer.from(privateKey.trim(), "hex"));
-	}
-
-	const privateKeyFile = await readPrivateKeyFile(
-		privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
-	);
-
-	if (privateKeyFile.isErr) {
-		return Result.err(
-			`Failed to read private key file ${privateKeyFilePath}: ${privateKeyFile.error}`,
+		const parsedPrivateKeyFile = tryParseSync(
+			FileKeyPairSchema,
+			privateKeyFileObject,
 		);
-	}
 
-	const privateKeyFileObject = trySync(() =>
-		JSON.parse(privateKeyFile.value.toString()),
-	);
+		if (parsedPrivateKeyFile.isErr) {
+			let resultError = "";
 
-	if (privateKeyFileObject.isErr) {
-		return Result.err(
-			`Failed to read private key file as JSON: ${privateKeyFileObject.error}`,
-		);
-	}
+			for (const error of parsedPrivateKeyFile.error) {
+				resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
+			}
 
-	const parsedPrivateKeyFile = tryParseSync(
-		FileKeyPairSchema,
-		privateKeyFileObject.value,
-	);
-
-	if (parsedPrivateKeyFile.isErr) {
-		let resultError = "";
-
-		for (const error of parsedPrivateKeyFile.error) {
-			resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
+			return yield* Effect.fail(
+				new FailedToParsePrivateKeyFileError({
+					error: `[loadNetworkFromKeyFile] ${resultError}`,
+				}),
+			);
 		}
 
-		return Result.err(`Failed to parse private key file: \n ${resultError}`);
-	}
+		return yield* Effect.succeed(parsedPrivateKeyFile.value.network);
+	});
 
-	return Result.ok(
-		Buffer.from(parsedPrivateKeyFile.value.privkey.trim(), "hex"),
-	);
-}
+export const loadPrivateKey = (privateKeyFilePath?: string) =>
+	Effect.gen(function* () {
+		const privateKey = getPrivateKey();
+
+		if (!privateKeyFilePath && privateKey) {
+			return yield* Effect.succeed(Buffer.from(privateKey.trim(), "hex"));
+		}
+
+		const privateKeyFile = yield* readPrivateKeyFile(
+			privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
+		);
+
+		const privateKeyFileObject = (yield* Effect.try({
+			try: () => JSON.parse(privateKeyFile.toString()),
+			catch: (error) =>
+				new FailedToParsePrivateKeyFileError({
+					error: `[loadPrivateKey] JSON.parse failed: ${error}`,
+				}),
+		})) as unknown;
+
+		const parsedPrivateKeyFile = tryParseSync(
+			FileKeyPairSchema,
+			privateKeyFileObject,
+		);
+
+		if (parsedPrivateKeyFile.isErr) {
+			let resultError = "";
+
+			for (const error of parsedPrivateKeyFile.error) {
+				resultError += `${error.message} on config property "${error.path?.[0].key}" \n`;
+			}
+
+			return yield* Effect.fail(
+				new FailedToParsePrivateKeyFileError({
+					error: `[loadPrivateKey] ${resultError}`,
+				}),
+			);
+		}
+
+		return yield* Effect.succeed(
+			Buffer.from(parsedPrivateKeyFile.value.privkey.trim(), "hex"),
+		);
+	});

@@ -12,8 +12,10 @@ import {
 	DataProxy,
 	Environment,
 } from "@seda-protocol/data-proxy-sdk";
+import { Effect, LogLevel, Logger } from "effect";
 import { Maybe } from "true-myth";
 import { startProxyServer } from "./proxy-server";
+import { HttpClientService } from "./services/http-client";
 import {
 	HttpResponse,
 	registerHandler,
@@ -51,36 +53,41 @@ describe("proxy server", () => {
 			},
 		);
 
-		const proxy = startProxyServer(
-			{
-				verificationMaxRetries: 2,
-				verificationRetryDelay: 1000,
-				routeGroup: "",
-				sedaFast: {
-					enable: true,
-					maxProofAgeMs: 1000,
-					allowedClients: [],
-				},
-				statusEndpoints: {
-					root: "status",
-				},
-				baseURL: Maybe.nothing(),
-				routes: [
-					{
-						baseURL: Maybe.nothing(),
-						method: "POST",
-						path,
-						upstreamUrl,
-						forwardResponseHeaders: new Set([]),
-						headers: {},
+		const proxy = await Effect.runPromise(
+			startProxyServer(
+				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
+					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
 					},
-				],
-			},
-			dataProxy,
-			{
-				disableProof: true,
-				port,
-			},
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.nothing(),
+					routes: [
+						{
+							baseURL: Maybe.nothing(),
+							method: "POST",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+						},
+					],
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+					enableKeepAliveFiber: false,
+				},
+			)
+				.pipe(Effect.provide(HttpClientService.Default()))
+				.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 		);
 
 		const response = await fetch(proxyUrl, {
@@ -106,36 +113,41 @@ describe("proxy server", () => {
 			},
 		);
 
-		const proxy = startProxyServer(
-			{
-				verificationMaxRetries: 2,
-				verificationRetryDelay: 1000,
-				routeGroup: "",
-				sedaFast: {
-					enable: true,
-					maxProofAgeMs: 1000,
-					allowedClients: [],
-				},
-				statusEndpoints: {
-					root: "status",
-				},
-				baseURL: Maybe.nothing(),
-				routes: [
-					{
-						baseURL: Maybe.nothing(),
-						method: "GET",
-						path,
-						upstreamUrl,
-						forwardResponseHeaders: new Set([]),
-						headers: {},
+		const proxy = await Effect.runPromise(
+			startProxyServer(
+				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
+					routeGroup: "",
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
 					},
-				],
-			},
-			dataProxy,
-			{
-				disableProof: true,
-				port,
-			},
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.nothing(),
+					routes: [
+						{
+							baseURL: Maybe.nothing(),
+							method: "GET",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+						},
+					],
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+					enableKeepAliveFiber: false,
+				},
+			)
+				.pipe(Effect.provide(HttpClientService.Default()))
+				.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 		);
 
 		const response = await fetch(proxyUrl);
@@ -158,36 +170,41 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-					},
-					baseURL: Maybe.of("https://seda-data-proxy.com"),
-					routes: [
-						{
-							baseURL: Maybe.nothing(),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.of("https://seda-data-proxy.com"),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			const response = await fetch(proxyUrl);
@@ -224,38 +241,43 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-					},
-					baseURL: Maybe.of("https://seda-data-proxy.com"),
-					routes: [
-						{
-							baseURL: Maybe.of(
-								"https://different-subdomain.seda-data-proxy.com",
-							),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.of("https://seda-data-proxy.com"),
+						routes: [
+							{
+								baseURL: Maybe.of(
+									"https://different-subdomain.seda-data-proxy.com",
+								),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			const response = await fetch(proxyUrl);
@@ -294,37 +316,42 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-					},
-					baseURL: Maybe.nothing(),
-					routes: [
-						{
-							baseURL: Maybe.nothing(),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
-							jsonPath: "$.data",
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								jsonPath: "$.data",
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			const response = await fetch(proxyUrl, { method: "OPTIONS" });
@@ -356,37 +383,42 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-					},
-					baseURL: Maybe.nothing(),
-					routes: [
-						{
-							baseURL: Maybe.nothing(),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
-							jsonPath: "$.data",
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								jsonPath: "$.data",
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			async function expectStatus(expected: unknown) {
@@ -442,36 +474,41 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-					},
-					baseURL: Maybe.nothing(),
-					routes: [
-						{
-							baseURL: Maybe.nothing(),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			const response = await fetch(`${proxyUrl}/status/info`);
@@ -503,40 +540,45 @@ describe("proxy server", () => {
 				},
 			);
 
-			const proxy = startProxyServer(
-				{
-					verificationMaxRetries: 2,
-					verificationRetryDelay: 1000,
-					routeGroup: "",
-					sedaFast: {
-						enable: true,
-						maxProofAgeMs: 1000,
-						allowedClients: [],
-					},
-					statusEndpoints: {
-						root: "status",
-						apiKey: {
-							header: "X-API-Key",
-							secret: "secret",
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
 						},
-					},
-					baseURL: Maybe.nothing(),
-					routes: [
-						{
-							baseURL: Maybe.nothing(),
-							method: "GET",
-							path,
-							upstreamUrl,
-							forwardResponseHeaders: new Set([]),
-							headers: {},
+						statusEndpoints: {
+							root: "status",
+							apiKey: {
+								header: "X-API-Key",
+								secret: "secret",
+							},
 						},
-					],
-				},
-				dataProxy,
-				{
-					disableProof: true,
-					port,
-				},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+							},
+						],
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
 			const unauthorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`).then(

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
+import { FailedToVerifyCoreProofError } from "@seda-protocol/data-proxy-sdk";
+import { Effect, LogLevel, Logger, Option } from "effect";
 import { Maybe, Result } from "true-myth";
-import type { Logger } from "winston";
 import { verifyWithRetry } from "./verify-with-retry";
 
 type VerificationResult = {
@@ -11,11 +12,6 @@ type VerificationResult = {
 };
 
 describe("verifyWithRetry", () => {
-	const loggerStub: Logger = {
-		silly: () => {},
-		warn: () => {},
-	} as unknown as Logger;
-
 	const mockProof = "test-proof";
 
 	let mockDataProxy: DataProxy;
@@ -35,23 +31,23 @@ describe("verifyWithRetry", () => {
 			status: "valid",
 		};
 
-		mockDataProxy.verify = mock(() =>
-			Promise.resolve(Result.ok(mockVerification)),
-		);
+		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.nothing(),
-			testDefaultMaxAttempts,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.none(),
+				testDefaultMaxAttempts,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
+
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(1);
 	});
 
@@ -66,55 +62,54 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => {
 			callCount++;
 			if (callCount === 1) {
-				return Promise.resolve(Result.err("Network error"));
+				return Effect.fail(
+					new FailedToVerifyCoreProofError({ error: "Network error" }),
+				);
 			}
-			return Promise.resolve(Result.ok(mockVerification));
+			return Effect.succeed(mockVerification);
 		});
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.nothing(),
-			testDefaultMaxAttempts,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.none(),
+				testDefaultMaxAttempts,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification as VerificationResult).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification as VerificationResult).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
+
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(2);
 	});
 
 	it.each(["not_eligible", "data_request_not_found", "not_staker"])(
 		"should retry for status %s when height is behind but within MAX_HEIGHT_DIFFERENCE",
 		async (status) => {
-			const eligibleHeight = Maybe.just(102n);
+			const eligibleHeight = Option.some(102n);
 
 			mockDataProxy.verify = mock(() => {
-				return Promise.resolve(
-					Result.ok({
-						isValid: false,
-						currentHeight: 100n,
-						status,
-					}),
-				);
+				return Effect.succeed({ isValid: false, currentHeight: 100n, status });
 			});
 
-			const result = await verifyWithRetry(
-				loggerStub,
-				mockDataProxy,
-				mockProof,
-				eligibleHeight,
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
-			);
+			const program = Effect.gen(function* () {
+				const verification = yield* verifyWithRetry(
+					mockDataProxy,
+					mockProof,
+					eligibleHeight,
+					testDefaultMaxAttempts,
+					testDefaultRetryDelay,
+				);
 
-			expect(result.isOk).toBe(true);
-			const verification = result.unwrapOr(null);
-			expect(verification).not.toBeNull();
-			expect((verification as VerificationResult).status).toBe(status);
+				expect(verification).not.toBeNull();
+				expect((verification as VerificationResult).status).toBe(status);
+			}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+			await Effect.runPromise(program);
 			expect(mockDataProxy.verify).toHaveBeenCalledTimes(2);
 		},
 	);
@@ -125,23 +120,23 @@ describe("verifyWithRetry", () => {
 			currentHeight: 100n,
 			status: "invalid_signature",
 		};
-		mockDataProxy.verify = mock(() =>
-			Promise.resolve(Result.ok(mockVerification)),
-		);
+		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.just(102n),
-			testDefaultMaxAttempts,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.some(102n),
+				testDefaultMaxAttempts,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification as VerificationResult).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification as VerificationResult).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
+
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(1);
 	});
 
@@ -151,50 +146,48 @@ describe("verifyWithRetry", () => {
 			currentHeight: 100n,
 			status: "height_mismatch",
 		};
-		mockDataProxy.verify = mock(() =>
-			Promise.resolve(Result.ok(mockVerification)),
-		);
+		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.nothing(),
-			testDefaultMaxAttempts,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.none(),
+				testDefaultMaxAttempts,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification as VerificationResult).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification as VerificationResult).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(1);
 	});
 
 	it("should not retry when height difference is too large", async () => {
-		const eligibleHeight = Maybe.just(105n);
+		const eligibleHeight = Option.some(105n);
 		const mockVerification = {
 			isValid: false,
 			currentHeight: 100n,
 			status: "height_mismatch",
 		};
-		mockDataProxy.verify = mock(() =>
-			Promise.resolve(Result.ok(mockVerification)),
-		);
+		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			eligibleHeight,
-			testDefaultMaxAttempts,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				eligibleHeight,
+				testDefaultMaxAttempts,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification as VerificationResult).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification as VerificationResult).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.fromLiteral("None")));
+
+		await Effect.runPromise(program);
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(1);
 	});
 
@@ -204,23 +197,22 @@ describe("verifyWithRetry", () => {
 			currentHeight: 100n,
 			status: "height_mismatch",
 		};
-		mockDataProxy.verify = mock(() =>
-			Promise.resolve(Result.ok(mockVerification)),
-		);
+		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
-		const result = await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.just(101n),
-			3,
-			testDefaultRetryDelay,
-		);
+		const program = Effect.gen(function* () {
+			const verification = yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.some(101n),
+				3,
+				testDefaultRetryDelay,
+			);
 
-		expect(result.isOk).toBe(true);
-		const verification = result.unwrapOr(null);
-		expect(verification).not.toBeNull();
-		expect(verification as VerificationResult).toEqual(mockVerification);
+			expect(verification).not.toBeNull();
+			expect(verification as VerificationResult).toEqual(mockVerification);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
 		expect(mockDataProxy.verify).toHaveBeenCalledTimes(3);
 	});
 
@@ -230,20 +222,24 @@ describe("verifyWithRetry", () => {
 			currentHeight: 100n,
 			status: "not_eligible",
 		};
+
 		mockDataProxy.verify = mock(() => {
-			return Promise.resolve(Result.ok(mockVerification));
+			return Effect.succeed(mockVerification);
 		});
 
 		const customDelay = mock(() => 2);
 
-		await verifyWithRetry(
-			loggerStub,
-			mockDataProxy,
-			mockProof,
-			Maybe.just(101n),
-			4,
-			customDelay,
-		);
+		const program = Effect.gen(function* () {
+			yield* verifyWithRetry(
+				mockDataProxy,
+				mockProof,
+				Option.some(101n),
+				4,
+				customDelay,
+			);
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
 
 		expect(customDelay).toHaveBeenCalledTimes(3);
 		expect(customDelay).toHaveBeenNthCalledWith(1, 2);

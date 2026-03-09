@@ -1,74 +1,81 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
+import { Effect, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config-parser";
-import logger from "../logger";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
 import { effectToAsyncResult } from "../utils/effect-utils";
 import { getVersions } from "../utils/versions";
 import type { Context } from "./types";
 
-export function statusPlugin(
+export const statusPlugin = (
 	context: Context,
 	dataProxy: DataProxy,
 	options: Config["statusEndpoints"],
-) {
-	return (app: Elysia) => {
-		const plugin = new Elysia({
-			name: "status",
-		});
+) =>
+	Effect.gen(function* () {
+		const runtime = yield* Effect.runtime();
 
-		plugin.group(options.root, (group) => {
-			if (options.apiKey) {
-				const { header, secret } = options.apiKey;
-				group.onBeforeHandle(({ request }) => {
-					const apiKey = request.headers.get(header);
-					if (apiKey !== secret) {
-						return new Response("Unauthorized", { status: 401 });
-					}
-				});
-			}
-
-			// List all available endpoints
-			group.get("", () => {
-				return Response.json({
-					endpoints: [`${options.root}/health`, `${options.root}/info`],
-				});
+		return (app: Elysia) => {
+			const plugin = new Elysia({
+				name: "status",
 			});
 
-			group.get("health", async ({ set }) => {
-				const chainId = await effectToAsyncResult(
-					getRpcChainId(dataProxy.options.rpcUrl),
-				);
-				const hasCorrectChainId =
-					chainId.isOk && chainId.value === dataProxy.options.chainId;
-				set.status = chainId.isOk && hasCorrectChainId ? 200 : 500;
+			plugin.group(options.root, (group) => {
+				if (options.apiKey) {
+					const { header, secret } = options.apiKey;
+					group.onBeforeHandle(({ request }) => {
+						const apiKey = request.headers.get(header);
+						if (apiKey !== secret) {
+							return new Response("Unauthorized", { status: 401 });
+						}
+					});
+				}
 
-				return Response.json({
-					status: chainId.isOk && hasCorrectChainId ? "healthy" : "unhealthy",
-					metrics: context.getMetrics(),
+				// List all available endpoints
+				group.get("", () => {
+					return Response.json({
+						endpoints: [`${options.root}/health`, `${options.root}/info`],
+					});
 				});
+
+				group.get("health", async ({ set }) => {
+					const chainId = await effectToAsyncResult(
+						getRpcChainId(dataProxy.options.rpcUrl),
+					);
+					const hasCorrectChainId =
+						chainId.isOk && chainId.value === dataProxy.options.chainId;
+					set.status = chainId.isOk && hasCorrectChainId ? 200 : 500;
+
+					return Response.json({
+						status: chainId.isOk && hasCorrectChainId ? "healthy" : "unhealthy",
+						metrics: context.getMetrics(),
+					});
+				});
+
+				group.get("info", async () => {
+					const chainId = await effectToAsyncResult(
+						getRpcChainId(dataProxy.options.rpcUrl),
+					);
+
+					return Response.json({
+						pubKey: context.getPublicKey(),
+						fastConfig: context.getFastConfig(),
+						version: getVersions().proxy,
+						chainId: dataProxy.options.chainId,
+						rpcChainId: chainId.isOk ? chainId.value : null,
+					});
+				});
+
+				return group;
 			});
 
-			group.get("info", async () => {
-				const chainId = await effectToAsyncResult(
-					getRpcChainId(dataProxy.options.rpcUrl),
-				);
+			Runtime.runSync(
+				runtime,
+				Effect.logInfo(
+					`Status endpoints: /${options.root}/health, /${options.root}/info`,
+				),
+			);
 
-				return Response.json({
-					pubKey: context.getPublicKey(),
-					fastConfig: context.getFastConfig(),
-					version: getVersions().proxy,
-					chainId: dataProxy.options.chainId,
-					rpcChainId: chainId.isOk ? chainId.value : null,
-				});
-			});
-
-			return group;
-		});
-
-		logger.info(
-			`Status endpoints: /${options.root}/health, /${options.root}/info`,
-		);
-		return app.use(plugin);
-	};
-}
+			return app.use(plugin);
+		};
+	});

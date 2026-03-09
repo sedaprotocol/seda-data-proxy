@@ -9,8 +9,10 @@
 		"@cosmjs/tendermint-rpc": "^0.33.1",
 		"@seda-protocol/proto-messages": "^1.0.0",
 		"@seda-protocol/utils": "^2.0.0",
-		"effect": "^3.18.4",
 		"secp256k1": "^5.0.1",
 		"true-myth": "9.0.1"
+	},
+	"peerDependencies": {
+		"effect": "^3.19.19"
 	}
 }

@@ -12,6 +12,7 @@ import {
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
+import { Effect, Option } from "effect";
 import * as Match from "effect/Match";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
@@ -21,7 +22,16 @@ import {
 	defaultConfig,
 } from "./config";
 import { getDataProxyRegistration } from "./data-proxy-registration";
+import {
+	FailedToDecodeProofError,
+	FailedToDecodeSedaFastProofError,
+	FailedToGetCometClientError,
+	FailedToGetCosmWasmClientError,
+	FailedToVerifyCoreProofError,
+} from "./errors";
 import { getLatestCoreContractAddress } from "./latest-core-contract-address";
+import { decodeSedaFastProof } from "./services/decode-seda-fast-proof";
+import { verifyFastProof } from "./services/verify-fast-proof";
 
 export interface SignedData {
 	// Hex encoded signature
@@ -42,10 +52,10 @@ export class DataProxy {
 	public publicKey: Buffer;
 	private privateKey: Buffer;
 	public options: DataProxyOptions;
-	private cometClient: Maybe<Comet38Client> = Maybe.nothing();
-	private rpcClient: Maybe<ProtobufRpcClient> = Maybe.nothing();
-	private cosmwasmClient: Maybe<CosmWasmClient> = Maybe.nothing();
-	private coreContractAddress: Maybe<string> = Maybe.nothing();
+	private cometClient: Option.Option<Comet38Client> = Option.none();
+	private rpcClient: Option.Option<ProtobufRpcClient> = Option.none();
+	private cosmwasmClient: Option.Option<CosmWasmClient> = Option.none();
+	private coreContractAddress: Option.Option<string> = Option.none();
 
 	constructor(
 		public environment: Environment,
@@ -69,7 +79,7 @@ export class DataProxy {
 		this.publicKey = Buffer.from(publicKeyCreate(this.privateKey, true));
 
 		if (this.options.coreContract) {
-			this.coreContractAddress = Maybe.just(this.options.coreContract);
+			this.coreContractAddress = Option.some(this.options.coreContract);
 		}
 
 		// Trigger fetching of clients and address
@@ -77,140 +87,124 @@ export class DataProxy {
 		this.getCoreContractAddress();
 	}
 
-	private async getCometClient(): Promise<Result<Comet38Client, Error>> {
-		if (this.cometClient.isJust) {
-			return Result.ok(this.cometClient.value);
-		}
+	private getCometClient = () =>
+		Effect.gen(this, function* () {
+			if (Option.isSome(this.cometClient)) {
+				return this.cometClient.value;
+			}
 
-		const client = await tryAsync(Comet38Client.connect(this.options.rpcUrl));
+			const client = yield* Effect.tryPromise({
+				try: () => Comet38Client.connect(this.options.rpcUrl),
+				catch: (error) => new FailedToGetCometClientError({ error }),
+			});
 
-		return client.map((t) => {
-			this.cometClient = Maybe.just(t);
-			return t;
+			this.cometClient = Option.some(client);
+			return client;
 		});
-	}
 
-	private async getProtobufRpcClient(): Promise<
-		Result<ProtobufRpcClient, Error>
-	> {
-		if (this.rpcClient.isJust) {
-			return Result.ok(this.rpcClient.value);
-		}
+	private getProtobufRpcClient = () =>
+		Effect.gen(this, function* () {
+			if (Option.isSome(this.rpcClient)) {
+				return this.rpcClient.value;
+			}
 
-		const cometClient = await this.getCometClient();
-
-		return cometClient.map((t) => {
-			const queryClient = new QueryClient(t);
+			const cometClient = yield* this.getCometClient();
+			const queryClient = new QueryClient(cometClient);
 			const rpcClient = createProtobufRpcClient(queryClient);
-			this.rpcClient = Maybe.just(rpcClient);
+			this.rpcClient = Option.some(rpcClient);
 			return rpcClient;
 		});
-	}
 
-	private async getCosmWasmClient(): Promise<Result<CosmWasmClient, unknown>> {
-		if (this.cosmwasmClient.isJust) {
-			return Result.ok(this.cosmwasmClient.value);
-		}
+	private getCosmWasmClient = () =>
+		Effect.gen(this, function* () {
+			if (Option.isSome(this.cosmwasmClient)) {
+				return yield* Effect.succeed(this.cosmwasmClient.value);
+			}
 
-		const cometClientRes = await this.getCometClient();
-		if (cometClientRes.isErr) {
-			return Result.err(cometClientRes.error);
-		}
+			const cometClient = yield* this.getCometClient();
+			const client = yield* Effect.tryPromise({
+				try: () => CosmWasmClient.create(cometClient),
+				catch: (error) => new FailedToGetCosmWasmClientError({ error }),
+			});
 
-		const client = await tryAsync(CosmWasmClient.create(cometClientRes.value));
-		return client.map((t) => {
-			this.cosmwasmClient = Maybe.just(t);
-			return t;
+			this.cosmwasmClient = Option.some(client);
+			return client;
 		});
-	}
 
-	private async getCoreContractAddress(): Promise<Result<string, unknown>> {
-		if (this.coreContractAddress.isJust) {
-			return Result.ok(this.coreContractAddress.value);
-		}
+	private getCoreContractAddress = () =>
+		Effect.gen(this, function* () {
+			if (Option.isSome(this.coreContractAddress)) {
+				return this.coreContractAddress.value;
+			}
 
-		const rpcClientRes = await this.getProtobufRpcClient();
-		if (rpcClientRes.isErr) {
-			return Result.err(rpcClientRes.error);
-		}
+			const rpcClientRes = yield* this.getProtobufRpcClient();
+			const address = yield* getLatestCoreContractAddress(rpcClientRes);
 
-		const address = await getLatestCoreContractAddress(rpcClientRes.value);
-
-		return address.map((t) => {
-			this.coreContractAddress = Maybe.just(t);
-			return t;
+			this.coreContractAddress = Option.some(address);
+			return address;
 		});
-	}
 
 	/**
 	 * Returns the data proxy registration for the public key of the data proxy instance. Returns an error
 	 * if no registration is found.
 	 */
-	async getDataProxyRegistration(): Promise<
-		Result<sedachain.data_proxy.v1.ProxyConfig, Error>
-	> {
-		const rpcClientRes = await this.getProtobufRpcClient();
-		if (rpcClientRes.isErr) {
-			return Result.err(rpcClientRes.error);
-		}
+	getDataProxyRegistration = () =>
+		Effect.gen(this, function* () {
+			const rpcClientRes = yield* this.getProtobufRpcClient();
 
-		return getDataProxyRegistration(
-			rpcClientRes.value,
-			this.publicKey.toString("hex"),
-		);
-	}
+			return yield* getDataProxyRegistration(
+				rpcClientRes,
+				this.publicKey.toString("hex"),
+			);
+		});
 
 	/**
 	 * Verifies if the executor is eligible or not
 	 * proof is given by the executor through the header x-proof
 	 * @param payload
 	 */
-	async verify(
-		proof: string,
-	): Promise<
-		Result<{ isValid: boolean; status: string; currentHeight: bigint }, string>
-	> {
-		// Verify if eligible (right now is this one staked or not)
-		const client = await this.getCosmWasmClient();
-		if (client.isErr) {
-			return Result.err(`Could not create client ${client.error}`);
-		}
+	verify = (proof: string) =>
+		Effect.gen(this, function* () {
+			// Verify if eligible (right now is this one staked or not)
+			const client = yield* this.getCosmWasmClient();
+			const coreContractAddress = yield* this.getCoreContractAddress();
 
-		const coreContractAddress = await this.getCoreContractAddress();
-		if (coreContractAddress.isErr) {
-			return Result.err(
-				`Could not get contract address ${coreContractAddress.error}`,
-			);
-		}
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					client.queryContractSmart(coreContractAddress, {
+						get_executor_eligibility: {
+							data: proof,
+						},
+					}),
+				catch: (error) => new FailedToVerifyCoreProofError({ error }),
+			});
 
-		const result = await tryAsync(
-			client.value.queryContractSmart(coreContractAddress.value, {
-				get_executor_eligibility: {
-					data: proof,
-				},
+			return {
+				isValid: result.status === "eligible",
+				status: result.status,
+				currentHeight: BigInt(result.block_height),
+			};
+		}).pipe(
+			Effect.catchAll((error) => {
+				if (error._tag === "FailedToVerifyCoreProofError")
+					return Effect.fail(error);
+				return Effect.fail(
+					new FailedToVerifyCoreProofError({ error: `${error}` }),
+				);
 			}),
 		);
-
-		return result
-			.map((v) => ({
-				isValid: v.status === "eligible",
-				status: v.status,
-				currentHeight: BigInt(v.block_height),
-			}))
-			.mapErr((err) => `Error while fetching verification: ${err}`);
-	}
 
 	/**
 	 * Signs data and gives back a wrapped signed response
 	 *
 	 * @param data
 	 */
-	async signData(
+	signData(
 		requestUrl: string,
 		requestMethod: string,
 		requestBody: Buffer,
 		responseBody: Buffer,
-	): Promise<SignedData> {
+	) {
 		const signResult = this.hashAndSign(
 			this.generateMessage(
 				requestUrl,
@@ -220,12 +214,12 @@ export class DataProxy {
 			),
 		);
 
-		return {
+		return Effect.succeed({
 			publicKey: this.publicKey.toString("hex"),
 			signature: Buffer.from(signResult.signature).toString("hex"),
 			recId: signResult.recid,
 			version: this.version,
-		};
+		});
 	}
 
 	generateMessage(
@@ -258,9 +252,12 @@ export class DataProxy {
 	 * @param proof
 	 * @returns
 	 */
-	decodeProof(
+	decodeProof = (
 		proof: string,
-	): Result<{ publicKey: Buffer; drId: string; signature: Buffer }, Error> {
+	): Effect.Effect<
+		{ publicKey: Buffer; drId: string; signature: Buffer },
+		FailedToDecodeProofError
+	> => {
 		try {
 			// The proof is a base64 encoded string
 			const decoded = Buffer.from(proof, "base64");
@@ -268,15 +265,15 @@ export class DataProxy {
 			// The proof is a string of the form `${publicKey.toString("hex")}:${drId}:${signature.toString("hex")}`;
 			const [publicKey, drId, signature] = decoded.toString("utf-8").split(":");
 
-			return Result.ok({
+			return Effect.succeed({
 				publicKey: Buffer.from(publicKey, "hex"),
 				drId: drId,
 				signature: Buffer.from(signature, "hex"),
 			});
 		} catch (error) {
-			return Result.err(new Error(`Error while decoding proof: ${error}`));
+			return Effect.fail(new FailedToDecodeProofError({ error }));
 		}
-	}
+	};
 
 	/**
 	 * Decodes a seda fast proof string into a public key, drId and signature
@@ -285,51 +282,8 @@ export class DataProxy {
 	 * @param proof
 	 * @returns
 	 */
-	decodeSedaFastProof(proof: string): Result<
-		{
-			unixTimestamp: bigint;
-			signature: Buffer;
-			publicKey: Buffer;
-		},
-		Error
-	> {
-		try {
-			// The format is "{unixTimestampMs}:{signatureAsHexString}:{clientChainId}"
-			const decoded = Buffer.from(proof, "base64");
-			const [unixTimestampMs, signature, clientChainId] = decoded
-				.toString("utf-8")
-				.split(":");
-
-			if (clientChainId !== this.options.chainId) {
-				return Result.err(
-					new Error(
-						`Invalid client chain id: ${clientChainId}, wanted: ${this.options.chainId}`,
-					),
-				);
-			}
-
-			const unixTimestampBuffer = Buffer.alloc(8); // 64-bit = 8 bytes
-			unixTimestampBuffer.writeBigUInt64BE(BigInt(unixTimestampMs));
-			const chainIdBytes = Buffer.from(this.options.chainId);
-
-			const messageHash = keccak256(
-				Buffer.concat([unixTimestampBuffer, chainIdBytes]),
-			);
-
-			const extendSignatures = ExtendedSecp256k1Signature.fromFixedLength(
-				Buffer.from(signature, "hex"),
-			);
-			const pubKey = Secp256k1.recoverPubkey(extendSignatures, messageHash);
-			const compressedPubKey = Secp256k1.compressPubkey(pubKey);
-
-			return Result.ok({
-				publicKey: Buffer.from(compressedPubKey),
-				unixTimestamp: BigInt(unixTimestampMs),
-				signature: Buffer.from(signature, "hex"),
-			});
-		} catch (error) {
-			return Result.err(new Error(`Error while decoding proof: ${error}`));
-		}
+	decodeSedaFastProof(proof: string) {
+		return decodeSedaFastProof(proof, this.options.chainId);
 	}
 
 	/**
@@ -339,42 +293,15 @@ export class DataProxy {
 	 * @param blockHeight
 	 * @returns
 	 */
-	async verifyFastProof(proof: {
+	verifyFastProof(proof: {
 		unixTimestamp: bigint;
 		signature: Buffer;
 		publicKey: Buffer;
-	}): Promise<
-		Result<
-			{ isValid: boolean; status: string; currentUnixTimestamp: bigint },
-			string
-		>
-	> {
-		const now = BigInt(Date.now());
-		const delta = now - proof.unixTimestamp;
-
-		if (delta > this.options.fastMaxProofAgeMs) {
-			return Result.ok({
-				isValid: false,
-				status: "unix_timestamp_too_old",
-				currentUnixTimestamp: now,
-			});
-		}
-
-		// Check if the client is allowed
-		if (
-			!this.options.fastAllowedClients.includes(proof.publicKey.toString("hex"))
-		) {
-			return Result.ok({
-				isValid: false,
-				status: "fast_client_not_allowed",
-				currentUnixTimestamp: now,
-			});
-		}
-
-		return Result.ok({
-			isValid: true,
-			status: "eligible",
-			currentUnixTimestamp: now,
-		});
+	}) {
+		return verifyFastProof(
+			proof,
+			this.options.fastMaxProofAgeMs,
+			this.options.fastAllowedClients,
+		);
 	}
 }

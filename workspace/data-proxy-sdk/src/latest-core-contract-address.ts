@@ -1,15 +1,19 @@
 import type { ProtobufRpcClient } from "@cosmjs/stargate";
 import { sedachain } from "@seda-protocol/proto-messages";
-import { tryAsync } from "@seda-protocol/utils";
-import type { Result } from "true-myth";
+import { Effect } from "effect";
+import { FailedToGetCoreContractAddressError } from "./errors";
 
-export async function getLatestCoreContractAddress(
+export const getLatestCoreContractAddress = (
 	protoRpcClient: ProtobufRpcClient,
-): Promise<Result<string, Error>> {
-	const sedaQueryClient = new sedachain.wasm_storage.v1.QueryClientImpl(
-		protoRpcClient,
-	);
-	const response = await tryAsync(sedaQueryClient.CoreContractRegistry({}));
+) =>
+	Effect.gen(function* () {
+		const sedaQueryClient = new sedachain.wasm_storage.v1.QueryClientImpl(
+			protoRpcClient,
+		);
+		const response = yield* Effect.tryPromise({
+			try: () => sedaQueryClient.CoreContractRegistry({}),
+			catch: (error) => new FailedToGetCoreContractAddressError({ error }),
+		});
 
-	return response.map((v) => v.address);
-}
+		return response.address;
+	});

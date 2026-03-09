@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { assertIsOkResult } from "@seda-protocol/utils/testing";
+import { Effect } from "effect";
 import { createUrlSearchParams } from "./search-params";
 import { injectSearchParamsInUrl } from "./url";
 
@@ -11,9 +12,10 @@ describe("url", () => {
 		});
 
 		const injection = createUrlSearchParams(targetSearchParams);
-		const result = injectSearchParamsInUrl(targetUrl, injection);
+		const result = Effect.runSync(
+			injectSearchParamsInUrl(targetUrl, injection),
+		);
 
-		assertIsOkResult(result);
-		expect(result.value.toString()).toBe("http://example.com/?two=2&one=1");
+		expect(result.toString()).toBe("http://example.com/?two=2&one=1");
 	});
 });
