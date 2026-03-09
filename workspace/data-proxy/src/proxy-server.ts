@@ -10,12 +10,12 @@ import { DEFAULT_PROXY_ROUTE_GROUP, JSON_PATH_HEADER_KEY } from "./constants";
 import { getFetcher } from "./fetchers";
 import { defaultFetcher } from "./fetchers/default-fetcher";
 import logger from "./logger";
-import { headersToRecord } from "./utils/headers";
 import { StatusContext, statusPlugin } from "./status-plugin";
 import {
 	createDefaultResponseHeaders,
 	createSignedResponseHeaders,
 } from "./utils/create-headers";
+import { headersToRecord } from "./utils/headers";
 import { queryJson } from "./utils/query-json";
 import { replaceParams } from "./utils/replace-params";
 import { createUrlSearchParams } from "./utils/search-params";
@@ -258,7 +258,8 @@ async function handleProxyRequest(
 
 	// Use the configured custom fetcher, or fall back to the default HTTP fetcher
 	const fetcherName = route.fetcher ?? "default";
-	const fetcher = route.fetcher ? getFetcher(route.fetcher)! : defaultFetcher;
+	const fetcher =
+		(route.fetcher ? getFetcher(route.fetcher) : undefined) ?? defaultFetcher;
 
 	requestLogger.debug(
 		route.fetcher

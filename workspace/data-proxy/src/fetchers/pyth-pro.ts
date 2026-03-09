@@ -107,7 +107,6 @@ export const pythProFetcher: Fetcher = {
 			parsed,
 		} = parsedBody;
 
-		console.log("priceFeedIds", priceFeedIds);
 		if (
 			(!priceFeedIds || priceFeedIds.length === 0) &&
 			(!priceFeedSymbols || priceFeedSymbols.length === 0)
@@ -181,14 +180,11 @@ export const pythProFetcher: Fetcher = {
 			...(jsonBinaryEncoding !== undefined ? { jsonBinaryEncoding } : {}),
 			...(parsed !== undefined ? { parsed } : {}),
 		};
-		console.log("get here");
-
+		// timestamp is guaranteed defined here — we return 400 above if endpoint === "price" && timestamp === undefined
 		const result =
-			endpoint === "price"
-				? await client.getPrice({ ...sdkParams, timestamp: timestamp! })
+			endpoint === "price" && timestamp !== undefined
+				? await client.getPrice({ ...sdkParams, timestamp })
 				: await client.getLatestPrice(sdkParams);
-		
-		console.log("result", result);
 
 		return {
 			status: 200,
