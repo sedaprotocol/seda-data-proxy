@@ -27,6 +27,7 @@ const RouteSchema = v.strictObject(
 		baseURL: maybe(v.string()),
 		path: v.string(),
 		upstreamUrl: v.string(),
+		fetcher: v.optional(v.string()),
 		method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
 		jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
 		allowedQueryParams: v.optional(v.array(v.string())),
@@ -262,29 +263,32 @@ export function parseConfig(
 		}
 
 		// Ensure variables in the path are used in the upstream URL, the headers or the jsonPath.
-		for (const match of route.path.matchAll(pathVarRegex)) {
-			let isUsed = false;
+		// Skip this check for custom fetchers since they control their own parameter usage.
+		if (!route.fetcher) {
+			for (const match of route.path.matchAll(pathVarRegex)) {
+				let isUsed = false;
 
-			if (route.upstreamUrl.includes(match[1])) {
-				isUsed = true;
-			}
-
-			for (const [_, headerValue] of Object.entries(route.headers)) {
-				if (headerValue.includes(match[1])) {
+				if (route.upstreamUrl.includes(match[1])) {
 					isUsed = true;
-					break;
 				}
-			}
 
-			if (route.jsonPath?.includes(match[1])) {
-				isUsed = true;
-			}
+				for (const [_, headerValue] of Object.entries(route.headers)) {
+					if (headerValue.includes(match[1])) {
+						isUsed = true;
+						break;
+					}
+				}
 
-			if (!isUsed) {
-				hasWarnings = true;
-				logger.warn(
-					`$.${index}.path has ${match[1]}, but it is not used in $.${index}.upstreamUrl or $.${index}.headers. \nPlease either remove the variable from the path or use it in the upstreamUrl or headers (through "{${match[1]}}").`,
-				);
+				if (route.jsonPath?.includes(match[1])) {
+					isUsed = true;
+				}
+
+				if (!isUsed) {
+					hasWarnings = true;
+					logger.warn(
+						`$.${index}.path has ${match[1]}, but it is not used in $.${index}.upstreamUrl or $.${index}.headers. \nPlease either remove the variable from the path or use it in the upstreamUrl or headers (through "{${match[1]}}").`,
+					);
+				}
 			}
 		}
 

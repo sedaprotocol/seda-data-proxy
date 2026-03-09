@@ -1,5 +1,4 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
-import * as Match from "effect/Match";
 import type { Maybe, Result } from "true-myth";
 import type { Logger } from "winston";
 
