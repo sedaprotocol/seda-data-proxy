@@ -69,7 +69,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			requestSearchParams,
 		).pipe(Effect.map((url) => url.toString()));
 
-		// Forward all headers sent by the requester
+		// Redirect all headers given by the requester
 		for (const [key, value] of Object.entries(headers)) {
 			if (!value || key === constants.PROOF_HEADER_KEY) {
 				continue;

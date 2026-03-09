@@ -147,6 +147,8 @@ export const pathVarRegex = new RegExp(/(:[^\/]+)/g);
 // envVarRegex is a regex used to match environment variables following the {$varName} syntax.
 export const envVarRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 
+//Effect.Effect<[Result<{ config: Config; envSecrets: Set<string> }, string>, boolean]>
+
 export const parseConfig = (
 	input: unknown,
 ): Effect.Effect<

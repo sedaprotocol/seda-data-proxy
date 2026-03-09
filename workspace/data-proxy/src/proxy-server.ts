@@ -13,7 +13,7 @@ export interface ProxyServerOptions {
 	port: number;
 	disableProof: boolean;
 	/**
-	 * If false, the keep alive fiber will not be started.
+	 * If true, the keep alive fiber will not be started.
 	 * This is because of a bug where the scope gets cleaned up while executing.
 	 * We need this option because in tests we want to not have an infinite loop of keep alive fibers.
 	 */
