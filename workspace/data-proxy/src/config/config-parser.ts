@@ -10,8 +10,18 @@ import {
 	DEFAULT_PROXY_ROUTE_GROUP,
 	DEFAULT_VERIFICATION_MAX_RETRIES,
 	DEFAULT_VERIFICATION_RETRY_DELAY,
-} from "./constants";
-import { replaceParams } from "./utils/replace-params";
+} from "../constants";
+import { replaceParams } from "../utils/replace-params";
+import { type Modules, ModulesSchema } from "./module-config";
+import {
+	type PythLazerModuleRoute,
+	PythLazerModuleRouteSchema,
+	validatePythLazerModuleRoute,
+} from "./pyth-lazer-module-config";
+import {
+	type UpstreamModuleRoute,
+	UpstreamModuleRouteSchema,
+} from "./upstream-module-config";
 
 const UNKNOWN_ATTRIBUTE_ERROR = "Unknown attribute";
 
@@ -21,25 +31,6 @@ const NotOptionsMethod = v.pipe(
 );
 
 const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
-
-const RouteSchema = v.strictObject(
-	{
-		baseURL: maybe(v.string()),
-		path: v.string(),
-		upstreamUrl: v.string(),
-		method: v.optional(HttpMethodSchema, DEFAULT_HTTP_METHODS),
-		jsonPath: v.optional(v.pipe(v.string(), v.startsWith("$"))),
-		allowedQueryParams: v.optional(v.array(v.string())),
-		forwardResponseHeaders: v.pipe(
-			v.optional(v.array(v.string()), []),
-			v.transform((methods) => {
-				return new Set(methods.map((method) => method.toLowerCase()));
-			}),
-		),
-		headers: v.optional(v.record(v.string(), v.string()), {}),
-	},
-	UNKNOWN_ATTRIBUTE_ERROR,
-);
 
 // Only compressed secp256k1 public keys are supported here as that's the format exposed by SEDA FAST.
 const Secp256k1PublicKeySchema = v.pipe(
@@ -70,6 +61,7 @@ const Secp256k1PublicKeySchema = v.pipe(
 
 const ConfigSchema = v.strictObject(
 	{
+		modules: ModulesSchema,
 		verificationMaxRetries: v.optional(
 			v.number(),
 			DEFAULT_VERIFICATION_MAX_RETRIES,
@@ -102,7 +94,13 @@ const ConfigSchema = v.strictObject(
 			}),
 		),
 		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
-		routes: v.array(RouteSchema),
+		// routes: v.array(RouteSchema),
+		routes: v.array(
+			v.variant("type", [
+				UpstreamModuleRouteSchema,
+				PythLazerModuleRouteSchema,
+			]),
+		),
 		baseURL: maybe(v.string()),
 		statusEndpoints: v.optional(
 			v.strictObject(
@@ -128,8 +126,11 @@ const ConfigSchema = v.strictObject(
 	UNKNOWN_ATTRIBUTE_ERROR,
 );
 
-export type Route = v.InferOutput<typeof RouteSchema>;
-export type Config = v.InferOutput<typeof ConfigSchema>;
+// export type Route = v.InferOutput<typeof RouteSchema>;
+export type Route = UpstreamModuleRoute | PythLazerModuleRoute;
+export interface Config extends v.InferOutput<typeof ConfigSchema> {
+	modules: Modules[];
+}
 
 export function getHttpMethods(
 	configuredMethod: Route["method"],
@@ -146,8 +147,6 @@ export const varRegex = new RegExp(/{(:[^}]+)}/g, "g");
 export const pathVarRegex = new RegExp(/(:[^\/]+)/g);
 // envVarRegex is a regex used to match environment variables following the {$varName} syntax.
 export const envVarRegex = new RegExp(/{(\$[^}]+)}/g, "g");
-
-//Effect.Effect<[Result<{ config: Config; envSecrets: Set<string> }, string>, boolean]>
 
 export const parseConfig = (
 	input: unknown,
@@ -214,6 +213,11 @@ export const parseConfig = (
 		}
 
 		for (const [index, route] of config.routes.entries()) {
+			if (route.type === "pyth-lazer") {
+				yield* validatePythLazerModuleRoute(route);
+				continue;
+			}
+
 			// Content type should always be forwarded to the client.
 			route.forwardResponseHeaders.add("content-type");
 
@@ -342,6 +346,28 @@ export const parseConfig = (
 			}
 		}
 
+		const modules: Modules[] = [];
+
+		// Check if the modules are valid
+		for (const module of config.modules) {
+			if (module.type === "pyth-lazer") {
+				const pythLazerApiKey = process.env[module.pythLazerApiKeyEnvKey];
+				if (!pythLazerApiKey) {
+					return [
+						Result.err(
+							`Module ${module.type} requires ${module.pythLazerApiKeyEnvKey} to be set`,
+						),
+						hasWarnings,
+					];
+				}
+
+				modules.push({
+					...module,
+					pythLazerApiKey,
+				});
+			}
+		}
+
 		if (config.sedaFast?.enable) {
 			if (config.sedaFast.allowedClients.length === 0) {
 				return [
@@ -353,5 +379,8 @@ export const parseConfig = (
 			}
 		}
 
-		return [Result.ok({ config, envSecrets }), hasWarnings];
+		return [
+			Result.ok({ config: { ...config, modules }, envSecrets }),
+			hasWarnings,
+		];
 	});
