@@ -4,7 +4,7 @@ import {
 	assertIsOkResult,
 } from "@seda-protocol/utils/testing";
 import { Effect } from "effect";
-import { parseConfig } from "./config-parser";
+import { parseConfig } from "./config/config-parser";
 
 describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
@@ -237,7 +237,7 @@ describe("parseConfig", () => {
 
 			assertIsErrorResult(result);
 			expect(result.error).toContain(
-				".routes.0.notRealAttribute: Unknown attribute",
+				'.routes.0.notRealAttribute: Invalid key: Expected never but received "notRealAttribute"',
 			);
 		});
 

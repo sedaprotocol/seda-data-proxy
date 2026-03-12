@@ -1,4 +1,4 @@
-import { envVarRegex } from "../config-parser";
+import { envVarRegex } from "../config/config-parser";
 
 /**
  * Replaces parameters in the input string with values from the given params object and the

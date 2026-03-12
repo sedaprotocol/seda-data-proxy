@@ -3,14 +3,16 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
-import { Effect, Either, LogLevel, Logger } from "effect";
-import { parseConfig } from "../config-parser";
+import { parseJSON5 } from "confbox";
+import { Clock, Effect, Either, LogLevel, Logger } from "effect";
+import { parseConfig } from "../config/config-parser";
 import {
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	LOG_LEVEL,
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
+import { FailedToParseConfigError } from "../errors";
 import { logBootstrap, setEnvSecrets } from "../logger";
 import { startProxyServer } from "../proxy-server";
 import { HttpClientService } from "../services/http-client";
@@ -168,7 +170,13 @@ const configure = (
 		}
 
 		const parsedConfig = yield* Effect.either(
-			Effect.try(() => JSON.parse(configFile.right.toString())),
+			Effect.try({
+				try: () => parseJSON5(configFile.right.toString()),
+				catch: (error) =>
+					new FailedToParseConfigError({
+						error: `Parsing config failed: ${error}`,
+					}),
+			}),
 		);
 		if (Either.isLeft(parsedConfig)) {
 			yield* Effect.logError(`Parsing config failed: ${parsedConfig.left}`);

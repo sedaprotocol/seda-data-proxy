@@ -1,6 +1,6 @@
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Data, Effect, Match, Option } from "effect";
-import type { Config } from "../../config-parser";
+import type { Config } from "../../config/config-parser";
 import { UnknownError } from "../../errors";
 import { verifyWithRetry } from "../../utils/verify-with-retry";
 

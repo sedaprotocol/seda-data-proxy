@@ -39,3 +39,9 @@ export class NotOkUpstreamResponseError extends Data.TaggedError(
 }> {
 	message = `Upstream response for route ${this.routePath} is not ok: ${this.status} body: ${this.body}`;
 }
+
+export class FailedToParseConfigError extends Data.TaggedError(
+	"FailedToParseConfigError",
+)<{ error: string | unknown }> {
+	message = `Failed to parse config: ${this.error}`;
+}
