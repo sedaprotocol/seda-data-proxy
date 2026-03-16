@@ -64,8 +64,8 @@ export function startProxyServer(
 				});
 			},
 		)
-		.onAfterResponse(({ requestId, response }) => {
-			logger.debug("Responded to request", { requestId, response });
+		.onAfterResponse(({ requestId }) => {
+			logger.debug("Responded to request", { requestId });
 		});
 
 	const statusContext = new StatusContext(
@@ -310,7 +310,12 @@ export function startProxyServer(
 							// Rare case where the upstream response is not a text parseable response
 							if (body.isErr) {
 								const message = `Upstream response for ${route.path} is not ok: ${upstreamResponse.value.status} err: ${body.error}`;
-								requestLogger.error(message, { error: body.error });
+								requestLogger.error(message, {
+									error: body.error,
+									requestBody: requestBody.unwrapOr(undefined),
+									method: request.method,
+									upstreamUrl,
+								});
 								return createErrorResponse(
 									message,
 									upstreamResponse.value.status,
@@ -318,7 +323,11 @@ export function startProxyServer(
 							}
 
 							const message = `Upstream response for ${route.path} is not ok: ${upstreamResponse.value.status} body: ${body.value}`;
-							requestLogger.error(message);
+							requestLogger.error(message, {
+								requestBody: requestBody.unwrapOr(undefined),
+								method: request.method,
+								upstreamUrl,
+							});
 
 							return createErrorResponse(
 								message,

@@ -40,10 +40,28 @@ const logFormat = format.printf((info) => {
 
 	const message = redactEnvSecrets(info.message);
 
-	return Maybe.of(metadata.error).mapOr(
+	let result = Maybe.of(metadata.error).mapOr(
 		`${logMsg}: ${message}`,
 		(err) => `${logMsg}: ${message} ${err}`,
 	);
+
+	let hasMetadata = false;
+	// We need to add the rest of the metadata to the log message
+	for (const [key, value] of Object.entries(metadata)) {
+		// Already added
+		if (key === "requestId" || key === "path" || key === "error") {
+			continue;
+		}
+
+		hasMetadata = true;
+		result += `\n${key}=${redactEnvSecrets(JSON.stringify(value))} `;
+	}
+
+	if (hasMetadata) {
+		result += "\n";
+	}
+
+	return result;
 });
 
 const destinations: transport[] = [
