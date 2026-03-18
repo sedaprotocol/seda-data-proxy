@@ -34,13 +34,7 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
 		const program = Effect.gen(function* () {
-			const verification = yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				Option.none(),
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
-			);
+			const verification = yield* verifyWithRetry(mockDataProxy, mockProof, Option.none(), testDefaultMaxAttempts, testDefaultRetryDelay);
 
 			expect(verification).not.toBeNull();
 			expect(verification).toEqual(mockVerification);
@@ -62,21 +56,13 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => {
 			callCount++;
 			if (callCount === 1) {
-				return Effect.fail(
-					new FailedToVerifyCoreProofError({ error: "Network error" }),
-				);
+				return Effect.fail(new FailedToVerifyCoreProofError({ error: "Network error" }));
 			}
 			return Effect.succeed(mockVerification);
 		});
 
 		const program = Effect.gen(function* () {
-			const verification = yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				Option.none(),
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
-			);
+			const verification = yield* verifyWithRetry(mockDataProxy, mockProof, Option.none(), testDefaultMaxAttempts, testDefaultRetryDelay);
 
 			expect(verification).not.toBeNull();
 			expect(verification as VerificationResult).toEqual(mockVerification);
@@ -149,13 +135,7 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
 		const program = Effect.gen(function* () {
-			const verification = yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				Option.none(),
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
-			);
+			const verification = yield* verifyWithRetry(mockDataProxy, mockProof, Option.none(), testDefaultMaxAttempts, testDefaultRetryDelay);
 
 			expect(verification).not.toBeNull();
 			expect(verification as VerificationResult).toEqual(mockVerification);
@@ -175,13 +155,7 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
 		const program = Effect.gen(function* () {
-			const verification = yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				eligibleHeight,
-				testDefaultMaxAttempts,
-				testDefaultRetryDelay,
-			);
+			const verification = yield* verifyWithRetry(mockDataProxy, mockProof, eligibleHeight, testDefaultMaxAttempts, testDefaultRetryDelay);
 
 			expect(verification).not.toBeNull();
 			expect(verification as VerificationResult).toEqual(mockVerification);
@@ -200,13 +174,7 @@ describe("verifyWithRetry", () => {
 		mockDataProxy.verify = mock(() => Effect.succeed(mockVerification));
 
 		const program = Effect.gen(function* () {
-			const verification = yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				Option.some(101n),
-				3,
-				testDefaultRetryDelay,
-			);
+			const verification = yield* verifyWithRetry(mockDataProxy, mockProof, Option.some(101n), 3, testDefaultRetryDelay);
 
 			expect(verification).not.toBeNull();
 			expect(verification as VerificationResult).toEqual(mockVerification);
@@ -230,13 +198,7 @@ describe("verifyWithRetry", () => {
 		const customDelay = mock(() => 2);
 
 		const program = Effect.gen(function* () {
-			yield* verifyWithRetry(
-				mockDataProxy,
-				mockProof,
-				Option.some(101n),
-				4,
-				customDelay,
-			);
+			yield* verifyWithRetry(mockDataProxy, mockProof, Option.some(101n), 4, customDelay);
 		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
 		await Effect.runPromise(program);

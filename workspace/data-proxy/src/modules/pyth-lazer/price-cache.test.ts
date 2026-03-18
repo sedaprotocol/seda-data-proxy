@@ -71,10 +71,7 @@ describe("createPriceCache", () => {
 				const waiterA = yield* Effect.fork(priceCache.getOrWaitPrice(99));
 				const waiterB = yield* Effect.fork(priceCache.getOrWaitPrice(99));
 				yield* priceCache.setPrice(99, entry);
-				const [a, b] = yield* Effect.all([
-					Fiber.join(waiterA),
-					Fiber.join(waiterB),
-				]);
+				const [a, b] = yield* Effect.all([Fiber.join(waiterA), Fiber.join(waiterB)]);
 				expect(a).toEqual(entry);
 				expect(b).toEqual(entry);
 			}),
@@ -124,10 +121,7 @@ describe("createPriceCache", () => {
 					timestamp: 2000,
 					id: 2,
 				});
-				const [p1, p2] = yield* Effect.all([
-					priceCache.getOrWaitPrice(1),
-					priceCache.getOrWaitPrice(2),
-				]);
+				const [p1, p2] = yield* Effect.all([priceCache.getOrWaitPrice(1), priceCache.getOrWaitPrice(2)]);
 				expect(p1.price).toBe("100");
 				expect(p2.price).toBe("200");
 			}),

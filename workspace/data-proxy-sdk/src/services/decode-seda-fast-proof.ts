@@ -1,8 +1,4 @@
-import {
-	ExtendedSecp256k1Signature,
-	Secp256k1,
-	keccak256,
-} from "@cosmjs/crypto";
+import { ExtendedSecp256k1Signature, Secp256k1, keccak256 } from "@cosmjs/crypto";
 import { Effect } from "effect";
 import { FailedToDecodeSedaFastProofError } from "../errors";
 
@@ -11,9 +7,7 @@ export const decodeSedaFastProof = (proof: string, chainId: string) => {
 		try {
 			// The format is "{unixTimestampMs}:{signatureAsHexString}:{clientChainId}"
 			const decoded = Buffer.from(proof, "base64");
-			const [unixTimestampMs, signature, clientChainId] = decoded
-				.toString("utf-8")
-				.split(":");
+			const [unixTimestampMs, signature, clientChainId] = decoded.toString("utf-8").split(":");
 
 			if (clientChainId !== chainId) {
 				return yield* Effect.fail(
@@ -27,13 +21,9 @@ export const decodeSedaFastProof = (proof: string, chainId: string) => {
 			unixTimestampBuffer.writeBigUInt64BE(BigInt(unixTimestampMs));
 			const chainIdBytes = Buffer.from(chainId);
 
-			const messageHash = keccak256(
-				Buffer.concat([unixTimestampBuffer, chainIdBytes]),
-			);
+			const messageHash = keccak256(Buffer.concat([unixTimestampBuffer, chainIdBytes]));
 
-			const extendSignatures = ExtendedSecp256k1Signature.fromFixedLength(
-				Buffer.from(signature, "hex"),
-			);
+			const extendSignatures = ExtendedSecp256k1Signature.fromFixedLength(Buffer.from(signature, "hex"));
 			const pubKey = Secp256k1.recoverPubkey(extendSignatures, messageHash);
 			const compressedPubKey = Secp256k1.compressPubkey(pubKey);
 
@@ -43,9 +33,7 @@ export const decodeSedaFastProof = (proof: string, chainId: string) => {
 				signature: Buffer.from(signature, "hex"),
 			});
 		} catch (error) {
-			return yield* Effect.fail(
-				new FailedToDecodeSedaFastProofError({ error }),
-			);
+			return yield* Effect.fail(new FailedToDecodeSedaFastProofError({ error }));
 		}
 	});
 };

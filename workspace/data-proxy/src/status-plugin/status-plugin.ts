@@ -7,11 +7,7 @@ import { effectToAsyncResult } from "../utils/effect-utils";
 import { getVersions } from "../utils/versions";
 import type { Context } from "./types";
 
-export const statusPlugin = (
-	context: Context,
-	dataProxy: DataProxy,
-	options: Config["statusEndpoints"],
-) =>
+export const statusPlugin = (context: Context, dataProxy: DataProxy, options: Config["statusEndpoints"]) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime();
 
@@ -39,11 +35,8 @@ export const statusPlugin = (
 				});
 
 				group.get("health", async ({ set }) => {
-					const chainId = await effectToAsyncResult(
-						getRpcChainId(dataProxy.options.rpcUrl),
-					);
-					const hasCorrectChainId =
-						chainId.isOk && chainId.value === dataProxy.options.chainId;
+					const chainId = await effectToAsyncResult(getRpcChainId(dataProxy.options.rpcUrl));
+					const hasCorrectChainId = chainId.isOk && chainId.value === dataProxy.options.chainId;
 					set.status = chainId.isOk && hasCorrectChainId ? 200 : 500;
 
 					return Response.json({
@@ -53,9 +46,7 @@ export const statusPlugin = (
 				});
 
 				group.get("info", async () => {
-					const chainId = await effectToAsyncResult(
-						getRpcChainId(dataProxy.options.rpcUrl),
-					);
+					const chainId = await effectToAsyncResult(getRpcChainId(dataProxy.options.rpcUrl));
 
 					return Response.json({
 						pubKey: context.getPublicKey(),
@@ -69,12 +60,7 @@ export const statusPlugin = (
 				return group;
 			});
 
-			Runtime.runSync(
-				runtime,
-				Effect.logInfo(
-					`Status endpoints: /${options.root}/health, /${options.root}/info`,
-				),
-			);
+			Runtime.runSync(runtime, Effect.logInfo(`Status endpoints: /${options.root}/health, /${options.root}/info`));
 
 			return app.use(plugin);
 		};

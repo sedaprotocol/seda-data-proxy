@@ -2,15 +2,10 @@ import { readFile } from "node:fs/promises";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryParseSync } from "@seda-protocol/utils";
 import { Data, Effect } from "effect";
-import {
-	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
-	getPrivateKey,
-} from "../../constants";
+import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME, getPrivateKey } from "../../constants";
 import { FileKeyPairSchema } from "./key-pair";
 
-export class FailedToReadPrivateKeyFileError extends Data.TaggedError(
-	"FailedToReadPrivateKeyFileError",
-)<{ error: string | unknown }> {
+export class FailedToReadPrivateKeyFileError extends Data.TaggedError("FailedToReadPrivateKeyFileError")<{ error: string | unknown }> {
 	message = `Failed to read private key file: ${this.error}`;
 }
 
@@ -24,9 +19,7 @@ const readPrivateKeyFile = (path: string) =>
 		return privateKeyFile;
 	});
 
-export class FailedToParsePrivateKeyFileError extends Data.TaggedError(
-	"FailedToParsePrivateKeyFileError",
-)<{ error: string | unknown }> {
+export class FailedToParsePrivateKeyFileError extends Data.TaggedError("FailedToParsePrivateKeyFileError")<{ error: string | unknown }> {
 	message = `Failed to parse private key file: ${this.error}`;
 }
 
@@ -48,10 +41,7 @@ export const loadNetworkFromKeyFile = (privateKeyFilePath?: string) =>
 				}),
 		})) as unknown;
 
-		const parsedPrivateKeyFile = tryParseSync(
-			FileKeyPairSchema,
-			privateKeyFileObject,
-		);
+		const parsedPrivateKeyFile = tryParseSync(FileKeyPairSchema, privateKeyFileObject);
 
 		if (parsedPrivateKeyFile.isErr) {
 			let resultError = "";
@@ -78,9 +68,7 @@ export const loadPrivateKey = (privateKeyFilePath?: string) =>
 			return yield* Effect.succeed(Buffer.from(privateKey.trim(), "hex"));
 		}
 
-		const privateKeyFile = yield* readPrivateKeyFile(
-			privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
-		);
+		const privateKeyFile = yield* readPrivateKeyFile(privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME);
 
 		const privateKeyFileObject = (yield* Effect.try({
 			try: () => JSON.parse(privateKeyFile.toString()),
@@ -90,10 +78,7 @@ export const loadPrivateKey = (privateKeyFilePath?: string) =>
 				}),
 		})) as unknown;
 
-		const parsedPrivateKeyFile = tryParseSync(
-			FileKeyPairSchema,
-			privateKeyFileObject,
-		);
+		const parsedPrivateKeyFile = tryParseSync(FileKeyPairSchema, privateKeyFileObject);
 
 		if (parsedPrivateKeyFile.isErr) {
 			let resultError = "";
@@ -109,7 +94,5 @@ export const loadPrivateKey = (privateKeyFilePath?: string) =>
 			);
 		}
 
-		return yield* Effect.succeed(
-			Buffer.from(parsedPrivateKeyFile.value.privkey.trim(), "hex"),
-		);
+		return yield* Effect.succeed(Buffer.from(parsedPrivateKeyFile.value.privkey.trim(), "hex"));
 	});

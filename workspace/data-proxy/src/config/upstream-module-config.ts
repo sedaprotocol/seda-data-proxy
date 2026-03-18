@@ -8,6 +8,4 @@ export const UpstreamModuleRouteSchema = v.strictObject({
 	type: v.optional(v.literal("upstream"), "upstream"),
 });
 
-export type UpstreamModuleRoute = v.InferOutput<
-	typeof UpstreamModuleRouteSchema
->;
+export type UpstreamModuleRoute = v.InferOutput<typeof UpstreamModuleRouteSchema>;

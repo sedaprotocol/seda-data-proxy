@@ -3,14 +3,9 @@ import { sedachain } from "@seda-protocol/proto-messages";
 import { Effect } from "effect";
 import { FailedToGetDataProxyRegistrationError } from "./errors";
 
-export const getDataProxyRegistration = (
-	protoRpcClient: ProtobufRpcClient,
-	publicKeyHex: string,
-) =>
+export const getDataProxyRegistration = (protoRpcClient: ProtobufRpcClient, publicKeyHex: string) =>
 	Effect.gen(function* () {
-		const sedaQueryClient = new sedachain.data_proxy.v1.QueryClientImpl(
-			protoRpcClient,
-		);
+		const sedaQueryClient = new sedachain.data_proxy.v1.QueryClientImpl(protoRpcClient);
 		const response = yield* Effect.tryPromise({
 			try: () =>
 				sedaQueryClient.DataProxyConfig({

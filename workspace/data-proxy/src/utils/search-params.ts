@@ -1,7 +1,4 @@
-export function createUrlSearchParams(
-	queryParams: URLSearchParams,
-	allowedQueryParams?: string[],
-): URLSearchParams {
+export function createUrlSearchParams(queryParams: URLSearchParams, allowedQueryParams?: string[]): URLSearchParams {
 	const result = new URLSearchParams();
 
 	// .forEach() is the only way to correctly iterate over the query params

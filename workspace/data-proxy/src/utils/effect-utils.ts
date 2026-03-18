@@ -26,9 +26,7 @@ import { type Maybe, Result } from "true-myth";
  * );
  * ```
  */
-export function asyncToEffect<T>(
-	callback: Promise<T>,
-): Effect.Effect<T, Error> {
+export function asyncToEffect<T>(callback: Promise<T>): Effect.Effect<T, Error> {
 	return Effect.tryPromise({
 		try: () => callback,
 		catch: (error: unknown) => {
@@ -67,9 +65,7 @@ export function asyncToEffect<T>(
  * // errorResult.isErr will be true
  * ```
  */
-export async function effectToAsyncResult<T, E>(
-	effect: Effect.Effect<T, E>,
-): Promise<Result<T, Error>> {
+export async function effectToAsyncResult<T, E>(effect: Effect.Effect<T, E>): Promise<Result<T, Error>> {
 	try {
 		const result = await Effect.runPromise(effect);
 		return Result.ok(result);
@@ -108,9 +104,7 @@ export async function effectToAsyncResult<T, E>(
  * );
  * ```
  */
-export function asyncResultToEffect<T, E>(
-	callback: Promise<Result<T, E>>,
-): Effect.Effect<T, E> {
+export function asyncResultToEffect<T, E>(callback: Promise<Result<T, E>>): Effect.Effect<T, E> {
 	return Effect.async((resume) => {
 		callback.then((result) => {
 			if (result.isErr) {
@@ -153,9 +147,7 @@ export function asyncResultToEffect<T, E>(
  * // For async Effects, use effectToAsyncResult instead
  * ```
  */
-export function effectToSyncResult<T, E>(
-	effect: Effect.Effect<T, E>,
-): Result<T, Error> {
+export function effectToSyncResult<T, E>(effect: Effect.Effect<T, E>): Result<T, Error> {
 	try {
 		const result = Effect.runSync(effect);
 		return Result.ok(result);

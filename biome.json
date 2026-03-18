@@ -3,6 +3,9 @@
 	"files": {
 		"ignore": ["./workspace/data-proxy-sdk/gen"]
 	},
+	"formatter": {
+		"lineWidth": 140
+	},
 	"organizeImports": {
 		"enabled": true
 	},

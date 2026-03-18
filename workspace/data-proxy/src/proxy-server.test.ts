@@ -1,26 +1,11 @@
-import {
-	afterAll,
-	beforeAll,
-	beforeEach,
-	describe,
-	expect,
-	it,
-} from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { Secp256k1, Secp256k1Signature, keccak256 } from "@cosmjs/crypto";
-import {
-	constants,
-	DataProxy,
-	Environment,
-} from "@seda-protocol/data-proxy-sdk";
+import { constants, DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { Effect, LogLevel, Logger } from "effect";
 import { Maybe } from "true-myth";
 import { startProxyServer } from "./proxy-server";
 import { HttpClientService } from "./services/http-client";
-import {
-	HttpResponse,
-	registerHandler,
-	server,
-} from "./testutils/mock-upstream";
+import { HttpResponse, registerHandler, server } from "./testutils/mock-upstream";
 
 beforeAll(() => {
 	server.listen();
@@ -44,14 +29,10 @@ const dataProxy = new DataProxy(Environment.Devnet, {
 
 describe("proxy server", () => {
 	it("should forward a body without modifying it", async () => {
-		const { upstreamUrl, proxyUrl, path, port } = registerHandler(
-			"post",
-			"/test-post-body",
-			async ({ request }) => {
-				const bodyText = await request.text();
-				return HttpResponse.json({ receivedBody: bodyText });
-			},
-		);
+		const { upstreamUrl, proxyUrl, path, port } = registerHandler("post", "/test-post-body", async ({ request }) => {
+			const bodyText = await request.text();
+			return HttpResponse.json({ receivedBody: bodyText });
+		});
 
 		const proxy = await Effect.runPromise(
 			startProxyServer(
@@ -110,13 +91,9 @@ describe("proxy server", () => {
 	});
 
 	it("should forward requests without params", async () => {
-		const { upstreamUrl, proxyUrl, path, port } = registerHandler(
-			"get",
-			"/echo",
-			async ({ params }) => {
-				return HttpResponse.json({ receivedParams: params });
-			},
-		);
+		const { upstreamUrl, proxyUrl, path, port } = registerHandler("get", "/echo", async ({ params }) => {
+			return HttpResponse.json({ receivedParams: params });
+		});
 
 		const proxy = await Effect.runPromise(
 			startProxyServer(
@@ -172,13 +149,9 @@ describe("proxy server", () => {
 
 	describe("public endpoint configuration", () => {
 		it("should support rewriting the protocol and host at the root level", async () => {
-			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
-				"get",
-				"/root-public-endpoint",
-				async () => {
-					return HttpResponse.json({ data: "hello" });
-				},
-			);
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler("get", "/root-public-endpoint", async () => {
+				return HttpResponse.json({ data: "hello" });
+			});
 
 			const proxy = await Effect.runPromise(
 				startProxyServer(
@@ -233,9 +206,7 @@ describe("proxy server", () => {
 				Buffer.from(JSON.stringify(result)),
 			);
 
-			const signature = Secp256k1Signature.fromFixedLength(
-				Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"),
-			);
+			const signature = Secp256k1Signature.fromFixedLength(Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"));
 			const isValid = await Secp256k1.verifySignature(
 				signature,
 				keccak256(message),
@@ -248,13 +219,9 @@ describe("proxy server", () => {
 		});
 
 		it("should support rewriting the protocol and host at the route level", async () => {
-			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
-				"get",
-				"/route-public-endpoint",
-				async () => {
-					return HttpResponse.json({ data: "hello" });
-				},
-			);
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler("get", "/route-public-endpoint", async () => {
+				return HttpResponse.json({ data: "hello" });
+			});
 
 			const proxy = await Effect.runPromise(
 				startProxyServer(
@@ -274,9 +241,7 @@ describe("proxy server", () => {
 						baseURL: Maybe.of("https://seda-data-proxy.com"),
 						routes: [
 							{
-								baseURL: Maybe.of(
-									"https://different-subdomain.seda-data-proxy.com",
-								),
+								baseURL: Maybe.of("https://different-subdomain.seda-data-proxy.com"),
 								method: "GET",
 								path,
 								upstreamUrl,
@@ -311,9 +276,7 @@ describe("proxy server", () => {
 				Buffer.from(JSON.stringify(result)),
 			);
 
-			const signature = Secp256k1Signature.fromFixedLength(
-				Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"),
-			);
+			const signature = Secp256k1Signature.fromFixedLength(Buffer.from(response.headers.get("x-seda-signature") ?? "", "hex"));
 			const isValid = await Secp256k1.verifySignature(
 				signature,
 				keccak256(message),
@@ -328,13 +291,9 @@ describe("proxy server", () => {
 
 	describe("OPTIONS methods", () => {
 		it("should return the public key and version of the data proxy", async () => {
-			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
-				"get",
-				"/test",
-				async () => {
-					return HttpResponse.json({ data: "info" });
-				},
-			);
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler("get", "/test", async () => {
+				return HttpResponse.json({ data: "info" });
+			});
 
 			const proxy = await Effect.runPromise(
 				startProxyServer(
@@ -380,15 +339,11 @@ describe("proxy server", () => {
 			);
 
 			const response = await fetch(proxyUrl, { method: "OPTIONS" });
-			const version = response.headers.get(
-				constants.SIGNATURE_VERSION_HEADER_KEY,
-			);
+			const version = response.headers.get(constants.SIGNATURE_VERSION_HEADER_KEY);
 			const publicKey = response.headers.get(constants.PUBLIC_KEY_HEADER_KEY);
 
 			expect(version).toBe("0.1.0");
-			expect(publicKey).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-			);
+			expect(publicKey).toBe("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f");
 		});
 	});
 	describe("status endpoints", () => {
@@ -550,8 +505,7 @@ describe("proxy server", () => {
 			const result = await response.json();
 
 			expect(result).toEqual({
-				pubKey:
-					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				pubKey: "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
 				fastConfig: {
 					enable: true,
 					allowedClients: [],
@@ -621,14 +575,10 @@ describe("proxy server", () => {
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
 
-			const unauthorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`).then(
-				(r) => r.text(),
-			);
+			const unauthorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`).then((r) => r.text());
 			expect(unauthorizedPubkeyRes).toEqual("Unauthorized");
 
-			const unauthorizedHealthRes = await fetch(
-				`${proxyUrl}/status/health`,
-			).then((r) => r.text());
+			const unauthorizedHealthRes = await fetch(`${proxyUrl}/status/health`).then((r) => r.text());
 			expect(unauthorizedHealthRes).toEqual("Unauthorized");
 
 			const authorizedPubkeyRes = await fetch(`${proxyUrl}/status/info`, {
@@ -637,8 +587,7 @@ describe("proxy server", () => {
 				},
 			}).then((r) => r.json());
 			expect(authorizedPubkeyRes).toEqual({
-				pubKey:
-					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				pubKey: "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
 				fastConfig: {
 					enable: true,
 					allowedClients: [],

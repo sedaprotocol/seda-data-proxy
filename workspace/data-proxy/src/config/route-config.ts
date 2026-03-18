@@ -4,10 +4,7 @@ import { DEFAULT_HTTP_METHODS } from "../constants";
 
 const UNKNOWN_ATTRIBUTE_ERROR = "Unknown attribute";
 
-const NotOptionsMethod = v.pipe(
-	v.string(),
-	v.notValue("OPTIONS", "OPTIONS method is reserved"),
-);
+const NotOptionsMethod = v.pipe(v.string(), v.notValue("OPTIONS", "OPTIONS method is reserved"));
 
 const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 

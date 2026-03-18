@@ -6,9 +6,7 @@ import dotenv from "@dotenvx/dotenvx";
 // Initialize dotenvx to decrypt environment variables
 dotenv.config({
 	path: process.env.DOTENV_CONFIG_PATH,
-	envKeysFile:
-		process.env.DOTENV_KEYS_PATH ??
-		join(homedir(), ".dotenvx", "data-proxy.keys"),
+	envKeysFile: process.env.DOTENV_KEYS_PATH ?? join(homedir(), ".dotenvx", "data-proxy.keys"),
 	overload: true, // Override existing environment variables
 });
 

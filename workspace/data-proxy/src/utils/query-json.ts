@@ -11,17 +11,12 @@ export class QueryJsonError extends Data.TaggedError("QueryJsonError")<{
 	message = `Query JSON (originator: ${this.type ?? "unknown"}) error: ${this.error} `;
 }
 
-export const queryJson = (
-	input: string | object,
-	path: string,
-	legacyJsonPath = true,
-) =>
+export const queryJson = (input: string | object, path: string, legacyJsonPath = true) =>
 	Effect.gen(function* () {
 		const jsonData = yield* typeof input === "string"
 			? Effect.try({
 					try: () => JSON.parse(input) as object,
-					catch: (error) =>
-						new QueryJsonError({ error: `Parsing as JSON failed: ${error}` }),
+					catch: (error) => new QueryJsonError({ error: `Parsing as JSON failed: ${error}` }),
 				})
 			: Effect.succeed(input);
 

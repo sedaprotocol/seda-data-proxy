@@ -27,9 +27,7 @@ describe("DataProxy", async () => {
 				),
 			);
 
-			expect(signature.publicKey).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-			);
+			expect(signature.publicKey).toBe("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f");
 			expect(signature.signature).toBe(
 				"c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
 			);
@@ -60,18 +58,14 @@ describe("DataProxy", async () => {
 				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f:1:c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
 				"utf-8",
 			);
-			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeProof(proof.toString("base64"))),
-			);
+			const decodedProof = await Effect.runPromise(Effect.either(dataProxy.decodeProof(proof.toString("base64"))));
 
 			if (Either.isLeft(decodedProof)) {
 				throw decodedProof.left.error;
 			}
 
 			const { publicKey, drId, signature } = decodedProof.right;
-			expect(publicKey.toString("hex")).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-			);
+			expect(publicKey.toString("hex")).toBe("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f");
 			expect(drId).toBe("1");
 			expect(signature.toString("hex")).toBe(
 				"c3e4f2b4c73612ae2da70fa0377b02b107a54d3f7ab9dd74e83f7563eeaf2a5d31ee5a8fe3be64f3fc60ad22c237677091fce1d61a3ba434215e0aac13426d40",
@@ -85,9 +79,7 @@ describe("DataProxy", async () => {
 				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
 				"utf-8",
 			);
-			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
-			);
+			const decodedProof = await Effect.runPromise(Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))));
 
 			if (Either.isLeft(decodedProof)) {
 				expect.unreachable("Failed to decode proof");
@@ -95,9 +87,7 @@ describe("DataProxy", async () => {
 
 			const { publicKey, unixTimestamp, signature } = decodedProof.right;
 			expect(unixTimestamp).toBe(0n);
-			expect(publicKey.toString("hex")).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-			);
+			expect(publicKey.toString("hex")).toBe("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f");
 			expect(signature.toString("hex")).toBe(
 				"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
 			);
@@ -108,18 +98,14 @@ describe("DataProxy", async () => {
 				"1000:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
 				"utf-8",
 			);
-			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
-			);
+			const decodedProof = await Effect.runPromise(Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))));
 
 			if (Either.isLeft(decodedProof)) {
 				expect.unreachable("Failed to decode proof");
 			}
 
 			const { publicKey } = decodedProof.right;
-			expect(publicKey.toString("hex")).not.toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-			);
+			expect(publicKey.toString("hex")).not.toBe("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f");
 		});
 
 		it("should return an error if the chain id is invalid", async () => {
@@ -127,9 +113,7 @@ describe("DataProxy", async () => {
 				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-testnet",
 				"utf-8",
 			);
-			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
-			);
+			const decodedProof = await Effect.runPromise(Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))));
 
 			if (Either.isRight(decodedProof)) {
 				expect.unreachable("Should not be able to decode proof");

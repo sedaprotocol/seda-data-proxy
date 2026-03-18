@@ -1,8 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-	assertIsErrorResult,
-	assertIsOkResult,
-} from "@seda-protocol/utils/testing";
+import { assertIsErrorResult, assertIsOkResult } from "@seda-protocol/utils/testing";
 import { Effect } from "effect";
 import { parseConfig } from "./config/config-parser";
 
@@ -64,9 +61,7 @@ describe("parseConfig", () => {
 			}),
 		);
 
-		expect(result).toBeErrResult(
-			"Header x-secret requires :ccccc, but it is not provided in the route /:coinA/:coinB",
-		);
+		expect(result).toBeErrResult("Header x-secret requires :ccccc, but it is not provided in the route /:coinA/:coinB");
 	});
 
 	it("should check if route upstream url is using env variables and if they exist", async () => {
@@ -120,9 +115,7 @@ describe("parseConfig", () => {
 			}),
 		);
 
-		expect(result).toBeErrResult(
-			"Header x-secret requires NO_SECRET, but it is not provided as an environment variable",
-		);
+		expect(result).toBeErrResult("Header x-secret requires NO_SECRET, but it is not provided as an environment variable");
 	});
 
 	it("should check if * is used in upstream url but not in path", async () => {
@@ -137,9 +130,7 @@ describe("parseConfig", () => {
 			}),
 		);
 
-		expect(result).toBeErrResult(
-			"Upstream URL aaaaaa.com/{*} uses {*}, but path does not end with * (/:coinA/:coinB)",
-		);
+		expect(result).toBeErrResult("Upstream URL aaaaaa.com/{*} uses {*}, but path does not end with * (/:coinA/:coinB)");
 	});
 
 	it("should check if * is used in upstream url but does not end with {*}", async () => {
@@ -154,9 +145,7 @@ describe("parseConfig", () => {
 			}),
 		);
 
-		expect(result).toBeErrResult(
-			"Upstream URL aaaaaa.com/{*}/something uses {*}, but it is not at the end of the URL",
-		);
+		expect(result).toBeErrResult("Upstream URL aaaaaa.com/{*}/something uses {*}, but it is not at the end of the URL");
 	});
 
 	it("should allow * paths", async () => {
@@ -188,25 +177,22 @@ describe("parseConfig", () => {
 		expect(result.error).toContain("cannot be the same");
 	});
 
-	it.each(["OPTIONS", ["OPTIONS", "GET"]])(
-		"should error when the OPTIONS method is used for a route",
-		(method) => {
-			const [resultSingle] = Effect.runSync(
-				parseConfig({
-					routes: [
-						{
-							method,
-							path: "/:coinA/*",
-							upstreamUrl: "aaaaaa.com/{*}",
-						},
-					],
-				}),
-			);
+	it.each(["OPTIONS", ["OPTIONS", "GET"]])("should error when the OPTIONS method is used for a route", (method) => {
+		const [resultSingle] = Effect.runSync(
+			parseConfig({
+				routes: [
+					{
+						method,
+						path: "/:coinA/*",
+						upstreamUrl: "aaaaaa.com/{*}",
+					},
+				],
+			}),
+		);
 
-			assertIsErrorResult(resultSingle);
-			expect(resultSingle.error).toContain("OPTIONS method is reserved");
-		},
-	);
+		assertIsErrorResult(resultSingle);
+		expect(resultSingle.error).toContain("OPTIONS method is reserved");
+	});
 
 	describe("it should fail on unknown properties", () => {
 		it("at the root", () => {
@@ -236,9 +222,7 @@ describe("parseConfig", () => {
 			);
 
 			assertIsErrorResult(result);
-			expect(result.error).toContain(
-				'.routes.0.notRealAttribute: Invalid key: Expected never but received "notRealAttribute"',
-			);
+			expect(result.error).toContain('.routes.0.notRealAttribute: Invalid key: Expected never but received "notRealAttribute"');
 		});
 
 		it("in a status endpoint", () => {
@@ -253,9 +237,7 @@ describe("parseConfig", () => {
 			);
 
 			assertIsErrorResult(result);
-			expect(result.error).toContain(
-				".statusEndpoints.notRealAttribute: Unknown attribute",
-			);
+			expect(result.error).toContain(".statusEndpoints.notRealAttribute: Unknown attribute");
 		});
 
 		it("in a status apikey", () => {
@@ -274,9 +256,7 @@ describe("parseConfig", () => {
 			);
 
 			assertIsErrorResult(result);
-			expect(result.error).toContain(
-				".statusEndpoints.apiKey.notRealAttribute: Unknown attribute",
-			);
+			expect(result.error).toContain(".statusEndpoints.apiKey.notRealAttribute: Unknown attribute");
 		});
 	});
 });

@@ -4,10 +4,7 @@ import { Deferred, Effect, MutableHashMap, Option } from "effect";
 export const createPriceCache = () =>
 	Effect.gen(function* () {
 		const priceCache = MutableHashMap.empty<number, ParsedFeedPayload>();
-		const priceWaiters = MutableHashMap.empty<
-			number,
-			Deferred.Deferred<ParsedFeedPayload>
-		>();
+		const priceWaiters = MutableHashMap.empty<number, Deferred.Deferred<ParsedFeedPayload>>();
 
 		const setPrice = (priceFeedId: number, price: ParsedFeedPayload) =>
 			Effect.gen(function* () {

@@ -31,13 +31,10 @@ describe("replaceParams", () => {
 
 	it("should set env variables", () => {
 		process.env.MY_ENV_VARIABLE = "test";
-		const result = replaceParams(
-			"price/{:coinA}/{:coinB}?myparam={$MY_ENV_VARIABLE}",
-			{
-				coinA: "eth",
-				coinB: "usd",
-			},
-		);
+		const result = replaceParams("price/{:coinA}/{:coinB}?myparam={$MY_ENV_VARIABLE}", {
+			coinA: "eth",
+			coinB: "usd",
+		});
 		process.env.MY_ENV_VARIABLE = undefined;
 
 		expect(result).toBe("price/eth/usd?myparam=test");

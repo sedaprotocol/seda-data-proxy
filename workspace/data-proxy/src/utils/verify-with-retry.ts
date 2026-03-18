@@ -1,7 +1,4 @@
-import type {
-	DataProxy,
-	FailedToVerifyCoreProofError,
-} from "@seda-protocol/data-proxy-sdk";
+import type { DataProxy, FailedToVerifyCoreProofError } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Either, Option } from "effect";
 
 type RetryDelay = (attempt: number) => number;
@@ -33,10 +30,7 @@ export const verifyWithRetry = (
 	Effect.gen(function* () {
 		// Start at 0 so at the start of the loop we have attempt = 1
 		let attempt = 0;
-		let verificationResult: Either.Either<
-			{ isValid: boolean; status: string; currentHeight: bigint },
-			FailedToVerifyCoreProofError
-		>;
+		let verificationResult: Either.Either<{ isValid: boolean; status: string; currentHeight: bigint }, FailedToVerifyCoreProofError>;
 
 		do {
 			attempt++;
@@ -45,17 +39,13 @@ export const verifyWithRetry = (
 				yield* Effect.sleep(retryDelay(attempt));
 			}
 
-			yield* Effect.logTrace(
-				`Verifying proof with retry (attempt ${attempt}/${maxAttempts})`,
-			);
+			yield* Effect.logTrace(`Verifying proof with retry (attempt ${attempt}/${maxAttempts})`);
 
 			verificationResult = yield* Effect.either(dataProxy.verify(proof));
 
 			// Something went wrong querying the eligibility, we should retry
 			if (Either.isLeft(verificationResult)) {
-				yield* Effect.logTrace(
-					`Error while verifying proof: ${verificationResult.left}`,
-				);
+				yield* Effect.logTrace(`Error while verifying proof: ${verificationResult.left}`);
 				continue;
 			}
 
@@ -72,9 +62,7 @@ export const verifyWithRetry = (
 			}
 
 			if (Option.isNone(eligibleHeight)) {
-				yield* Effect.logTrace(
-					"No eligibility height provided, skipping retry",
-				);
+				yield* Effect.logTrace("No eligibility height provided, skipping retry");
 				break;
 			}
 
@@ -89,10 +77,7 @@ export const verifyWithRetry = (
 				`Received proof for height ${eligibleHeight.value} but current height is ${verification.currentHeight}, the RPC might be out of sync`,
 			);
 
-			if (
-				eligibleHeight.value - verification.currentHeight >
-				MAX_HEIGHT_DIFFERENCE
-			) {
+			if (eligibleHeight.value - verification.currentHeight > MAX_HEIGHT_DIFFERENCE) {
 				yield* Effect.logWarning(
 					`The difference between the eligible height and the current height is greater than ${MAX_HEIGHT_DIFFERENCE}, skipping retry`,
 				);
@@ -100,9 +85,7 @@ export const verifyWithRetry = (
 			}
 		} while (attempt < maxAttempts);
 
-		yield* Effect.logTrace(
-			`Using verification result after ${attempt}/${maxAttempts} attempts`,
-		);
+		yield* Effect.logTrace(`Using verification result after ${attempt}/${maxAttempts} attempts`);
 
 		if (Either.isLeft(verificationResult)) {
 			return yield* Effect.fail(verificationResult.left);

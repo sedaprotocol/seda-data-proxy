@@ -6,12 +6,7 @@ import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
 import { parseJSON5 } from "confbox";
 import { Effect, Either, LogLevel, Logger } from "effect";
 import { parseConfig } from "../config/config-parser";
-import {
-	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
-	LOG_LEVEL,
-	PRIVATE_KEY_ENV_KEY,
-	SERVER_PORT,
-} from "../constants";
+import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME, LOG_LEVEL, PRIVATE_KEY_ENV_KEY, SERVER_PORT } from "../constants";
 import { FailedToParseConfigError } from "../errors";
 import { logBootstrap, setEnvSecrets } from "../logger";
 import { startProxyServer } from "../proxy-server";
@@ -20,16 +15,8 @@ import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
 export const runCmd = addCommonOptions(new Command("run"))
 	.description("Run the SEDA Data Proxy node")
-	.option(
-		"-dbg, --debug",
-		"Sets log level at debug and runs the node without registration check and request verification",
-		false,
-	)
-	.option(
-		"-dp, --disable-proof",
-		"Disables request verification mechanism, useful for testing and development",
-		false,
-	)
+	.option("-dbg, --debug", "Sets log level at debug and runs the node without registration check and request verification", false)
+	.option("-dp, --disable-proof", "Disables request verification mechanism, useful for testing and development", false)
 	.action((options) => {
 		const program = Effect.gen(function* () {
 			const { config, dataProxy } = yield* configure(options, true);
@@ -81,9 +68,7 @@ export const validateCmd = addCommonOptions(new Command("validate"))
 			const { hasWarnings } = yield* configure(options, options.silent);
 
 			if (hasWarnings) {
-				yield* Effect.logWarning(
-					"⚠️ Configuration is valid but has warnings - check the logs above",
-				);
+				yield* Effect.logWarning("⚠️ Configuration is valid but has warnings - check the logs above");
 			} else {
 				yield* Effect.logInfo("✅ SEDA Data Proxy configuration is valid");
 			}
@@ -96,26 +81,15 @@ export const validateCmd = addCommonOptions(new Command("validate"))
 
 function addCommonOptions(command: Command) {
 	return command
-		.addOption(
-			new Option("-c, --config <string>", "Path to config.json")
-				.default("./config.json")
-				.env("DATA_PROXY_CONFIG"),
-		)
+		.addOption(new Option("-c, --config <string>", "Path to config.json").default("./config.json").env("DATA_PROXY_CONFIG"))
 		.option("-p, --port <number>", "Port to run the server on", SERVER_PORT)
 		.option(
 			"-pkf, --private-key-file <string>",
 			`Path where to find the private key json (Defaults to either env variable $${PRIVATE_KEY_ENV_KEY} or ${DEFAULT_PRIVATE_KEY_JSON_FILE_NAME})`,
 		)
 		.option("-n, --network <network>", "The SEDA network to chose")
-		.option(
-			"--skip-registration-check",
-			"Runs the data proxy without checking registration, useful for testing and development",
-			false,
-		)
-		.option(
-			"-cca, --core-contract-address <string>",
-			"Optional setting of the core contract address, fetches it automatically by default",
-		)
+		.option("--skip-registration-check", "Runs the data proxy without checking registration, useful for testing and development", false)
+		.option("-cca, --core-contract-address <string>", "Optional setting of the core contract address, fetches it automatically by default")
 		.option("-r, --rpc <rpc-url>", "Optional RPC URL to the SEDA network");
 }
 
@@ -139,9 +113,7 @@ const configure = (
 			const validNetworks = Object.values(Environment);
 			if (!validNetworks.includes(options.network as Environment)) {
 				const networkList = validNetworks.join(", ");
-				yield* Effect.logError(
-					`Invalid network '${options.network}'. Valid options: ${networkList}`,
-				);
+				yield* Effect.logError(`Invalid network '${options.network}'. Valid options: ${networkList}`);
 				process.exit(1);
 			}
 			networkEnv = options.network as Environment;
@@ -151,9 +123,7 @@ const configure = (
 		}
 
 		const network = defaultConfig[networkEnv];
-		const privateKey = yield* Effect.either(
-			loadPrivateKey(options.privateKeyFile),
-		);
+		const privateKey = yield* Effect.either(loadPrivateKey(options.privateKeyFile));
 
 		if (Either.isLeft(privateKey)) {
 			yield* Effect.logError(privateKey.left);
@@ -205,41 +175,27 @@ const configure = (
 		if (options.skipRegistrationCheck) {
 			console.log("⚠️  Registration check was skipped\n");
 		} else {
-			const dataProxyRegistration = yield* Effect.either(
-				dataProxy.getDataProxyRegistration(),
-			);
+			const dataProxyRegistration = yield* Effect.either(dataProxy.getDataProxyRegistration());
 			if (Either.isLeft(dataProxyRegistration)) {
-				yield* Effect.logError(
-					`Failed to get data proxy registration: ${dataProxyRegistration.left}`,
-				);
+				yield* Effect.logError(`Failed to get data proxy registration: ${dataProxyRegistration.left}`);
 				process.exit(1);
 			}
 
 			const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
-			yield* Effect.logInfo(
-				`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,
-			);
+			yield* Effect.logInfo(`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`);
 
 			if (!silent) {
-				yield* Effect.logInfo(
-					`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.right, null, 2)}\n`,
-				);
+				yield* Effect.logInfo(`🎟️ Registration info: ${JSON.stringify(dataProxyRegistration.right, null, 2)}\n`);
 			}
 		}
 
-		yield* Effect.logInfo(
-			`🚀 SEDA FAST enabled: ${config.value.config.sedaFast?.enable ? "Yes" : "No"}`,
-		);
+		yield* Effect.logInfo(`🚀 SEDA FAST enabled: ${config.value.config.sedaFast?.enable ? "Yes" : "No"}`);
 		if (config.value.config.sedaFast?.enable) {
-			yield* Effect.logInfo(
-				`🔐 Allowed FAST clients: ${config.value.config.sedaFast?.allowedClients?.join(", ")}`,
-			);
+			yield* Effect.logInfo(`🔐 Allowed FAST clients: ${config.value.config.sedaFast?.allowedClients?.join(", ")}`);
 		}
 
 		if (!silent) {
-			yield* Effect.logInfo(
-				`⚙️ Config: ${JSON.stringify(config.value, null, 2)}\n`,
-			);
+			yield* Effect.logInfo(`⚙️ Config: ${JSON.stringify(config.value, null, 2)}\n`);
 		}
 
 		return { config, dataProxy, hasWarnings };

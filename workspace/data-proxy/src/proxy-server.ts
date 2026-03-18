@@ -1,16 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { openapi } from "@elysiajs/openapi";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
-import {
-	Duration,
-	Effect,
-	HashMap,
-	Layer,
-	MutableHashMap,
-	Option,
-	Runtime,
-	Schedule,
-} from "effect";
+import { Duration, Effect, HashMap, Layer, MutableHashMap, Option, Runtime, Schedule } from "effect";
 import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
@@ -31,23 +22,14 @@ export interface ProxyServerOptions {
 	enableKeepAliveFiber: boolean;
 }
 
-export const startProxyServer = (
-	config: Config,
-	dataProxy: DataProxy,
-	serverOptions: ProxyServerOptions,
-) =>
+export const startProxyServer = (config: Config, dataProxy: DataProxy, serverOptions: ProxyServerOptions) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime<HttpClientService>();
-		const modules = MutableHashMap.empty<
-			string,
-			Layer.Layer<ModuleService, never, never>
-		>();
+		const modules = MutableHashMap.empty<string, Layer.Layer<ModuleService, never, never>>();
 
 		// Initialize the modules and start them
 		for (const moduleConfig of config.modules) {
-			const moduleLayer = yield* Layer.memoize(
-				PythLazerModuleService(moduleConfig),
-			);
+			const moduleLayer = yield* Layer.memoize(PythLazerModuleService(moduleConfig));
 
 			yield* Effect.gen(function* () {
 				const moduleService = yield* ModuleService;
@@ -79,30 +61,20 @@ export const startProxyServer = (
 					requestId: randomUUID(),
 				};
 			})
-			.onBeforeHandle(
-				({
-					requestId,
-					headers,
-					body,
-					params,
-					path,
-					query,
-					request: { method },
-				}) => {
-					Runtime.runSync(
-						runtime,
-						Effect.logDebug(`Received request ${method} ${path}`, {
-							requestId,
-							headers,
-							body,
-							params,
-							path,
-							query,
-							method,
-						}),
-					);
-				},
-			)
+			.onBeforeHandle(({ requestId, headers, body, params, path, query, request: { method } }) => {
+				Runtime.runSync(
+					runtime,
+					Effect.logDebug(`Received request ${method} ${path}`, {
+						requestId,
+						headers,
+						body,
+						params,
+						path,
+						query,
+						method,
+					}),
+				);
+			})
 			.onAfterResponse(({ requestId, responseValue }) => {
 				Runtime.runSync(
 					runtime,
@@ -113,13 +85,8 @@ export const startProxyServer = (
 				);
 			});
 
-		const statusContext = new StatusContext(
-			dataProxy.publicKey.toString("hex"),
-			config.sedaFast,
-		);
-		server.use(
-			yield* statusPlugin(statusContext, dataProxy, config.statusEndpoints),
-		);
+		const statusContext = new StatusContext(dataProxy.publicKey.toString("hex"), config.sedaFast);
+		server.use(yield* statusPlugin(statusContext, dataProxy, config.statusEndpoints));
 		const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
 		server.group(proxyGroup, (app) => {
@@ -134,8 +101,7 @@ export const startProxyServer = (
 			for (const route of config.routes) {
 				app.route("OPTIONS", route.path, () => {
 					const headers = new Headers({
-						[constants.PUBLIC_KEY_HEADER_KEY]:
-							dataProxy.publicKey.toString("hex"),
+						[constants.PUBLIC_KEY_HEADER_KEY]: dataProxy.publicKey.toString("hex"),
 						[constants.SIGNATURE_VERSION_HEADER_KEY]: dataProxy.version,
 					});
 					return new Response(null, { headers });
@@ -152,14 +118,9 @@ export const startProxyServer = (
 								runtime,
 								Effect.gen(function* () {
 									// requestBody is now always a string because of the parse function in this route
-									const requestBody = Option.fromNullable(
-										body as string | undefined,
-									);
+									const requestBody = Option.fromNullable(body as string | undefined);
 
-									const moduleLayer = MutableHashMap.get(
-										modules,
-										route.moduleName,
-									).pipe(Option.getOrElse(() => EmptyModuleService));
+									const moduleLayer = MutableHashMap.get(modules, route.moduleName).pipe(Option.getOrElse(() => EmptyModuleService));
 
 									return yield* handleProxyRequest({
 										serverOptions,
@@ -198,16 +159,12 @@ export const startProxyServer = (
 			`Proxy routes is at http://127.0.0.1:${serverOptions.port}/${proxyGroup === "" || proxyGroup.endsWith("/") ? `${proxyGroup}` : `${proxyGroup}/`}`,
 		);
 
-		yield* Effect.logInfo(
-			`Docs are at http://127.0.0.1:${serverOptions.port}/docs`,
-		);
+		yield* Effect.logInfo(`Docs are at http://127.0.0.1:${serverOptions.port}/docs`);
 
 		// NOTE: For some reason the program gets half out of scope and the logger stops working
 		// This is a workaround to keep the main fiber alive
 		if (serverOptions.enableKeepAliveFiber) {
-			yield* Effect.void.pipe(
-				Effect.schedule(Schedule.spaced(Duration.seconds(10))),
-			);
+			yield* Effect.void.pipe(Effect.schedule(Schedule.spaced(Duration.seconds(10))));
 		}
 
 		return server;

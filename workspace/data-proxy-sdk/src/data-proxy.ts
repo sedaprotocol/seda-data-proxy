@@ -1,14 +1,6 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
-import {
-	ExtendedSecp256k1Signature,
-	Secp256k1,
-	keccak256,
-} from "@cosmjs/crypto";
-import {
-	type ProtobufRpcClient,
-	QueryClient,
-	createProtobufRpcClient,
-} from "@cosmjs/stargate";
+import { ExtendedSecp256k1Signature, Secp256k1, keccak256 } from "@cosmjs/crypto";
+import { type ProtobufRpcClient, QueryClient, createProtobufRpcClient } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import type { sedachain } from "@seda-protocol/proto-messages";
 import { tryAsync } from "@seda-protocol/utils";
@@ -16,11 +8,7 @@ import { Effect, Option } from "effect";
 import * as Match from "effect/Match";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe, Result } from "true-myth";
-import {
-	type DataProxyOptions,
-	type Environment,
-	defaultConfig,
-} from "./config";
+import { type DataProxyOptions, type Environment, defaultConfig } from "./config";
 import { getDataProxyRegistration } from "./data-proxy-registration";
 import {
 	FailedToDecodeProofError,
@@ -152,10 +140,7 @@ export class DataProxy {
 		Effect.gen(this, function* () {
 			const rpcClientRes = yield* this.getProtobufRpcClient();
 
-			return yield* getDataProxyRegistration(
-				rpcClientRes,
-				this.publicKey.toString("hex"),
-			);
+			return yield* getDataProxyRegistration(rpcClientRes, this.publicKey.toString("hex"));
 		});
 
 	/**
@@ -186,11 +171,8 @@ export class DataProxy {
 			};
 		}).pipe(
 			Effect.catchAll((error) => {
-				if (error._tag === "FailedToVerifyCoreProofError")
-					return Effect.fail(error);
-				return Effect.fail(
-					new FailedToVerifyCoreProofError({ error: `${error}` }),
-				);
+				if (error._tag === "FailedToVerifyCoreProofError") return Effect.fail(error);
+				return Effect.fail(new FailedToVerifyCoreProofError({ error: `${error}` }));
 			}),
 		);
 
@@ -199,20 +181,8 @@ export class DataProxy {
 	 *
 	 * @param data
 	 */
-	signData(
-		requestUrl: string,
-		requestMethod: string,
-		requestBody: Buffer,
-		responseBody: Buffer,
-	) {
-		const signResult = this.hashAndSign(
-			this.generateMessage(
-				requestUrl,
-				requestMethod,
-				requestBody,
-				responseBody,
-			),
-		);
+	signData(requestUrl: string, requestMethod: string, requestBody: Buffer, responseBody: Buffer) {
+		const signResult = this.hashAndSign(this.generateMessage(requestUrl, requestMethod, requestBody, responseBody));
 
 		return Effect.succeed({
 			publicKey: this.publicKey.toString("hex"),
@@ -222,25 +192,13 @@ export class DataProxy {
 		});
 	}
 
-	generateMessage(
-		requestUrl: string,
-		requestMethod: string,
-		requestBody: Buffer,
-		responseBody: Buffer,
-	) {
+	generateMessage(requestUrl: string, requestMethod: string, requestBody: Buffer, responseBody: Buffer) {
 		const requestUrlHash = keccak256(Buffer.from(requestUrl));
-		const requestMethodHash = keccak256(
-			Buffer.from(requestMethod.toUpperCase()),
-		);
+		const requestMethodHash = keccak256(Buffer.from(requestMethod.toUpperCase()));
 		const requestBodyHash = keccak256(requestBody);
 		const responseBodyHash = keccak256(responseBody);
 
-		return Buffer.concat([
-			requestUrlHash,
-			requestMethodHash,
-			requestBodyHash,
-			responseBodyHash,
-		]);
+		return Buffer.concat([requestUrlHash, requestMethodHash, requestBodyHash, responseBodyHash]);
 	}
 
 	hashAndSign(message: Buffer) {
@@ -252,12 +210,7 @@ export class DataProxy {
 	 * @param proof
 	 * @returns
 	 */
-	decodeProof = (
-		proof: string,
-	): Effect.Effect<
-		{ publicKey: Buffer; drId: string; signature: Buffer },
-		FailedToDecodeProofError
-	> => {
+	decodeProof = (proof: string): Effect.Effect<{ publicKey: Buffer; drId: string; signature: Buffer }, FailedToDecodeProofError> => {
 		try {
 			// The proof is a base64 encoded string
 			const decoded = Buffer.from(proof, "base64");
@@ -298,10 +251,6 @@ export class DataProxy {
 		signature: Buffer;
 		publicKey: Buffer;
 	}) {
-		return verifyFastProof(
-			proof,
-			this.options.fastMaxProofAgeMs,
-			this.options.fastAllowedClients,
-		);
+		return verifyFastProof(proof, this.options.fastMaxProofAgeMs, this.options.fastAllowedClients);
 	}
 }

@@ -1,9 +1,7 @@
 import type { PythLazerClient } from "@pythnetwork/pyth-lazer-sdk";
 import { Data, Effect, Option } from "effect";
 
-export class FailedToGetSymbolPriceIdError extends Data.TaggedError(
-	"FailedToGetSymbolPriceIdError",
-)<{ error: string | unknown }> {
+export class FailedToGetSymbolPriceIdError extends Data.TaggedError("FailedToGetSymbolPriceIdError")<{ error: string | unknown }> {
 	message = `Failed to get price ID by symbol: ${this.error}`;
 	status = 400;
 }
@@ -25,9 +23,7 @@ export const getPriceIdBySymbol = (symbol: string, client: PythLazerClient) => {
 			);
 		}
 
-		const priceFeedId = Option.fromNullable(
-			symbols.find((s) => s.symbol === symbol)?.pyth_lazer_id,
-		);
+		const priceFeedId = Option.fromNullable(symbols.find((s) => s.symbol === symbol)?.pyth_lazer_id);
 
 		if (Option.isNone(priceFeedId)) {
 			return yield* Effect.fail(

@@ -4,10 +4,7 @@ import { envVarRegex } from "../config/config-parser";
  * Replaces parameters in the input string with values from the given params object and the
  * environment variables.
  */
-export function replaceParams(
-	input: string,
-	params: Record<string, string> | undefined,
-): string {
+export function replaceParams(input: string, params: Record<string, string> | undefined): string {
 	let result = input;
 
 	if (params) {

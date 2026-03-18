@@ -7,20 +7,13 @@ import { firstLetterToUpperCase } from "./utils/string-utils";
 
 // Server constants
 export const SERVER_PORT = process.env.SERVER_PORT ?? "5384";
-export const LOG_FILE_DIR = Config.string("LOG_FILE_DIR").pipe(
-	Config.withDefault(`${resolve(process.cwd(), "logs")}`),
-);
+export const LOG_FILE_DIR = Config.string("LOG_FILE_DIR").pipe(Config.withDefault(`${resolve(process.cwd(), "logs")}`));
 export const LOG_FILE_LOG_LEVEL = process.env.LOG_FILE_LOG_LEVEL ?? "debug";
-export const LOG_FILE_MAX_FILES = Config.number("LOG_FILE_MAX_FILES").pipe(
-	Config.withDefault(7),
-);
-export const LOG_FILE_DATE_PATTERN = Config.string(
-	"LOG_FILE_DATE_PATTERN",
-).pipe(Config.withDefault("yyyy-MM-dd"));
+export const LOG_FILE_MAX_FILES = Config.number("LOG_FILE_MAX_FILES").pipe(Config.withDefault(7));
+export const LOG_FILE_DATE_PATTERN = Config.string("LOG_FILE_DATE_PATTERN").pipe(Config.withDefault("yyyy-MM-dd"));
 
 // Environment constants
-export const DEFAULT_ENVIRONMENT: Environment =
-	(process.env.SEDA_ENV as Environment) ?? Environment.Testnet;
+export const DEFAULT_ENVIRONMENT: Environment = (process.env.SEDA_ENV as Environment) ?? Environment.Testnet;
 
 // App constants
 export const JSON_PATH_HEADER_KEY = "x-seda-json-path";
@@ -36,20 +29,12 @@ export function getPrivateKey(): string | undefined {
 	return process.env[PRIVATE_KEY_ENV_KEY];
 }
 
-export const DEFAULT_PRIVATE_KEY_JSON_FILE_NAME =
-	"./data-proxy-private-key.json";
+export const DEFAULT_PRIVATE_KEY_JSON_FILE_NAME = "./data-proxy-private-key.json";
 
 // Where all the proxy routes go to (For example /proxy/CONFIGURED_ROUTE_HERE)
 export const DEFAULT_PROXY_ROUTE_GROUP = "proxy";
 // Default http methods set when no method is provided in the config
-export const DEFAULT_HTTP_METHODS: HTTPMethod[] = [
-	"GET",
-	"PATCH",
-	"POST",
-	"PUT",
-	"DELETE",
-	"HEAD",
-];
+export const DEFAULT_HTTP_METHODS: HTTPMethod[] = ["GET", "PATCH", "POST", "PUT", "DELETE", "HEAD"];
 
 export const LOG_LEVEL = Config.literal(
 	"None",

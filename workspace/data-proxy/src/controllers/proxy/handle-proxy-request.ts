@@ -2,11 +2,7 @@ import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Match, Option } from "effect";
 import type { Config } from "../../config/config-parser";
 import { JSON_PATH_HEADER_KEY } from "../../constants";
-import {
-	FailedToParseResponseBodyError,
-	NotOkUpstreamResponseError,
-	UpstreamRequestFailedError,
-} from "../../errors";
+import { FailedToParseResponseBodyError, NotOkUpstreamResponseError, UpstreamRequestFailedError } from "../../errors";
 import { ModuleService } from "../../modules/module";
 import type { ProxyServerOptions } from "../../proxy-server";
 import { HttpClientService } from "../../services/http-client";
@@ -37,17 +33,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		const httpClient = yield* HttpClientService;
 		const moduleService = yield* ModuleService;
 
-		const {
-			serverOptions,
-			headers,
-			params,
-			body,
-			path,
-			config,
-			request,
-			dataProxy,
-			route,
-		} = inputParams;
+		const { serverOptions, headers, params, body, path, config, request, dataProxy, route } = inputParams;
 
 		if (!serverOptions.disableProof) {
 			yield* verifyProof({ headers, config, dataProxy });
@@ -59,20 +45,13 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		// this is to support query params that can be repeated, such as ?one=one&one=two
 		const requestUrl = new URL(request.url);
 		// Add the request search params (?one=two) to the upstream url
-		const requestSearchParams = createUrlSearchParams(
-			requestUrl.searchParams,
-			route.allowedQueryParams,
-		);
+		const requestSearchParams = createUrlSearchParams(requestUrl.searchParams, route.allowedQueryParams);
 
 		const upstreamResponse = yield* Match.value(route).pipe(
 			Match.when({ type: "pyth-lazer" }, (pythLazerModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling Pyth Lazer request");
-					return yield* moduleService.handleRequest(
-						pythLazerModuleRoute,
-						params,
-						request,
-					);
+					return yield* moduleService.handleRequest(pythLazerModuleRoute, params, request);
 				}),
 			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
@@ -117,12 +96,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 							headers: upstreamHeaders,
 							body: Option.getOrUndefined(body),
 						})
-						.pipe(
-							Effect.mapError(
-								(error) =>
-									new UpstreamRequestFailedError({ error, routePath: path }),
-							),
-						);
+						.pipe(Effect.mapError((error) => new UpstreamRequestFailedError({ error, routePath: path })));
 
 					return upstreamResponse;
 				}),
@@ -144,25 +118,19 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				)
 				.pipe(
 					Effect.tapError((error) =>
-						Effect.logError(
-							`Upstream response body parsing failed for ${route.path} is not ok: ${upstreamResponse.status} err: ${error}`,
-							{
-								requestBody: Option.getOrUndefined(body),
-								method: request.method,
-								upstreamUrl: upstreamResponse.url,
-							},
-						),
+						Effect.logError(`Upstream response body parsing failed for ${route.path} is not ok: ${upstreamResponse.status} err: ${error}`, {
+							requestBody: Option.getOrUndefined(body),
+							method: request.method,
+							upstreamUrl: upstreamResponse.url,
+						}),
 					),
 				);
 
-			yield* Effect.logError(
-				`Upstream response for route ${path} is not ok: ${upstreamResponse.status} body: ${upstreamResponseBody}`,
-				{
-					requestBody: Option.getOrUndefined(body),
-					method: request.method,
-					upstreamUrl: upstreamResponse.url,
-				},
-			);
+			yield* Effect.logError(`Upstream response for route ${path} is not ok: ${upstreamResponse.status} body: ${upstreamResponseBody}`, {
+				requestBody: Option.getOrUndefined(body),
+				method: request.method,
+				upstreamUrl: upstreamResponse.url,
+			});
 
 			return yield* Effect.fail(
 				new NotOkUpstreamResponseError({
@@ -177,28 +145,22 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			headers: upstreamResponse.headers,
 		});
 
-		const upstreamTextResponse = yield* httpClient
-			.parseBodyAsText(upstreamResponse)
-			.pipe(
-				Effect.mapError(
-					(error) =>
-						new FailedToParseResponseBodyError({
-							error: error.message,
-							status: upstreamResponse.status,
-						}),
-				),
-			);
+		const upstreamTextResponse = yield* httpClient.parseBodyAsText(upstreamResponse).pipe(
+			Effect.mapError(
+				(error) =>
+					new FailedToParseResponseBodyError({
+						error: error.message,
+						status: upstreamResponse.status,
+					}),
+			),
+		);
 
 		// Now we are going to handle jsonPath filtering if configured
 		let responseData: string = upstreamTextResponse;
 
 		if (route.jsonPath) {
 			yield* Effect.logDebug(`Applying route JSONpath ${route.jsonPath}`);
-			const data = yield* queryJson(
-				upstreamTextResponse,
-				route.jsonPath,
-				route.useLegacyJsonPath,
-			).pipe(
+			const data = yield* queryJson(upstreamTextResponse, route.jsonPath, route.useLegacyJsonPath).pipe(
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
@@ -215,20 +177,12 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		// Now we are going to handle jsonPath filtering if configured in the request header (by the user)
 		// We apply the JSON path to the data that's exposed by the data proxy.
 		// This allows operators to specify what data is accessible while the data request program can specify what it wants from the accessible data.
-		const jsonPathRequestHeader = Option.fromNullable(
-			headers[JSON_PATH_HEADER_KEY],
-		);
+		const jsonPathRequestHeader = Option.fromNullable(headers[JSON_PATH_HEADER_KEY]);
 
 		if (Option.isSome(jsonPathRequestHeader)) {
-			yield* Effect.logDebug(
-				`Applying request JSONpath ${jsonPathRequestHeader.value}`,
-			);
+			yield* Effect.logDebug(`Applying request JSONpath ${jsonPathRequestHeader.value}`);
 
-			const data = yield* queryJson(
-				responseData,
-				jsonPathRequestHeader.value,
-				route.useLegacyJsonPath,
-			).pipe(
+			const data = yield* queryJson(responseData, jsonPathRequestHeader.value, route.useLegacyJsonPath).pipe(
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
@@ -248,10 +202,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		const routeBaseUrl = maybeToOption(route.baseURL);
 		const configBaseUrl = maybeToOption(config.baseURL);
 
-		const calledEndpoint = Option.firstSomeOf([
-			routeBaseUrl,
-			configBaseUrl,
-		]).pipe(
+		const calledEndpoint = Option.firstSomeOf([routeBaseUrl, configBaseUrl]).pipe(
 			Option.map((t) => {
 				const pathIndex = request.url.indexOf(path);
 				return `${t}${request.url.slice(pathIndex)}`;

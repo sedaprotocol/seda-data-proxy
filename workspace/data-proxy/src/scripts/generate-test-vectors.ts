@@ -33,13 +33,7 @@ const testCases = [
 ];
 
 for (const testCase of testCases) {
-	const hash = createHash(
-		testCase.fee,
-		testCase.adminAddress,
-		testCase.payoutAddress,
-		testCase.memo,
-		CHAIN_ID,
-	);
+	const hash = createHash(testCase.fee, testCase.adminAddress, testCase.payoutAddress, testCase.memo, CHAIN_ID);
 	const signatureRaw = ecdsaSign(hash, keyPair.privkey);
 	const signature = Buffer.from(signatureRaw.signature);
 	const publicKey = Buffer.from(keyPair.pubkey);
@@ -48,9 +42,7 @@ for (const testCase of testCases) {
 	console.log("msg: &types.MsgRegisterDataProxy{");
 	console.log(`    AdminAddress: "${testCase.adminAddress}",`);
 	console.log(`    PayoutAddress: "${testCase.payoutAddress}",`);
-	console.log(
-		`    Fee: s.NewFeeFromString("${testCase.fee.replace("aseda", "")}"),`,
-	);
+	console.log(`    Fee: s.NewFeeFromString("${testCase.fee.replace("aseda", "")}"),`);
 	console.log(`    Memo: "${testCase.memo}",`);
 	console.log(`    PubKey: "${publicKey.toString("hex")}",`);
 	console.log(`    Signature: "${signature.toString("hex")}",`);

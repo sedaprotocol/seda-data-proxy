@@ -1,15 +1,9 @@
-import {
-	type ProtobufRpcClient,
-	QueryClient,
-	createProtobufRpcClient,
-} from "@cosmjs/stargate";
+import { type ProtobufRpcClient, QueryClient, createProtobufRpcClient } from "@cosmjs/stargate";
 import { Comet38Client } from "@cosmjs/tendermint-rpc";
 import { tryAsync } from "@seda-protocol/utils";
 import { Result } from "true-myth";
 
-export async function getProtobufRpcClient(
-	rpc: string,
-): Promise<Result<ProtobufRpcClient, unknown>> {
+export async function getProtobufRpcClient(rpc: string): Promise<Result<ProtobufRpcClient, unknown>> {
 	const cometClient = await tryAsync(Comet38Client.connect(rpc));
 
 	if (cometClient.isErr) {

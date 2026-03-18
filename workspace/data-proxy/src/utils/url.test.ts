@@ -12,9 +12,7 @@ describe("url", () => {
 		});
 
 		const injection = createUrlSearchParams(targetSearchParams);
-		const result = Effect.runSync(
-			injectSearchParamsInUrl(targetUrl, injection),
-		);
+		const result = Effect.runSync(injectSearchParamsInUrl(targetUrl, injection));
 
 		expect(result.toString()).toBe("http://example.com/?two=2&one=1");
 	});

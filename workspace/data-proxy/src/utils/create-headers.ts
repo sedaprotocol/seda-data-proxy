@@ -7,10 +7,7 @@ export function createDefaultResponseHeaders() {
 	return headers;
 }
 
-export function createSignedResponseHeaders(
-	signature: SignedData,
-	headers = new Headers(),
-) {
+export function createSignedResponseHeaders(signature: SignedData, headers = new Headers()) {
 	headers.append(constants.SIGNATURE_HEADER_KEY, signature.signature);
 	headers.append(constants.PUBLIC_KEY_HEADER_KEY, signature.publicKey);
 	headers.append(constants.SIGNATURE_VERSION_HEADER_KEY, signature.version);

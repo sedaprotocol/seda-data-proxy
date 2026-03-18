@@ -32,9 +32,7 @@ export class StatusContext implements Context {
 
 	getMetrics() {
 		return {
-			uptime: formatISODuration(
-				intervalToDuration({ start: this.startedAt, end: Date.now() }),
-			),
+			uptime: formatISODuration(intervalToDuration({ start: this.startedAt, end: Date.now() })),
 			requests: this.requests,
 			errors: this.errors,
 		};

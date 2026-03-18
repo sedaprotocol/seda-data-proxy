@@ -6,10 +6,7 @@ import { queryJson } from "./query-json";
 describe("queryJson", () => {
 	it("should be able to find a nested variable inside a JSON object", () => {
 		const program = Effect.gen(function* () {
-			return yield* queryJson(
-				JSON.stringify({ a: { b: { c: "ok" } } }),
-				"$.a.b.c",
-			);
+			return yield* queryJson(JSON.stringify({ a: { b: { c: "ok" } } }), "$.a.b.c");
 		});
 
 		const result = Effect.runSync(program);
@@ -19,16 +16,11 @@ describe("queryJson", () => {
 
 	it("should return an error when the variable was not found", () => {
 		const program = Effect.gen(function* () {
-			return yield* queryJson(
-				JSON.stringify({ a: { b: { c: "ok" } } }),
-				"$.a.b.b",
-			);
+			return yield* queryJson(JSON.stringify({ a: { b: { c: "ok" } } }), "$.a.b.b");
 		});
 
 		const result = Effect.runSync(Effect.either(program));
-		expect(result.toString()).toInclude(
-			"Quering JSON with $.a.b.b returned null",
-		);
+		expect(result.toString()).toInclude("Quering JSON with $.a.b.b returned null");
 	});
 
 	it("should return an error when the JSON body is not an object", () => {
@@ -38,8 +30,6 @@ describe("queryJson", () => {
 
 		const result = Effect.runSync(Effect.either(program));
 
-		expect(result.toString()).toInclude(
-			"Quering JSON with $.a.b.b returned not an array: undefined",
-		);
+		expect(result.toString()).toInclude("Quering JSON with $.a.b.b returned not an array: undefined");
 	});
 });

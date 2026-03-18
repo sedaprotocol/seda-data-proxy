@@ -16,21 +16,15 @@ export class VerifyProofError extends Data.TaggedError("VerifyProofError")<{
 	message = `Failed to verify proof: ${this.error}`;
 }
 
-export class IneligibleProofError extends Data.TaggedError(
-	"IneligibleProofError",
-)<{
+export class IneligibleProofError extends Data.TaggedError("IneligibleProofError")<{
 	error: string | unknown;
 }> {
 	message = `Ineligible proof: ${this.error}`;
 }
 
-const handleSedaFastProof = (
-	sedaFastProofHeader: string,
-	dataProxy: DataProxy,
-) =>
+const handleSedaFastProof = (sedaFastProofHeader: string, dataProxy: DataProxy) =>
 	Effect.gen(function* () {
-		const decodedProof =
-			yield* dataProxy.decodeSedaFastProof(sedaFastProofHeader);
+		const decodedProof = yield* dataProxy.decodeSedaFastProof(sedaFastProofHeader);
 
 		const proofId = decodedProof.publicKey.toString("hex");
 		yield* Effect.logDebug(`SEDA Fast Public Key: ${proofId}`);
@@ -46,18 +40,9 @@ const handleSedaFastProof = (
 		}
 
 		return decodedProof;
-	}).pipe(
-		Effect.catchTag("FailedToDecodeSedaFastProofError", (error) =>
-			Effect.fail(new VerifyProofError({ error })),
-		),
-	);
+	}).pipe(Effect.catchTag("FailedToDecodeSedaFastProofError", (error) => Effect.fail(new VerifyProofError({ error }))));
 
-const handleSedaCoreProof = (
-	sedaCoreProofHeader: string,
-	config: Config,
-	eligibleHeight: Option.Option<bigint>,
-	dataProxy: DataProxy,
-) =>
+const handleSedaCoreProof = (sedaCoreProofHeader: string, config: Config, eligibleHeight: Option.Option<bigint>, dataProxy: DataProxy) =>
 	Effect.gen(function* () {
 		const decodedProof = yield* dataProxy.decodeProof(sedaCoreProofHeader);
 		const proofId = decodedProof.drId;
@@ -81,12 +66,8 @@ const handleSedaCoreProof = (
 
 		return decodedProof;
 	}).pipe(
-		Effect.catchTag("FailedToDecodeProofError", (error) =>
-			Effect.fail(new VerifyProofError({ error })),
-		),
-		Effect.catchTag("FailedToVerifyCoreProofError", (error) =>
-			Effect.fail(new IneligibleProofError({ error })),
-		),
+		Effect.catchTag("FailedToDecodeProofError", (error) => Effect.fail(new VerifyProofError({ error }))),
+		Effect.catchTag("FailedToVerifyCoreProofError", (error) => Effect.fail(new IneligibleProofError({ error }))),
 	);
 
 export const verifyProof = (params: VerifyProofParams) =>
@@ -95,21 +76,13 @@ export const verifyProof = (params: VerifyProofParams) =>
 
 		yield* Effect.logDebug("Verifying proof");
 
-		const proofHeader = Option.fromNullable(
-			headers[constants.PROOF_HEADER_KEY],
-		);
-		const sedaFastProofHeader = Option.fromNullable(
-			headers[constants.SEDA_FAST_PROOF_HEADER_KEY],
-		);
+		const proofHeader = Option.fromNullable(headers[constants.PROOF_HEADER_KEY]);
+		const sedaFastProofHeader = Option.fromNullable(headers[constants.SEDA_FAST_PROOF_HEADER_KEY]);
 
 		const heightFromHeader = Number(headers[constants.HEIGHT_HEADER_KEY]);
-		const eligibleHeight = Option.fromNullable(
-			Number.isNaN(heightFromHeader) ? undefined : BigInt(heightFromHeader),
-		);
+		const eligibleHeight = Option.fromNullable(Number.isNaN(heightFromHeader) ? undefined : BigInt(heightFromHeader));
 
-		yield* Effect.logDebug(
-			`Received proof for height ${Option.getOrElse(eligibleHeight, () => "unknown")}`,
-		);
+		yield* Effect.logDebug(`Received proof for height ${Option.getOrElse(eligibleHeight, () => "unknown")}`);
 
 		if (Option.isNone(proofHeader) && Option.isNone(sedaFastProofHeader)) {
 			return yield* Effect.fail(
@@ -133,15 +106,8 @@ export const verifyProof = (params: VerifyProofParams) =>
 		}
 
 		if (Option.isSome(proofHeader)) {
-			return yield* handleSedaCoreProof(
-				proofHeader.value,
-				config,
-				eligibleHeight,
-				dataProxy,
-			);
+			return yield* handleSedaCoreProof(proofHeader.value, config, eligibleHeight, dataProxy);
 		}
 
-		return yield* Effect.fail(
-			new UnknownError({ error: "No proof header provided" }),
-		);
+		return yield* Effect.fail(new UnknownError({ error: "No proof header provided" }));
 	});

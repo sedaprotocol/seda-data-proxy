@@ -8,11 +8,7 @@ import type { Config } from "../config/config-parser";
 import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME } from "../constants";
 import type { FileKeyPair } from "./utils/key-pair";
 
-async function outputJson(
-	content: string,
-	filePath: string,
-	printOnly = false,
-) {
+async function outputJson(content: string, filePath: string, printOnly = false) {
 	if (printOnly) {
 		console.log(`Content for ${filePath}:`);
 		console.log(content);
@@ -31,24 +27,14 @@ async function outputJson(
 
 export const initCmd = new Command("init")
 	.description("Initializes a config.json file and generates a private key")
-	.option(
-		"-pkf, --private-key-file <string>",
-		"Path where to create the private key json",
-		DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
-	)
+	.option("-pkf, --private-key-file <string>", "Path where to create the private key json", DEFAULT_PRIVATE_KEY_JSON_FILE_NAME)
 	.option("-c, --config <string>", "Path to config.json", "./config.json")
-	.option(
-		"-n, --network <string>",
-		"The SEDA network to chose",
-		Environment.Testnet,
-	)
+	.option("-n, --network <string>", "The SEDA network to chose", Environment.Testnet)
 	.option("--print", "Print the content instead of writing it")
 	.action(async (args) => {
 		if (!Object.values(Environment).includes(args.network as Environment)) {
 			const networkList = Object.values(Environment).join(", ");
-			console.error(
-				`Invalid network '${args.network}'. Valid options: ${networkList}`,
-			);
+			console.error(`Invalid network '${args.network}'. Valid options: ${networkList}`);
 			process.exit(1);
 		}
 
@@ -57,21 +43,13 @@ export const initCmd = new Command("init")
 			const keyPair = await Secp256k1.makeKeypair(privateKeyBuff);
 			const keyPairJson: FileKeyPair = {
 				network: args.network as Environment,
-				pubkey: Buffer.from(Secp256k1.compressPubkey(keyPair.pubkey)).toString(
-					"hex",
-				),
+				pubkey: Buffer.from(Secp256k1.compressPubkey(keyPair.pubkey)).toString("hex"),
 				privkey: Buffer.from(keyPair.privkey).toString("hex"),
 			};
 
-			await outputJson(
-				JSON.stringify(keyPairJson, null, 2),
-				args.privateKeyFile,
-				args.print,
-			);
+			await outputJson(JSON.stringify(keyPairJson, null, 2), args.privateKeyFile, args.print);
 		} else {
-			console.warn(
-				`${args.privateKeyFile} already exists skipping creation of private key`,
-			);
+			console.warn(`${args.privateKeyFile} already exists skipping creation of private key`);
 		}
 
 		if (!(await exists(args.config))) {
@@ -92,11 +70,7 @@ export const initCmd = new Command("init")
 				],
 			};
 
-			await outputJson(
-				JSON.stringify(config, null, 2),
-				args.config,
-				args.print,
-			);
+			await outputJson(JSON.stringify(config, null, 2), args.config, args.print);
 		} else {
 			console.warn(`${args.config} already exists skipping creation of config`);
 		}

@@ -13,22 +13,12 @@ import {
 } from "../constants";
 import { replaceParams } from "../utils/replace-params";
 import { type Modules, ModulesSchema } from "./module-config";
-import {
-	type PythLazerModuleRoute,
-	PythLazerModuleRouteSchema,
-	validatePythLazerModuleRoute,
-} from "./pyth-lazer-module-config";
-import {
-	type UpstreamModuleRoute,
-	UpstreamModuleRouteSchema,
-} from "./upstream-module-config";
+import { type PythLazerModuleRoute, PythLazerModuleRouteSchema, validatePythLazerModuleRoute } from "./pyth-lazer-module-config";
+import { type UpstreamModuleRoute, UpstreamModuleRouteSchema } from "./upstream-module-config";
 
 const UNKNOWN_ATTRIBUTE_ERROR = "Unknown attribute";
 
-const NotOptionsMethod = v.pipe(
-	v.string(),
-	v.notValue("OPTIONS", "OPTIONS method is reserved"),
-);
+const NotOptionsMethod = v.pipe(v.string(), v.notValue("OPTIONS", "OPTIONS method is reserved"));
 
 const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 
@@ -36,14 +26,8 @@ const HttpMethodSchema = v.union([NotOptionsMethod, v.array(NotOptionsMethod)]);
 const Secp256k1PublicKeySchema = v.pipe(
 	v.string(),
 	v.length(66, "Public key must be exactly 66 characters (33 bytes in hex)"),
-	v.regex(
-		/^[0-9a-fA-F]+$/,
-		"Public key must contain only hexadecimal characters",
-	),
-	v.check(
-		(key) => key.startsWith("02") || key.startsWith("03"),
-		"Public key must start with '02' or '03' (compressed secp256k1 format)",
-	),
+	v.regex(/^[0-9a-fA-F]+$/, "Public key must contain only hexadecimal characters"),
+	v.check((key) => key.startsWith("02") || key.startsWith("03"), "Public key must start with '02' or '03' (compressed secp256k1 format)"),
 	v.check(
 		(key) => {
 			try {
@@ -62,45 +46,25 @@ const Secp256k1PublicKeySchema = v.pipe(
 const ConfigSchema = v.strictObject(
 	{
 		modules: ModulesSchema,
-		verificationMaxRetries: v.optional(
-			v.number(),
-			DEFAULT_VERIFICATION_MAX_RETRIES,
-		),
-		verificationRetryDelay: v.optional(
-			v.number(),
-			DEFAULT_VERIFICATION_RETRY_DELAY,
-		),
+		verificationMaxRetries: v.optional(v.number(), DEFAULT_VERIFICATION_MAX_RETRIES),
+		verificationRetryDelay: v.optional(v.number(), DEFAULT_VERIFICATION_RETRY_DELAY),
 		sedaFast: v.optional(
 			v.object({
 				enable: v.boolean(),
 				allowedClients: v.pipe(
 					v.array(Secp256k1PublicKeySchema),
-					v.minLength(
-						1,
-						"At least one allowed client is required when SEDA FAST is enabled",
-					),
+					v.minLength(1, "At least one allowed client is required when SEDA FAST is enabled"),
 					v.check((clients) => {
 						const unique = new Set(clients);
 						return unique.size === clients.length;
 					}, "Duplicate public keys are not allowed"),
 				),
-				maxProofAgeMs: v.optional(
-					v.pipe(
-						v.number(),
-						v.integer(),
-						v.minValue(1, "maxProofAgeMs must be a positive integer"),
-					),
-				),
+				maxProofAgeMs: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1, "maxProofAgeMs must be a positive integer"))),
 			}),
 		),
 		routeGroup: v.optional(v.string(), DEFAULT_PROXY_ROUTE_GROUP),
 		// routes: v.array(RouteSchema),
-		routes: v.array(
-			v.variant("type", [
-				UpstreamModuleRouteSchema,
-				PythLazerModuleRouteSchema,
-			]),
-		),
+		routes: v.array(v.variant("type", [UpstreamModuleRouteSchema, PythLazerModuleRouteSchema])),
 		baseURL: maybe(v.string()),
 		statusEndpoints: v.optional(
 			v.strictObject(
@@ -132,9 +96,7 @@ export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
 }
 
-export function getHttpMethods(
-	configuredMethod: Route["method"],
-): HTTPMethod[] {
+export function getHttpMethods(configuredMethod: Route["method"]): HTTPMethod[] {
 	if (!configuredMethod) return DEFAULT_HTTP_METHODS;
 	if (Array.isArray(configuredMethod)) return configuredMethod;
 
@@ -148,11 +110,7 @@ export const pathVarRegex = new RegExp(/(:[^\/]+)/g);
 // envVarRegex is a regex used to match environment variables following the {$varName} syntax.
 export const envVarRegex = new RegExp(/{(\$[^}]+)}/g, "g");
 
-export const parseConfig = (
-	input: unknown,
-): Effect.Effect<
-	[Result<{ config: Config; envSecrets: Set<string> }, string>, boolean]
-> =>
+export const parseConfig = (input: unknown): Effect.Effect<[Result<{ config: Config; envSecrets: Set<string> }, string>, boolean]> =>
 	Effect.gen(function* () {
 		let hasWarnings = false;
 
@@ -179,36 +137,24 @@ export const parseConfig = (
 		const config = configResult.value;
 
 		if (config.statusEndpoints.root === config.routeGroup) {
-			return [
-				Result.err(
-					`"statusEndpoints.root" cannot be the same as "routeGroup" (value: ${DEFAULT_PROXY_ROUTE_GROUP})`,
-				),
-				hasWarnings,
-			];
+			return [Result.err(`"statusEndpoints.root" cannot be the same as "routeGroup" (value: ${DEFAULT_PROXY_ROUTE_GROUP})`), hasWarnings];
 		}
 
 		// Check if the environment variables required by the status endpoint are available.
 		if (config.statusEndpoints.apiKey) {
-			for (const match of config.statusEndpoints.apiKey.secret.matchAll(
-				envVarRegex,
-			)) {
+			for (const match of config.statusEndpoints.apiKey.secret.matchAll(envVarRegex)) {
 				const envKey = match[1].replace("$", "");
 				const envVariable = process.env[envKey];
 
 				if (!envVariable) {
 					return [
-						Result.err(
-							`Status endpoint API key secret requires ${envKey}, but it is not provided as an environment variable`,
-						),
+						Result.err(`Status endpoint API key secret requires ${envKey}, but it is not provided as an environment variable`),
 						hasWarnings,
 					];
 				}
 
 				envSecrets.add(envVariable);
-				config.statusEndpoints.apiKey.secret = replaceParams(
-					config.statusEndpoints.apiKey.secret,
-					{},
-				);
+				config.statusEndpoints.apiKey.secret = replaceParams(config.statusEndpoints.apiKey.secret, {});
 			}
 		}
 
@@ -223,21 +169,11 @@ export const parseConfig = (
 
 			if (route.upstreamUrl.includes("{*}")) {
 				if (!route.upstreamUrl.endsWith("{*}")) {
-					return [
-						Result.err(
-							`Upstream URL ${route.upstreamUrl} uses {*}, but it is not at the end of the URL`,
-						),
-						hasWarnings,
-					];
+					return [Result.err(`Upstream URL ${route.upstreamUrl} uses {*}, but it is not at the end of the URL`), hasWarnings];
 				}
 
 				if (!route.path.endsWith("*")) {
-					return [
-						Result.err(
-							`Upstream URL ${route.upstreamUrl} uses {*}, but path does not end with * (${route.path})`,
-						),
-						hasWarnings,
-					];
+					return [Result.err(`Upstream URL ${route.upstreamUrl} uses {*}, but path does not end with * (${route.path})`), hasWarnings];
 				}
 			}
 
@@ -245,9 +181,7 @@ export const parseConfig = (
 			for (const match of route.upstreamUrl.matchAll(varRegex)) {
 				if (!route.path.includes(match[1])) {
 					return [
-						Result.err(
-							`Upstream URL ${route.upstreamUrl} requires ${match[1]}, but it is not given in route ${route.path}`,
-						),
+						Result.err(`Upstream URL ${route.upstreamUrl} requires ${match[1]}, but it is not given in route ${route.path}`),
 						hasWarnings,
 					];
 				}
@@ -260,9 +194,7 @@ export const parseConfig = (
 
 				if (!envVariable) {
 					return [
-						Result.err(
-							`Upstream URL ${route.upstreamUrl} requires ${envKey}, but it is not provided as an environment variable`,
-						),
+						Result.err(`Upstream URL ${route.upstreamUrl} requires ${envKey}, but it is not provided as an environment variable`),
 						hasWarnings,
 					];
 				}
@@ -301,12 +233,7 @@ export const parseConfig = (
 			const jsonPathMatches = route.jsonPath?.matchAll(varRegex) ?? [];
 			for (const match of jsonPathMatches) {
 				if (!route.path.includes(match[1])) {
-					return [
-						Result.err(
-							`jsonPath requires ${match[1]}, but it is not given in route ${route.path}`,
-						),
-						hasWarnings,
-					];
+					return [Result.err(`jsonPath requires ${match[1]}, but it is not given in route ${route.path}`), hasWarnings];
 				}
 			}
 
@@ -314,12 +241,7 @@ export const parseConfig = (
 				// Ensure variables in the header are provided by the route's path.
 				for (const match of headerValue.matchAll(varRegex)) {
 					if (!route.path.includes(match[1])) {
-						return [
-							Result.err(
-								`Header ${headerKey} requires ${match[1]}, but it is not provided in the route ${route.path}`,
-							),
-							hasWarnings,
-						];
+						return [Result.err(`Header ${headerKey} requires ${match[1]}, but it is not provided in the route ${route.path}`), hasWarnings];
 					}
 				}
 
@@ -329,19 +251,11 @@ export const parseConfig = (
 					const envVariable = process.env[envKey];
 
 					if (!envVariable) {
-						return [
-							Result.err(
-								`Header ${headerKey} requires ${envKey}, but it is not provided as an environment variable`,
-							),
-							hasWarnings,
-						];
+						return [Result.err(`Header ${headerKey} requires ${envKey}, but it is not provided as an environment variable`), hasWarnings];
 					}
 
 					envSecrets.add(envVariable);
-					route.headers[headerKey] = replaceParams(
-						route.headers[headerKey],
-						{},
-					);
+					route.headers[headerKey] = replaceParams(route.headers[headerKey], {});
 				}
 			}
 		}
@@ -353,12 +267,7 @@ export const parseConfig = (
 			if (module.type === "pyth-lazer") {
 				const pythLazerApiKey = process.env[module.pythLazerApiKeyEnvKey];
 				if (!pythLazerApiKey) {
-					return [
-						Result.err(
-							`Module ${module.type} requires ${module.pythLazerApiKeyEnvKey} to be set`,
-						),
-						hasWarnings,
-					];
+					return [Result.err(`Module ${module.type} requires ${module.pythLazerApiKeyEnvKey} to be set`), hasWarnings];
 				}
 
 				modules.push({
@@ -370,17 +279,9 @@ export const parseConfig = (
 
 		if (config.sedaFast?.enable) {
 			if (config.sedaFast.allowedClients.length === 0) {
-				return [
-					Result.err(
-						"sedaFast.allowedClients must be provided if sedaFast.enable is true",
-					),
-					hasWarnings,
-				];
+				return [Result.err("sedaFast.allowedClients must be provided if sedaFast.enable is true"), hasWarnings];
 			}
 		}
 
-		return [
-			Result.ok({ config: { ...config, modules }, envSecrets }),
-			hasWarnings,
-		];
+		return [Result.ok({ config: { ...config, modules }, envSecrets }), hasWarnings];
 	});
