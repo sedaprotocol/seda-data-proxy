@@ -1,10 +1,10 @@
-import { exists, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { Command, Option } from "@commander-js/extra-typings";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
+import { parseJSON5 } from "confbox";
 import { Effect } from "effect";
-import { parseConfig } from "../config-parser";
+import { parseConfig } from "../config/config-parser";
 
 export const enableFastCmd = new Command("enable-fast")
 	.description("Enable Seda Fast with allowed client public keys")
@@ -41,7 +41,8 @@ const enableFastConfig = (
 		// Read config file
 		yield* Effect.logInfo(`Reading config from: ${configPath}`);
 		const configFile = Buffer.from(yield* fs.readFile(configPath));
-		const config = JSON.parse(configFile.toString());
+		// biome-ignore lint/suspicious/noExplicitAny: I'm not sure why this was not typed at all before...
+		const config = parseJSON5(configFile.toString()) as any;
 
 		// Initialize sedaFast if it doesn't exist
 		if (!config.sedaFast) {

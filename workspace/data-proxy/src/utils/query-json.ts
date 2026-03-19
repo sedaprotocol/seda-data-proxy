@@ -11,7 +11,11 @@ export class QueryJsonError extends Data.TaggedError("QueryJsonError")<{
 	message = `Query JSON (originator: ${this.type ?? "unknown"}) error: ${this.error} `;
 }
 
-export const queryJson = (input: string | object, path: string) =>
+export const queryJson = (
+	input: string | object,
+	path: string,
+	legacyJsonPath = true,
+) =>
 	Effect.gen(function* () {
 		const jsonData = yield* typeof input === "string"
 			? Effect.try({
@@ -30,6 +34,10 @@ export const queryJson = (input: string | object, path: string) =>
 				});
 			},
 		});
+
+		if (!legacyJsonPath) {
+			return yield* Effect.succeed(data);
+		}
 
 		if (!Array.isArray(data)) {
 			const slicedInput = JSON.stringify(input).slice(0, 100);

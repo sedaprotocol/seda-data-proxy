@@ -1,12 +1,13 @@
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Effect, Option } from "effect";
-import type { Config } from "../../config-parser";
+import { Effect, Match, Option } from "effect";
+import type { Config } from "../../config/config-parser";
 import { JSON_PATH_HEADER_KEY } from "../../constants";
 import {
 	FailedToParseResponseBodyError,
 	NotOkUpstreamResponseError,
 	UpstreamRequestFailedError,
 } from "../../errors";
+import { ModuleService } from "../../modules/module";
 import type { ProxyServerOptions } from "../../proxy-server";
 import { HttpClientService } from "../../services/http-client";
 import { createSignedResponseHeaders } from "../../utils/create-headers";
@@ -34,6 +35,7 @@ export type HandleProxyRequestParams = {
 export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 	Effect.gen(function* () {
 		const httpClient = yield* HttpClientService;
+		const moduleService = yield* ModuleService;
 
 		const {
 			serverOptions,
@@ -56,72 +58,116 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		// Parse the request URL to get the search params,
 		// this is to support query params that can be repeated, such as ?one=one&one=two
 		const requestUrl = new URL(request.url);
-
 		// Add the request search params (?one=two) to the upstream url
 		const requestSearchParams = createUrlSearchParams(
 			requestUrl.searchParams,
 			route.allowedQueryParams,
 		);
 
-		const upstreamHeaders = new Headers();
-		const upstreamUrl = yield* injectSearchParamsInUrl(
-			replaceParams(route.upstreamUrl, params),
-			requestSearchParams,
-		).pipe(Effect.map((url) => url.toString()));
+		const upstreamResponse = yield* Match.value(route).pipe(
+			Match.when({ type: "pyth-lazer" }, (pythLazerModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Pyth Lazer request");
+					return yield* moduleService.handleRequest(
+						pythLazerModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
+			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling upstream request");
+					const upstreamHeaders = new Headers();
 
-		// Forward all headers sent by the requester
-		for (const [key, value] of Object.entries(headers)) {
-			if (!value || key === constants.PROOF_HEADER_KEY) {
-				continue;
-			}
+					const upstreamUrl = yield* injectSearchParamsInUrl(
+						replaceParams(upstreamModuleRoute.upstreamUrl, params),
+						requestSearchParams,
+					).pipe(Effect.map((url) => url.toString()));
 
-			upstreamHeaders.append(key, value);
-		}
+					// Forward all headers sent by the requester
+					for (const [key, value] of Object.entries(headers)) {
+						if (!value || key === constants.PROOF_HEADER_KEY) {
+							continue;
+						}
 
-		// Inject all configured headers by the data proxy node configuration
-		// Important: configured headers take precedence over headers sent in the request
-		for (const [key, value] of Object.entries(route.headers)) {
-			upstreamHeaders.set(key, replaceParams(value, params));
-		}
+						upstreamHeaders.append(key, value);
+					}
 
-		// Host doesn't match since we are proxying. Returning the upstream host while the URL does not match results
-		// in the client to not return the response.
-		upstreamHeaders.delete("host");
+					// Inject all configured headers by the data proxy node configuration
+					// Important: configured headers take precedence over headers sent in the request
+					for (const [key, value] of Object.entries(route.headers)) {
+						upstreamHeaders.set(key, replaceParams(value, params));
+					}
 
-		yield* Effect.logDebug(`Fetching ${upstreamUrl}..`, {
-			headers: upstreamHeaders,
-			body,
-			upstreamUrl,
-		});
+					// Host doesn't match since we are proxying. Returning the upstream host while the URL does not match results
+					// in the client to not return the response.
+					upstreamHeaders.delete("host");
 
-		// Fetch the upstream response and process
-		const upstreamResponse = yield* httpClient
-			.request(upstreamUrl, {
-				method: request.method,
-				headers: upstreamHeaders,
-				body: Option.getOrUndefined(body),
-			})
-			.pipe(
-				Effect.mapError(
-					(error) => new UpstreamRequestFailedError({ error, routePath: path }),
-				),
-			);
+					yield* Effect.logDebug(`Fetching ${upstreamUrl}..`, {
+						headers: upstreamHeaders,
+						body,
+						upstreamUrl,
+					});
+
+					// Fetch the upstream response and process
+					const upstreamResponse = yield* httpClient
+						.request(upstreamUrl, {
+							method: request.method,
+							headers: upstreamHeaders,
+							body: Option.getOrUndefined(body),
+						})
+						.pipe(
+							Effect.mapError(
+								(error) =>
+									new UpstreamRequestFailedError({ error, routePath: path }),
+							),
+						);
+
+					return upstreamResponse;
+				}),
+			),
+			Match.exhaustive,
+		);
 
 		if (!upstreamResponse.ok) {
-			const body = yield* httpClient.parseBodyAsText(upstreamResponse).pipe(
-				Effect.mapError(
-					(error) =>
-						new FailedToParseResponseBodyError({
-							error: error.message,
-							status: upstreamResponse.status,
-						}),
-				),
+			const upstreamResponseBody = yield* httpClient
+				.parseBodyAsText(upstreamResponse)
+				.pipe(
+					Effect.mapError(
+						(error) =>
+							new FailedToParseResponseBodyError({
+								error: error.message,
+								status: upstreamResponse.status,
+							}),
+					),
+				)
+				.pipe(
+					Effect.tapError((error) =>
+						Effect.logError(
+							`Upstream response body parsing failed for ${route.path} is not ok: ${upstreamResponse.status} err: ${error}`,
+							{
+								requestBody: Option.getOrUndefined(body),
+								method: request.method,
+								upstreamUrl: upstreamResponse.url,
+							},
+						),
+					),
+				);
+
+			yield* Effect.logError(
+				`Upstream response for route ${path} is not ok: ${upstreamResponse.status} body: ${upstreamResponseBody}`,
+				{
+					requestBody: Option.getOrUndefined(body),
+					method: request.method,
+					upstreamUrl: upstreamResponse.url,
+				},
 			);
 
 			return yield* Effect.fail(
 				new NotOkUpstreamResponseError({
 					status: upstreamResponse.status,
-					body,
+					body: upstreamResponseBody,
 					routePath: path,
 				}),
 			);
@@ -148,7 +194,11 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 		if (route.jsonPath) {
 			yield* Effect.logDebug(`Applying route JSONpath ${route.jsonPath}`);
-			const data = yield* queryJson(upstreamTextResponse, route.jsonPath).pipe(
+			const data = yield* queryJson(
+				upstreamTextResponse,
+				route.jsonPath,
+				route.useLegacyJsonPath,
+			).pipe(
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
@@ -177,6 +227,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			const data = yield* queryJson(
 				responseData,
 				jsonPathRequestHeader.value,
+				route.useLegacyJsonPath,
 			).pipe(
 				Effect.mapError(
 					(error) =>
@@ -287,6 +338,12 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			Effect.gen(function* () {
 				yield* Effect.logError(error);
 				return createErrorResponse(error, error.status ?? 500);
+			}),
+		),
+		Effect.catchTag("FailedToHandleRequest", (error) =>
+			Effect.gen(function* () {
+				yield* Effect.logError(error);
+				return createErrorResponse(error, error.status);
 			}),
 		),
 	);

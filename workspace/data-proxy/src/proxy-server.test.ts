@@ -59,6 +59,7 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					modules: [],
 					sedaFast: {
 						enable: true,
 						maxProofAgeMs: 1000,
@@ -76,6 +77,9 @@ describe("proxy server", () => {
 							upstreamUrl,
 							forwardResponseHeaders: new Set([]),
 							headers: {},
+							type: "upstream",
+							moduleName: "upstream",
+							useLegacyJsonPath: true,
 						},
 					],
 				},
@@ -86,6 +90,7 @@ describe("proxy server", () => {
 					enableKeepAliveFiber: false,
 				},
 			)
+				.pipe(Effect.scoped)
 				.pipe(Effect.provide(HttpClientService.Default()))
 				.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 		);
@@ -119,6 +124,7 @@ describe("proxy server", () => {
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
+					modules: [],
 					sedaFast: {
 						enable: true,
 						maxProofAgeMs: 1000,
@@ -136,6 +142,9 @@ describe("proxy server", () => {
 							upstreamUrl,
 							forwardResponseHeaders: new Set([]),
 							headers: {},
+							type: "upstream",
+							moduleName: "upstream",
+							useLegacyJsonPath: true,
 						},
 					],
 				},
@@ -146,6 +155,7 @@ describe("proxy server", () => {
 					enableKeepAliveFiber: false,
 				},
 			)
+				.pipe(Effect.scoped)
 				.pipe(Effect.provide(HttpClientService.Default()))
 				.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 		);
@@ -176,6 +186,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -193,6 +204,9 @@ describe("proxy server", () => {
 								upstreamUrl,
 								forwardResponseHeaders: new Set([]),
 								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -203,6 +217,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
@@ -247,6 +262,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -266,6 +282,9 @@ describe("proxy server", () => {
 								upstreamUrl,
 								forwardResponseHeaders: new Set([]),
 								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -276,6 +295,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
@@ -322,6 +342,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -340,6 +361,9 @@ describe("proxy server", () => {
 								forwardResponseHeaders: new Set([]),
 								headers: {},
 								jsonPath: "$.data",
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -350,6 +374,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
@@ -389,6 +414,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -407,6 +433,9 @@ describe("proxy server", () => {
 								forwardResponseHeaders: new Set([]),
 								headers: {},
 								jsonPath: "$.data",
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -417,6 +446,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
@@ -480,6 +510,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -497,6 +528,9 @@ describe("proxy server", () => {
 								upstreamUrl,
 								forwardResponseHeaders: new Set([]),
 								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -507,6 +541,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);
@@ -546,6 +581,7 @@ describe("proxy server", () => {
 						verificationMaxRetries: 2,
 						verificationRetryDelay: 1000,
 						routeGroup: "",
+						modules: [],
 						sedaFast: {
 							enable: true,
 							maxProofAgeMs: 1000,
@@ -567,6 +603,9 @@ describe("proxy server", () => {
 								upstreamUrl,
 								forwardResponseHeaders: new Set([]),
 								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
 							},
 						],
 					},
@@ -577,6 +616,7 @@ describe("proxy server", () => {
 						enableKeepAliveFiber: false,
 					},
 				)
+					.pipe(Effect.scoped)
 					.pipe(Effect.provide(HttpClientService.Default()))
 					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 			);

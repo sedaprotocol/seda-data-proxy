@@ -1,7 +1,7 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Runtime } from "effect";
 import Elysia from "elysia";
-import type { Config } from "../config-parser";
+import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
 import { effectToAsyncResult } from "../utils/effect-utils";
 import { getVersions } from "../utils/versions";

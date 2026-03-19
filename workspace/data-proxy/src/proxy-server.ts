@@ -1,11 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { openapi } from "@elysiajs/openapi";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Duration, Effect, Option, Runtime, Schedule } from "effect";
+import {
+	Duration,
+	Effect,
+	HashMap,
+	Layer,
+	MutableHashMap,
+	Option,
+	Runtime,
+	Schedule,
+} from "effect";
 import { Elysia } from "elysia";
-import { type Config, getHttpMethods } from "./config-parser";
+import { type Config, getHttpMethods } from "./config/config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
+import { EmptyModuleService, ModuleService } from "./modules/module";
+import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
 
@@ -27,6 +38,35 @@ export const startProxyServer = (
 ) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime<HttpClientService>();
+		const modules = MutableHashMap.empty<
+			string,
+			Layer.Layer<ModuleService, never, never>
+		>();
+
+		// Initialize the modules and start them
+		for (const moduleConfig of config.modules) {
+			const moduleLayer = yield* Layer.memoize(
+				PythLazerModuleService(moduleConfig),
+			);
+
+			yield* Effect.gen(function* () {
+				const moduleService = yield* ModuleService;
+				yield* moduleService.start();
+			}).pipe(Effect.provide(moduleLayer));
+
+			MutableHashMap.set(modules, moduleConfig.name, moduleLayer);
+		}
+
+		// Make sure that all routes are correctly configured with their respective module
+		for (const route of config.routes) {
+			if (route.type === "pyth-lazer") {
+				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
+				if (Option.isNone(moduleLayer)) {
+					return yield* Effect.die(`Module ${route.moduleName} not found`);
+				}
+			}
+		}
+
 		const server = new Elysia()
 			.use(
 				openapi({
@@ -116,6 +156,11 @@ export const startProxyServer = (
 										body as string | undefined,
 									);
 
+									const moduleLayer = MutableHashMap.get(
+										modules,
+										route.moduleName,
+									).pipe(Option.getOrElse(() => EmptyModuleService));
+
 									return yield* handleProxyRequest({
 										serverOptions,
 										headers,
@@ -126,7 +171,7 @@ export const startProxyServer = (
 										route,
 										config,
 										dataProxy,
-									});
+									}).pipe(Effect.provide(moduleLayer));
 								}).pipe(
 									Effect.annotateLogs("requestId", requestId),
 									Effect.annotateLogs("method", request.method),

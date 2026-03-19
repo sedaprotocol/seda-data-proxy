@@ -1,4 +1,4 @@
-import type { Config } from "../config-parser";
+import type { Config } from "../config/config-parser";
 
 export interface Context {
 	getPublicKey(): string;

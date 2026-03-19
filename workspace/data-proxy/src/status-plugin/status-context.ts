@@ -1,5 +1,5 @@
 import { formatISODuration, intervalToDuration } from "date-fns";
-import type { Config } from "../config-parser";
+import type { Config } from "../config/config-parser";
 import type { Context } from "./types";
 
 export class StatusContext implements Context {

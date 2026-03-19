@@ -4,7 +4,7 @@ import { Command } from "@commander-js/extra-typings";
 import { Secp256k1 } from "@cosmjs/crypto";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync } from "@seda-protocol/utils";
-import type { Config } from "../config-parser";
+import type { Config } from "../config/config-parser";
 import { DEFAULT_PRIVATE_KEY_JSON_FILE_NAME } from "../constants";
 import type { FileKeyPair } from "./utils/key-pair";
 
