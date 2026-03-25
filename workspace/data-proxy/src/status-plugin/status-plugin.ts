@@ -1,5 +1,5 @@
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Effect, Runtime } from "effect";
+import { Effect, Either, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
@@ -11,6 +11,7 @@ export const statusPlugin = (
 	context: Context,
 	dataProxy: DataProxy,
 	options: Config["statusEndpoints"],
+	config: Config,
 ) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime();
@@ -38,33 +39,53 @@ export const statusPlugin = (
 					});
 				});
 
-				group.get("health", async ({ set }) => {
-					const chainId = await effectToAsyncResult(
-						getRpcChainId(dataProxy.options.rpcUrl),
-					);
-					const hasCorrectChainId =
-						chainId.isOk && chainId.value === dataProxy.options.chainId;
-					set.status = chainId.isOk && hasCorrectChainId ? 200 : 500;
+				group.get("health", async ({ set }) =>
+					Runtime.runPromise(
+						runtime,
+						Effect.gen(function* () {
+							let healthy = true;
 
-					return Response.json({
-						status: chainId.isOk && hasCorrectChainId ? "healthy" : "unhealthy",
-						metrics: context.getMetrics(),
-					});
-				});
+							if (config.fastOnly) {
+								healthy = true;
+							} else {
+								const chainId = yield* Effect.either(
+									getRpcChainId(dataProxy.options.rpcUrl),
+								);
+								const hasCorrectChainId =
+									Either.isRight(chainId) &&
+									chainId.right === dataProxy.options.chainId;
 
-				group.get("info", async () => {
-					const chainId = await effectToAsyncResult(
-						getRpcChainId(dataProxy.options.rpcUrl),
-					);
+								healthy = hasCorrectChainId;
+							}
 
-					return Response.json({
-						pubKey: context.getPublicKey(),
-						fastConfig: context.getFastConfig(),
-						version: getVersions().proxy,
-						chainId: dataProxy.options.chainId,
-						rpcChainId: chainId.isOk ? chainId.value : null,
-					});
-				});
+							set.status = healthy ? 200 : 500;
+
+							return Response.json({
+								status: healthy ? "healthy" : "unhealthy",
+								metrics: context.getMetrics(),
+							});
+						}),
+					),
+				);
+
+				group.get("info", async () =>
+					Runtime.runPromise(
+						runtime,
+						Effect.gen(function* () {
+							const chainId = yield* Effect.either(
+								getRpcChainId(dataProxy.options.rpcUrl),
+							);
+
+							return Response.json({
+								pubKey: context.getPublicKey(),
+								fastConfig: context.getFastConfig(),
+								version: getVersions().proxy,
+								chainId: dataProxy.options.chainId,
+								rpcChainId: Either.isRight(chainId) ? chainId.right : null,
+							});
+						}),
+					),
+				);
 
 				return group;
 			});

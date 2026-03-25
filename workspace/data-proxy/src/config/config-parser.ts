@@ -62,6 +62,7 @@ const Secp256k1PublicKeySchema = v.pipe(
 const ConfigSchema = v.strictObject(
 	{
 		modules: ModulesSchema,
+		fastOnly: v.optional(v.boolean(), false),
 		verificationMaxRetries: v.optional(
 			v.number(),
 			DEFAULT_VERIFICATION_MAX_RETRIES,

@@ -118,7 +118,12 @@ export const startProxyServer = (
 			config.sedaFast,
 		);
 		server.use(
-			yield* statusPlugin(statusContext, dataProxy, config.statusEndpoints),
+			yield* statusPlugin(
+				statusContext,
+				dataProxy,
+				config.statusEndpoints,
+				config,
+			),
 		);
 		const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
