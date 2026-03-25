@@ -53,6 +53,7 @@ describe("proxy server", () => {
 
 		const proxy = startProxyServer(
 			{
+				fastOnly: false,
 				verificationMaxRetries: 2,
 				verificationRetryDelay: 1000,
 				routeGroup: "",
@@ -108,6 +109,7 @@ describe("proxy server", () => {
 
 		const proxy = startProxyServer(
 			{
+				fastOnly: false,
 				verificationMaxRetries: 2,
 				verificationRetryDelay: 1000,
 				routeGroup: "",
@@ -160,6 +162,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
@@ -226,6 +229,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
@@ -296,6 +300,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
@@ -358,6 +363,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
@@ -444,6 +450,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",
@@ -505,6 +512,7 @@ describe("proxy server", () => {
 
 			const proxy = startProxyServer(
 				{
+					fastOnly: false,
 					verificationMaxRetries: 2,
 					verificationRetryDelay: 1000,
 					routeGroup: "",

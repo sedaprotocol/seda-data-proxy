@@ -8,7 +8,7 @@ export const getRpcChainId = (rpc: string) =>
 		const response = yield* asyncToEffect(fetch(url));
 		const data = yield* asyncToEffect(response.json());
 
-		return data.result.node_info.network;
+		return data.result.node_info.network as string;
 	}).pipe(
 		Effect.catchAll((error) => {
 			logger.error(`Error while getting RPC chain id: ${error}`);

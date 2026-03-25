@@ -78,6 +78,7 @@ const ConfigSchema = v.strictObject(
 			v.number(),
 			DEFAULT_VERIFICATION_RETRY_DELAY,
 		),
+		fastOnly: v.optional(v.boolean(), false),
 		sedaFast: v.optional(
 			v.object({
 				enable: v.boolean(),

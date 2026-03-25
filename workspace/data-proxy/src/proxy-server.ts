@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { tryAsync } from "@seda-protocol/utils";
+import { Effect } from "effect";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import { Elysia } from "elysia";
@@ -72,7 +73,11 @@ export function startProxyServer(
 		dataProxy.publicKey.toString("hex"),
 		config.sedaFast,
 	);
-	server.use(statusPlugin(statusContext, dataProxy, config.statusEndpoints));
+	server.use(
+		Effect.runSync(
+			statusPlugin(statusContext, dataProxy, config.statusEndpoints, config),
+		),
+	);
 	const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
 
 	server.group(proxyGroup, (app) => {

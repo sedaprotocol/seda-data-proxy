@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Runtime } from "effect";
 import { Result } from "true-myth";
 
 /**
@@ -68,10 +68,11 @@ export function asyncToEffect<T>(
  * ```
  */
 export async function effectToAsyncResult<T, E>(
+	runtime: Runtime.Runtime<never>,
 	effect: Effect.Effect<T, E>,
 ): Promise<Result<T, Error>> {
 	try {
-		const result = await Effect.runPromise(effect);
+		const result = await Runtime.runPromise(runtime, effect);
 		return Result.ok(result);
 	} catch (error) {
 		if (error instanceof Error) {
