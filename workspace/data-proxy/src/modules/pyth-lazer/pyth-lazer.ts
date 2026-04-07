@@ -20,7 +20,10 @@ import type { PythLazerModuleConfig } from "../../config/pyth-lazer-module-confi
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { FailedToHandlePythLazerRequestError } from "./errors";
+import {
+	FailedToHandlePythLazerRequestError,
+	extractPriceFeedIdFromErrorMessage,
+} from "./errors";
 import { getPriceIdBySymbol } from "./get-symbol-price-id";
 import { createPriceCache } from "./price-cache";
 
@@ -54,6 +57,16 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			const subscriptions = MutableHashMap.empty<PriceFeedId, number>();
 			const symbolsToId = MutableHashMap.empty<PriceFeedSymbol, PriceFeedId>();
 
+			const getSymbolByPriceFeedId = (priceFeedId: PriceFeedId) => {
+				for (const [symbol, id] of MutableHashMap.fromIterable(symbolsToId)) {
+					if (id === priceFeedId) {
+						return Option.some(symbol);
+					}
+				}
+
+				return Option.none();
+			};
+
 			let subscriptionId = 0;
 
 			const lazerClient = yield* Effect.tryPromise({
@@ -66,6 +79,22 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 									runtime,
 									Effect.logError("Error in Pyth Lazer client web socket pool"),
 								);
+
+								const priceFeedId = extractPriceFeedIdFromErrorMessage(
+									`${error}`,
+								);
+
+								if (Option.isSome(priceFeedId)) {
+									const symbol = getSymbolByPriceFeedId(priceFeedId.value);
+
+									Runtime.runSync(
+										runtime,
+										priceCache.setPriceToError(
+											priceFeedId.value,
+											`(${Option.getOrElse(symbol, () => "Unknown/Symbol")}) ${error}`,
+										),
+									);
+								}
 
 								// For some reason the error is encoded to an empty object, the regular console.error does show the actual error
 								console.error(error);
@@ -300,7 +329,15 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						}
 
 						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
-						const price = yield* priceCache.getOrWaitPrice(priceFeedId);
+						const price = yield* priceCache.getOrWaitPrice(priceFeedId).pipe(
+							Effect.catchTag("FailedToGetPriceError", (error) =>
+								Effect.gen(function* () {
+									yield* priceCache.deletePrice(priceFeedId);
+									return yield* Effect.fail(error);
+								}),
+							),
+						);
+
 						prices.push({
 							symbol: priceFeedIdsRaw.at(index),
 							...price,

@@ -12,7 +12,10 @@ export const createPriceCache = () =>
 	Effect.gen(function* () {
 		const priceCache = MutableHashMap.empty<number, ParsedFeedPayload>();
 		const priceWaiters = yield* SynchronizedRef.make(
-			MutableHashMap.empty<number, Deferred.Deferred<ParsedFeedPayload>>(),
+			MutableHashMap.empty<
+				number,
+				Deferred.Deferred<ParsedFeedPayload, FailedToGetPriceError>
+			>(),
 		);
 
 		const setPrice = (priceFeedId: number, price: ParsedFeedPayload) =>
@@ -26,6 +29,19 @@ export const createPriceCache = () =>
 				}
 
 				MutableHashMap.set(priceCache, priceFeedId, price);
+			});
+
+		const setPriceToError = (priceFeedId: number, error: string) =>
+			Effect.gen(function* () {
+				const waitersMap = yield* SynchronizedRef.get(priceWaiters);
+				const waiter = MutableHashMap.get(waitersMap, priceFeedId);
+
+				if (Option.isSome(waiter)) {
+					yield* Deferred.fail(
+						waiter.value,
+						new FailedToGetPriceError({ error }),
+					);
+				}
 			});
 
 		const getOrWaitPrice = (priceFeedId: number) =>
@@ -47,7 +63,10 @@ export const createPriceCache = () =>
 						}
 
 						// We can safely create the new waiter
-						const deferred = yield* Deferred.make<ParsedFeedPayload>();
+						const deferred = yield* Deferred.make<
+							ParsedFeedPayload,
+							FailedToGetPriceError
+						>();
 						MutableHashMap.set(waitersMap, priceFeedId, deferred);
 						return waitersMap;
 					}),
@@ -83,6 +102,7 @@ export const createPriceCache = () =>
 			getOrWaitPrice,
 			setPrice,
 			deletePrice,
+			setPriceToError,
 			size,
 		};
 	});

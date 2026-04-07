@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, Option } from "effect";
 
 export class FailedToHandlePythLazerRequestError extends Data.TaggedError(
 	"FailedToHandlePythLazerRequestError",
@@ -25,4 +25,17 @@ export class FailedToGetPriceError extends Data.TaggedError(
 }> {
 	message = `Failed to get price: ${this.error}`;
 	status = 500;
+}
+
+export function extractPriceFeedIdFromErrorMessage(
+	error: string,
+): Option.Option<number> {
+	// API key has insufficient access for the following reasons: Feeds are not stable: 2701 (coming_soon)
+	const match = error.match(/Feeds are not stable: (\d+)/);
+
+	if (match) {
+		return Option.some(Number.parseInt(match[1]));
+	}
+
+	return Option.none();
 }
