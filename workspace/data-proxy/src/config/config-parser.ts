@@ -1,7 +1,7 @@
 import { Secp256k1 } from "@cosmjs/crypto";
 import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
-import { Effect } from "effect";
+import { Effect, Either, Match } from "effect";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
@@ -12,6 +12,11 @@ import {
 	DEFAULT_VERIFICATION_RETRY_DELAY,
 } from "../constants";
 import { replaceParams } from "../utils/replace-params";
+import {
+	type ChainlinkStreamsModuleRoute,
+	ChainlinkStreamsModuleRouteSchema,
+	validateChainlinkStreamsModuleRoute,
+} from "./chainlink-streams-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
 	type PythLazerModuleRoute,
@@ -99,6 +104,7 @@ const ConfigSchema = v.strictObject(
 			v.variant("type", [
 				UpstreamModuleRouteSchema,
 				PythLazerModuleRouteSchema,
+				ChainlinkStreamsModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -127,7 +133,10 @@ const ConfigSchema = v.strictObject(
 );
 
 // export type Route = v.InferOutput<typeof RouteSchema>;
-export type Route = UpstreamModuleRoute | PythLazerModuleRoute;
+export type Route =
+	| UpstreamModuleRoute
+	| PythLazerModuleRoute
+	| ChainlinkStreamsModuleRoute;
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
 }
@@ -215,6 +224,11 @@ export const parseConfig = (
 		for (const [index, route] of config.routes.entries()) {
 			if (route.type === "pyth-lazer") {
 				yield* validatePythLazerModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "chainlink-streams") {
+				yield* validateChainlinkStreamsModuleRoute(route);
 				continue;
 			}
 
@@ -348,24 +362,51 @@ export const parseConfig = (
 
 		const modules: Modules[] = [];
 
-		// Check if the modules are valid
 		for (const module of config.modules) {
-			if (module.type === "pyth-lazer") {
-				const pythLazerApiKey = process.env[module.pythLazerApiKeyEnvKey];
-				if (!pythLazerApiKey) {
-					return [
-						Result.err(
-							`Module ${module.type} requires ${module.pythLazerApiKeyEnvKey} to be set`,
-						),
-						hasWarnings,
-					];
-				}
+			const resolved = yield* Effect.either(
+				Match.value(module).pipe(
+					Match.when({ type: "pyth-lazer" }, (m) => {
+						const pythLazerApiKey = process.env[m.pythLazerApiKeyEnvKey];
+						if (!pythLazerApiKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.pythLazerApiKeyEnvKey} to be set`,
+							);
+						}
+						return Effect.succeed({ ...m, pythLazerApiKey } satisfies Modules);
+					}),
+					Match.when({ type: "chainlink-streams" }, (m) => {
+						const chainlinkKey = process.env[m.chainlinkKeyEnvKey];
+						const chainlinkApiSecret = process.env[m.chainlinkApiSecretEnvKey];
 
-				modules.push({
-					...module,
-					pythLazerApiKey,
-				});
+						if (!chainlinkKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.chainlinkKeyEnvKey} to be set`,
+							);
+						}
+
+						if (!chainlinkApiSecret) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.chainlinkApiSecretEnvKey} to be set`,
+							);
+						}
+
+						envSecrets.add(chainlinkKey);
+						envSecrets.add(chainlinkApiSecret);
+
+						return Effect.succeed({
+							...m,
+							chainlinkKey,
+							chainlinkApiSecret,
+						} satisfies Modules);
+					}),
+					Match.exhaustive,
+				),
+			);
+
+			if (Either.isLeft(resolved)) {
+				return [Result.err(resolved.left), hasWarnings];
 			}
+			modules.push(resolved.right);
 		}
 
 		if (config.sedaFast?.enable) {

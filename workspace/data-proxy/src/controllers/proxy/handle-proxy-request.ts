@@ -75,6 +75,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "chainlink-streams" }, (chainlinkStreamsModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Chainlink Streams request");
+					return yield* moduleService.handleRequest(
+						chainlinkStreamsModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");

@@ -6,6 +6,7 @@ import {
 	Effect,
 	HashMap,
 	Layer,
+	Match,
 	MutableHashMap,
 	Option,
 	Runtime,
@@ -15,6 +16,7 @@ import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
+import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
 import { EmptyModuleService, ModuleService } from "./modules/module";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
@@ -40,13 +42,19 @@ export const startProxyServer = (
 		const runtime = yield* Effect.runtime<HttpClientService>();
 		const modules = MutableHashMap.empty<
 			string,
-			Layer.Layer<ModuleService, never, never>
+			Layer.Layer<ModuleService, unknown, never>
 		>();
 
 		// Initialize the modules and start them
 		for (const moduleConfig of config.modules) {
-			const moduleLayer = yield* Layer.memoize(
-				PythLazerModuleService(moduleConfig),
+			const moduleLayer = yield* Match.value(moduleConfig).pipe(
+				Match.when({ type: "pyth-lazer" }, (m) =>
+					Layer.memoize(PythLazerModuleService(m)),
+				),
+				Match.when({ type: "chainlink-streams" }, (m) =>
+					Layer.memoize(ChainlinkStreamsModuleService(m)),
+				),
+				Match.exhaustive,
 			);
 
 			yield* Effect.gen(function* () {
@@ -59,7 +67,7 @@ export const startProxyServer = (
 
 		// Make sure that all routes are correctly configured with their respective module
 		for (const route of config.routes) {
-			if (route.type === "pyth-lazer") {
+			if (route.type === "pyth-lazer" || route.type === "chainlink-streams") {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {
 					return yield* Effect.die(`Module ${route.moduleName} not found`);

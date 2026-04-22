@@ -208,6 +208,129 @@ describe("parseConfig", () => {
 		},
 	);
 
+	describe("module validation", () => {
+		it("should reject a pyth-lazer module whose API key env var is unset", () => {
+			process.env.PYTH_API_KEY = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pyth-lazer",
+							name: "pyth",
+							pythLazerApiKeyEnvKey: "PYTH_API_KEY",
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module pyth-lazer requires PYTH_API_KEY to be set",
+			);
+		});
+
+		it("should resolve a pyth-lazer module when its API key is set", () => {
+			process.env.PYTH_API_KEY = "pyth-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pyth-lazer",
+							name: "pyth",
+							pythLazerApiKeyEnvKey: "PYTH_API_KEY",
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "pyth-lazer") {
+				throw new Error(`expected pyth-lazer, got ${module.type}`);
+			}
+			expect(module.pythLazerApiKey).toBe("pyth-secret");
+			process.env.PYTH_API_KEY = undefined;
+		});
+
+		it.each([
+			{
+				missing: "key" as const,
+				env: { CHAINLINK_KEY: undefined, CHAINLINK_SECRET: "secret" },
+				expected: "Module chainlink-streams requires CHAINLINK_KEY to be set",
+			},
+			{
+				missing: "secret" as const,
+				env: { CHAINLINK_KEY: "key", CHAINLINK_SECRET: undefined },
+				expected:
+					"Module chainlink-streams requires CHAINLINK_SECRET to be set",
+			},
+		])(
+			"should reject a chainlink-streams module when the $missing env var is unset",
+			({ env, expected }) => {
+				process.env.CHAINLINK_KEY = env.CHAINLINK_KEY;
+				process.env.CHAINLINK_SECRET = env.CHAINLINK_SECRET;
+
+				const [result] = Effect.runSync(
+					parseConfig({
+						routes: [],
+						modules: [
+							{
+								type: "chainlink-streams",
+								name: "chainlink",
+								chainlinkKeyEnvKey: "CHAINLINK_KEY",
+								chainlinkApiSecretEnvKey: "CHAINLINK_SECRET",
+								baseUrl: "https://api.chainlink.example",
+							},
+						],
+					}),
+				);
+
+				expect(result).toBeErrResult(expected);
+
+				process.env.CHAINLINK_KEY = undefined;
+				process.env.CHAINLINK_SECRET = undefined;
+			},
+		);
+
+		it("should resolve a chainlink-streams module and track both env vars as secrets", () => {
+			process.env.CHAINLINK_KEY = "key";
+			process.env.CHAINLINK_SECRET = "secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "chainlink-streams",
+							name: "chainlink",
+							chainlinkKeyEnvKey: "CHAINLINK_KEY",
+							chainlinkApiSecretEnvKey: "CHAINLINK_SECRET",
+							baseUrl: "https://api.chainlink.example",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "chainlink-streams") {
+				throw new Error(`expected chainlink-streams, got ${module.type}`);
+			}
+			expect(module.chainlinkKey).toBe("key");
+			expect(module.chainlinkApiSecret).toBe("secret");
+			expect(result.value.envSecrets.has("key")).toBe(true);
+			expect(result.value.envSecrets.has("secret")).toBe(true);
+
+			process.env.CHAINLINK_KEY = undefined;
+			process.env.CHAINLINK_SECRET = undefined;
+		});
+	});
+
 	describe("it should fail on unknown properties", () => {
 		it("at the root", () => {
 			const [result] = Effect.runSync(
