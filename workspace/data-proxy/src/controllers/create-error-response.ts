@@ -10,6 +10,7 @@ export function createErrorResponse(error: TaggedError, status: number) {
 		...error,
 		error: undefined,
 		message: undefined,
+		data: undefined, // can be very large for errors like QueryJsonError
 	};
 
 	return new Response(
