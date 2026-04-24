@@ -45,3 +45,13 @@ export class FailedToParseConfigError extends Data.TaggedError(
 )<{ error: string | unknown }> {
 	message = `Failed to parse config: ${this.error}`;
 }
+
+export class QueryJsonError extends Data.TaggedError("QueryJsonError")<{
+	error: string | unknown;
+	data?: string;
+	type?: "config" | "header";
+	status?: number;
+}> {
+	message = `Query JSON (originator: ${this.type ?? "unknown"}) error: ${this.error} `;
+	additionalLogMessage = this.data;
+}

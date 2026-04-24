@@ -5,6 +5,7 @@ import { JSON_PATH_HEADER_KEY } from "../../constants";
 import {
 	FailedToParseResponseBodyError,
 	NotOkUpstreamResponseError,
+	QueryJsonError,
 	UpstreamRequestFailedError,
 } from "../../errors";
 import { ModuleService } from "../../modules/module";
@@ -12,7 +13,7 @@ import type { ProxyServerOptions } from "../../proxy-server";
 import { HttpClientService } from "../../services/http-client";
 import { createSignedResponseHeaders } from "../../utils/create-headers";
 import { maybeToOption } from "../../utils/effect-utils";
-import { QueryJsonError, queryJson } from "../../utils/query-json";
+import { queryJson } from "../../utils/query-json";
 import { replaceParams } from "../../utils/replace-params";
 import { createUrlSearchParams } from "../../utils/search-params";
 import { injectSearchParamsInUrl } from "../../utils/url";
@@ -213,6 +214,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					(error) =>
 						new QueryJsonError({
 							error: error.message,
+							data: error.additionalLogMessage,
 							type: "config",
 							status: 500,
 						}),
@@ -243,6 +245,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					(error) =>
 						new QueryJsonError({
 							error: error.message,
+							data: error.additionalLogMessage,
 							type: "header",
 							// Fault is from the user side
 							status: 400,
@@ -302,58 +305,35 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		});
 	}).pipe(
 		Effect.withSpan("handleProxyRequest"),
-		Effect.catchTag("VerifyProofError", (error) =>
+		Effect.tapError((error) =>
 			Effect.gen(function* () {
 				yield* Effect.logError(error);
-				return createErrorResponse(error, 400);
+				// An error can define additional log message.
+				if (
+					"additionalLogMessage" in error &&
+					error.additionalLogMessage !== undefined
+				) {
+					yield* Effect.logError(error.additionalLogMessage);
+				}
 			}),
 		),
-		Effect.catchTag("IneligibleProofError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 401);
-			}),
-		),
-		Effect.catchTag("UnknownError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("FailedToParseTargetUrlError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("UpstreamRequestFailedError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("FailedToParseResponseBodyError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("NotOkUpstreamResponseError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status);
-			}),
-		),
-		Effect.catchTag("QueryJsonError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status ?? 500);
-			}),
-		),
-		Effect.catchTag("FailedToHandleRequest", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status);
-			}),
-		),
+		Effect.catchTags({
+			VerifyProofError: (error) =>
+				Effect.succeed(createErrorResponse(error, 400)),
+			IneligibleProofError: (error) =>
+				Effect.succeed(createErrorResponse(error, 401)),
+			UnknownError: (error) => Effect.succeed(createErrorResponse(error, 500)),
+			FailedToParseTargetUrlError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			UpstreamRequestFailedError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			FailedToParseResponseBodyError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			NotOkUpstreamResponseError: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status)),
+			QueryJsonError: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status ?? 500)),
+			FailedToHandleRequest: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status)),
+		}),
 	);
