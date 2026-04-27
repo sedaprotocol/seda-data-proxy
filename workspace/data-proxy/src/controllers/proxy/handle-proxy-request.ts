@@ -91,8 +91,10 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					yield* Effect.logDebug("Handling upstream request");
 					const upstreamHeaders = new Headers();
 
+					const url = replaceParams(upstreamModuleRoute.upstreamUrl, params);
+
 					const upstreamUrl = yield* injectSearchParamsInUrl(
-						replaceParams(upstreamModuleRoute.upstreamUrl, params),
+						url,
 						requestSearchParams,
 					).pipe(Effect.map((url) => url.toString()));
 
@@ -101,7 +103,6 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						if (!value || key === constants.PROOF_HEADER_KEY) {
 							continue;
 						}
-
 						upstreamHeaders.append(key, value);
 					}
 
@@ -117,7 +118,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 					yield* Effect.logDebug(`Fetching ${upstreamUrl}..`, {
 						headers: upstreamHeaders,
-						body,
+						body: Option.getOrUndefined(body),
 						upstreamUrl,
 					});
 
@@ -129,6 +130,17 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 							body: Option.getOrUndefined(body),
 						})
 						.pipe(
+							Effect.tapError((error) =>
+								Effect.logError("Upstream HTTP request failed", {
+									routePath: path,
+									method: request.method,
+									clientRequestUrl: request.url,
+									upstreamRequestUrl: upstreamUrl,
+									upstreamRequestHeaders: upstreamHeaders,
+									routeParams: params,
+									requestBody: Option.getOrUndefined(body),
+								}),
+							),
 							Effect.mapError(
 								(error) =>
 									new UpstreamRequestFailedError({ error, routePath: path }),
@@ -145,6 +157,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			const upstreamResponseBody = yield* httpClient
 				.parseBodyAsText(upstreamResponse)
 				.pipe(
+					// Attach the status to the error.
 					Effect.mapError(
 						(error) =>
 							new FailedToParseResponseBodyError({
@@ -156,11 +169,14 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				.pipe(
 					Effect.tapError((error) =>
 						Effect.logError(
-							`Upstream response body parsing failed for ${route.path} is not ok: ${upstreamResponse.status} err: ${error}`,
+							`Upstream response body parsing failed with status: ${upstreamResponse.status} err: ${error}`,
 							{
-								requestBody: Option.getOrUndefined(body),
+								routePath: path,
 								method: request.method,
-								upstreamUrl: upstreamResponse.url,
+								clientRequestUrl: request.url,
+								upstreamResponseUrl: upstreamResponse.url,
+								routeParams: params,
+								requestBody: Option.getOrUndefined(body),
 							},
 						),
 					),
@@ -307,7 +323,20 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		Effect.withSpan("handleProxyRequest"),
 		Effect.tapError((error) =>
 			Effect.gen(function* () {
-				yield* Effect.logError(error);
+				const { message, ...errorRest } = error as unknown as {
+					message: string;
+				} & Record<string, unknown>;
+
+				yield* Effect.logError(error.message, {
+					...errorRest,
+					headers: inputParams.headers,
+					params: inputParams.params,
+					body: Option.getOrUndefined(inputParams.body),
+					path: inputParams.path,
+					method: inputParams.request.method,
+					requestUrl: inputParams.request.url,
+					requestBody: Option.getOrUndefined(inputParams.body),
+				});
 			}),
 		),
 		Effect.catchTags({

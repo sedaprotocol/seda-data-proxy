@@ -82,6 +82,7 @@ describe("proxy server", () => {
 							useLegacyJsonPath: true,
 						},
 					],
+					fastOnly: false,
 				},
 				dataProxy,
 				{
@@ -147,6 +148,7 @@ describe("proxy server", () => {
 							useLegacyJsonPath: true,
 						},
 					],
+					fastOnly: false,
 				},
 				dataProxy,
 				{
@@ -209,6 +211,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{
@@ -287,6 +290,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{
@@ -366,6 +370,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{
@@ -391,6 +396,80 @@ describe("proxy server", () => {
 			);
 		});
 	});
+
+	describe("QueryJsonError responses", () => {
+		it("does not leak QueryJsonError.data (upstream body snapshot) into the JSON error body", async () => {
+			const sensitiveData = "SENSITIVE_DATA_FROM_THE_UPSTREAM";
+			const upstreamBody = {
+				padHead: "x".repeat(20),
+				sensitiveData,
+				padTail: "x".repeat(20),
+			};
+
+			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+				"get",
+				"/query-json-privacy",
+				async () => HttpResponse.json(upstreamBody),
+			);
+
+			const proxy = await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						modules: [],
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
+						},
+						statusEndpoints: {
+							root: "status",
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path,
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								jsonPath: "$.noSuchProperty",
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+						],
+						fastOnly: false,
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+						enableKeepAliveFiber: false,
+					},
+				)
+					.pipe(Effect.scoped)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+			);
+
+			const response = await fetch(proxyUrl);
+			expect(response.status).toBe(500);
+
+			const raw = await response.text();
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+			expect(parsed).not.toHaveProperty("data");
+			expect(parsed._tag).toBe("QueryJsonError");
+			expect(raw).not.toContain(sensitiveData);
+
+			await proxy.stop();
+		});
+	});
+
 	describe("status endpoints", () => {
 		it("should return the status of the proxy for <statusRoot>/health", async () => {
 			const { upstreamUrl, proxyUrl, path, port } = registerHandler(
@@ -438,6 +517,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{
@@ -533,6 +613,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{
@@ -608,6 +689,7 @@ describe("proxy server", () => {
 								useLegacyJsonPath: true,
 							},
 						],
+						fastOnly: false,
 					},
 					dataProxy,
 					{

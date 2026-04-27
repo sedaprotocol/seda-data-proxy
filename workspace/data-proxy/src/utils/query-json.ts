@@ -19,10 +19,9 @@ export const queryJson = (
 		const data: unknown = yield* Effect.try({
 			try: () => JSONPath({ path, json: jsonData }),
 			catch: (error) => {
-				const jsonInput = JSON.stringify(input);
 				return new QueryJsonError({
-					error: `Could not query JSON: ${error} with input ${jsonInput.slice(0, 100)}...`,
-					data: jsonInput,
+					error: `JSONPath ${path} could not be evaluated: ${error}`,
+					data: JSON.stringify(input),
 				});
 			},
 		});
@@ -32,21 +31,19 @@ export const queryJson = (
 		}
 
 		if (!Array.isArray(data)) {
-			const jsonInput = JSON.stringify(input);
 			return yield* Effect.fail(
 				new QueryJsonError({
-					error: `Quering JSON with ${path} returned not an array: ${JSON.stringify(data)} with input ${jsonInput.slice(0, 100)}...`,
-					data: jsonInput,
+					error: `JSONPath ${path} did not return an array`,
+					data: JSON.stringify(input),
 				}),
 			);
 		}
 
 		if (data.length === 0) {
-			const jsonInput = JSON.stringify(input);
 			return yield* Effect.fail(
 				new QueryJsonError({
-					error: `Quering JSON with ${path} returned null with input ${jsonInput.slice(0, 100)}...`,
-					data: jsonInput,
+					error: `JSONPath ${path} returned null`,
+					data: JSON.stringify(input),
 				}),
 			);
 		}
