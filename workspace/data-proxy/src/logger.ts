@@ -31,7 +31,7 @@ function redactEnvSecrets(message: string | unknown) {
 
 	let result = message;
 	for (const secret of envSecrets) {
-		result = result.replace(secret, "<redacted>");
+		result = result.replaceAll(secret, "<redacted>");
 	}
 	return result;
 }
