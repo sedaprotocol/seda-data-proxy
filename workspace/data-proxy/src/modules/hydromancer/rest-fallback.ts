@@ -2,7 +2,6 @@ import { tryParseSync } from "@seda-protocol/utils";
 import { Effect } from "effect";
 import * as v from "valibot";
 import {
-	type AssetCtx,
 	AssetCtxSchema,
 	type HydromancerModuleConfig,
 } from "../../config/hydromancer-module-config";
@@ -86,17 +85,3 @@ export const fetchAssetContextsFromRest = (
 
 		return validated.value;
 	});
-
-export const pickResolvedContexts = (
-	requested: string[],
-	batch: BatchAssetContexts,
-): Array<{ coin: string } & AssetCtx> => {
-	const resolved: Array<{ coin: string } & AssetCtx> = [];
-	for (const coin of requested) {
-		const ctx = batch[coin];
-		if (ctx) {
-			resolved.push({ coin, ...ctx });
-		}
-	}
-	return resolved;
-};

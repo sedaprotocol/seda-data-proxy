@@ -1,13 +1,17 @@
-import { Effect, Layer } from "effect";
+import { Clock, Duration, Effect, Layer, Option } from "effect";
 import type { Route } from "../../config/config-parser";
-import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
+import type {
+	AssetCtx,
+	HydromancerModuleConfig,
+} from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { createAssetCache } from "./asset-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
 import {
+	type BatchAssetContexts,
 	fetchAssetContextsFromRest,
-	pickResolvedContexts,
 } from "./rest-fallback";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
@@ -19,6 +23,9 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				wsUrl: config.wsUrl,
 				restBaseUrl: config.restBaseUrl,
 			});
+
+			const cache = yield* createAssetCache();
+			const staleAfterMillis = Duration.toMillis(config.staleAfter);
 
 			const start = () =>
 				Effect.gen(function* () {
@@ -52,8 +59,39 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						);
 					}
 
-					const batch = yield* fetchAssetContextsFromRest(config, coins);
-					const resolved = pickResolvedContexts(coins, batch);
+					const now = yield* Clock.currentTimeMillis;
+					const cached = new Map<string, AssetCtx>();
+					const toFetch: string[] = [];
+
+					for (const coin of coins) {
+						if (yield* cache.isFresh(coin, staleAfterMillis, now)) {
+							const entry = yield* cache.get(coin);
+							if (Option.isSome(entry)) {
+								cached.set(coin, entry.value.ctx);
+								continue;
+							}
+						}
+						toFetch.push(coin);
+					}
+
+					let restBatch: BatchAssetContexts = {};
+					if (toFetch.length > 0) {
+						restBatch = yield* fetchAssetContextsFromRest(config, toFetch);
+						for (const coin of toFetch) {
+							const ctx = restBatch[coin];
+							if (ctx) {
+								yield* cache.set(coin, ctx, now);
+							}
+						}
+					}
+
+					const resolved: Array<{ coin: string } & AssetCtx> = [];
+					for (const coin of coins) {
+						const ctx = cached.get(coin) ?? restBatch[coin];
+						if (ctx) {
+							resolved.push({ coin, ...ctx });
+						}
+					}
 
 					return new Response(JSON.stringify(resolved), {
 						status: 200,

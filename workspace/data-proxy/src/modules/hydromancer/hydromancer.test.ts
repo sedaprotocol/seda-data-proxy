@@ -64,6 +64,37 @@ const callHandle = (
 	);
 };
 
+type CallSpec = { fetchFromModule: string; params: Record<string, string> };
+
+// Runs multiple handleRequest invocations against the SAME module instance,
+// so cache state carries across calls. Returns responses in order.
+const callHandleSequence = (
+	config: HydromancerModuleConfig,
+	calls: CallSpec[],
+	between?: () => Promise<void>,
+) => {
+	const program = Effect.gen(function* () {
+		const svc = yield* ModuleService;
+		const responses: Response[] = [];
+		for (const call of calls) {
+			const route = buildRoute(call.fetchFromModule);
+			const response = yield* svc.handleRequest(
+				route,
+				call.params,
+				new Request("http://proxy.local/hydromancer"),
+			);
+			responses.push(response);
+			if (between) {
+				yield* Effect.promise(() => between());
+			}
+		}
+		return responses;
+	});
+	return Effect.runPromise(
+		program.pipe(Effect.provide(HydromancerModuleService(config))),
+	);
+};
+
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
@@ -195,5 +226,79 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 
 		const response = await callHandle(tightConfig, "BTC,ETH,SOL", {});
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("HydromancerModuleService cache behavior", () => {
+	it("serves a repeat request from cache without hitting REST", async () => {
+		const fetchMock = mock(
+			async () =>
+				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const [r1, r2] = await callHandleSequence(baseConfig, [
+			{ fetchFromModule: "BTC", params: {} },
+			{ fetchFromModule: "BTC", params: {} },
+		]);
+
+		expect(r1.status).toBe(200);
+		expect(r2.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await r1.json()).toEqual([{ coin: "BTC", ...btcCtx }]);
+		expect(await r2.json()).toEqual([{ coin: "BTC", ...btcCtx }]);
+	});
+
+	it("refetches via REST once the entry is older than staleAfter", async () => {
+		const tightConfig: HydromancerModuleConfig = {
+			...baseConfig,
+			staleAfter: Duration.millis(20),
+		};
+		const fetchMock = mock(
+			async () =>
+				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		await callHandleSequence(
+			tightConfig,
+			[
+				{ fetchFromModule: "BTC", params: {} },
+				{ fetchFromModule: "BTC", params: {} },
+			],
+			() => new Promise((r) => setTimeout(r, 60)),
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("only batches the coins that need REST, leaving cached coins untouched", async () => {
+		const fetchedBatches: string[][] = [];
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse(init?.body as string);
+				fetchedBatches.push(body.coins);
+				const responseBody: Record<string, typeof btcCtx> = {};
+				for (const coin of body.coins) {
+					if (coin === "BTC") responseBody[coin] = btcCtx;
+					if (coin === "ETH") responseBody[coin] = ethCtx;
+				}
+				return new Response(JSON.stringify(responseBody), { status: 200 });
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const [r1, r2] = await callHandleSequence(baseConfig, [
+			{ fetchFromModule: "BTC", params: {} },
+			{ fetchFromModule: "BTC,ETH", params: {} },
+		]);
+
+		expect(r1.status).toBe(200);
+		expect(r2.status).toBe(200);
+		expect(fetchedBatches).toEqual([["BTC"], ["ETH"]]);
+		expect(await r2.json()).toEqual([
+			{ coin: "BTC", ...btcCtx },
+			{ coin: "ETH", ...ethCtx },
+		]);
 	});
 });
