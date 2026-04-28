@@ -17,6 +17,7 @@ import { type Config, getHttpMethods } from "./config/config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
+import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
 import { EmptyModuleService, ModuleService } from "./modules/module";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
@@ -54,6 +55,9 @@ export const startProxyServer = (
 				Match.when({ type: "chainlink-streams" }, (m) =>
 					Layer.memoize(ChainlinkStreamsModuleService(m)),
 				),
+				Match.when({ type: "hydromancer" }, (m) =>
+					Layer.memoize(HydromancerModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -67,7 +71,11 @@ export const startProxyServer = (
 
 		// Make sure that all routes are correctly configured with their respective module
 		for (const route of config.routes) {
-			if (route.type === "pyth-lazer" || route.type === "chainlink-streams") {
+			if (
+				route.type === "pyth-lazer" ||
+				route.type === "chainlink-streams" ||
+				route.type === "hydromancer"
+			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {
 					return yield* Effect.die(`Module ${route.moduleName} not found`);

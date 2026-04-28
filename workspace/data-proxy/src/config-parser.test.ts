@@ -329,6 +329,58 @@ describe("parseConfig", () => {
 			process.env.CHAINLINK_KEY = undefined;
 			process.env.CHAINLINK_SECRET = undefined;
 		});
+
+		it("should reject a hydromancer module whose API key env var is unset", () => {
+			process.env.HYDROMANCER_API_KEY = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "hydromancer",
+							name: "hydromancer",
+							wsUrl: "wss://api.hydromancer.xyz/ws",
+							restBaseUrl: "https://api.hydromancer.xyz",
+							hydromancerApiKeyEnvKey: "HYDROMANCER_API_KEY",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module hydromancer requires HYDROMANCER_API_KEY to be set",
+			);
+		});
+
+		it("should resolve a hydromancer module and track its API key as a secret", () => {
+			process.env.HYDROMANCER_API_KEY = "hydromancer-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "hydromancer",
+							name: "hydromancer",
+							wsUrl: "wss://api.hydromancer.xyz/ws",
+							restBaseUrl: "https://api.hydromancer.xyz",
+							hydromancerApiKeyEnvKey: "HYDROMANCER_API_KEY",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "hydromancer") {
+				throw new Error(`expected hydromancer, got ${module.type}`);
+			}
+			expect(module.hydromancerApiKey).toBe("hydromancer-secret");
+			expect(result.value.envSecrets.has("hydromancer-secret")).toBe(true);
+
+			process.env.HYDROMANCER_API_KEY = undefined;
+		});
 	});
 
 	describe("it should fail on unknown properties", () => {
