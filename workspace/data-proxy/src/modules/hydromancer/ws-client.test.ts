@@ -1,0 +1,227 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { Duration, Effect, Fiber, Option, Schedule } from "effect";
+import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
+import { createAssetCache } from "./asset-cache";
+import {
+	buildSubscribeFrame,
+	buildUnsubscribeFrame,
+	parseInboundFrame,
+	startWebSocketDaemon,
+} from "./ws-client";
+
+const validCtx = {
+	oraclePx: "1",
+	markPx: "2",
+	midPx: "3",
+	impactPxs: ["4", "5"],
+	openInterest: "6",
+};
+
+describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
+	it("produces the documented subscribe shape", () => {
+		expect(JSON.parse(buildSubscribeFrame("BTC"))).toEqual({
+			method: "subscribe",
+			subscription: { type: "activeAssetCtx", coin: "BTC" },
+		});
+	});
+
+	it("produces the documented unsubscribe shape", () => {
+		expect(JSON.parse(buildUnsubscribeFrame("ETH"))).toEqual({
+			method: "unsubscribe",
+			subscription: { type: "activeAssetCtx", coin: "ETH" },
+		});
+	});
+});
+
+describe("parseInboundFrame", () => {
+	it("extracts {coin, ctx} from a valid activeAssetCtx frame", () => {
+		const frame = JSON.stringify({
+			channel: "activeAssetCtx",
+			seq: 1,
+			cursor: "x",
+			data: { coin: "ETH", ctx: validCtx },
+		});
+		expect(parseInboundFrame(frame)).toEqual({ coin: "ETH", ctx: validCtx });
+	});
+
+	it("returns null for a non-activeAssetCtx channel", () => {
+		expect(parseInboundFrame(JSON.stringify({ channel: "pong" }))).toBeNull();
+	});
+
+	it("returns null for malformed JSON", () => {
+		expect(parseInboundFrame("not json")).toBeNull();
+	});
+
+	it("returns null when data is missing", () => {
+		expect(
+			parseInboundFrame(JSON.stringify({ channel: "activeAssetCtx" })),
+		).toBeNull();
+	});
+
+	it("returns null when ctx fields have the wrong types", () => {
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "activeAssetCtx",
+					data: { coin: "BTC", ctx: { oraclePx: 123 } },
+				}),
+			),
+		).toBeNull();
+	});
+});
+
+class FakeWebSocket extends EventTarget {
+	static readonly CONNECTING = 0;
+	static readonly OPEN = 1;
+	static readonly CLOSING = 2;
+	static readonly CLOSED = 3;
+	static instances: FakeWebSocket[] = [];
+
+	url: string;
+	readyState = FakeWebSocket.CONNECTING;
+	sent: string[] = [];
+
+	constructor(url: string) {
+		super();
+		this.url = url;
+		FakeWebSocket.instances.push(this);
+	}
+
+	send(data: string): void {
+		this.sent.push(data);
+	}
+
+	close(): void {
+		this.readyState = FakeWebSocket.CLOSED;
+		this.dispatchEvent(new Event("close"));
+	}
+
+	triggerOpen(): void {
+		this.readyState = FakeWebSocket.OPEN;
+		this.dispatchEvent(new Event("open"));
+	}
+
+	triggerMessage(data: string): void {
+		this.dispatchEvent(new MessageEvent("message", { data }));
+	}
+
+	triggerClose(): void {
+		this.readyState = FakeWebSocket.CLOSED;
+		this.dispatchEvent(new Event("close"));
+	}
+}
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+const baseConfig: HydromancerModuleConfig = {
+	name: "hydromancer",
+	type: "hydromancer",
+	wsUrl: "wss://api.hydromancer.test/ws",
+	restBaseUrl: "https://api.hydromancer.test",
+	hydromancerApiKeyEnvKey: "HYDROMANCER_API_KEY",
+	hydromancerApiKey: "test-api-key",
+	staleAfter: Duration.seconds(10),
+	subscriptionCoins: ["BTC", "ETH"],
+	maxCoinsPerRequest: 20,
+	reconnectMaxBackoff: Duration.seconds(30),
+};
+
+const originalWebSocket = globalThis.WebSocket;
+
+beforeEach(() => {
+	FakeWebSocket.instances = [];
+	globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+});
+
+afterEach(() => {
+	globalThis.WebSocket = originalWebSocket;
+});
+
+const startDaemon = (config: HydromancerModuleConfig) =>
+	Effect.gen(function* () {
+		const cache = yield* createAssetCache();
+		const fiber = yield* startWebSocketDaemon(config, cache, {
+			reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
+		});
+		return { cache, fiber };
+	});
+
+describe("startWebSocketDaemon", () => {
+	it("opens the WS with the token query and sends subscribe frames on open", async () => {
+		const { cache, fiber } = await Effect.runPromise(startDaemon(baseConfig));
+		await flush();
+
+		expect(FakeWebSocket.instances.length).toBe(1);
+		const ws = FakeWebSocket.instances[0];
+		expect(ws.url).toBe("wss://api.hydromancer.test/ws?token=test-api-key");
+
+		ws.triggerOpen();
+		await flush();
+
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame("BTC"),
+			buildSubscribeFrame("ETH"),
+		]);
+		expect(await Effect.runPromise(cache.hasSocketError())).toBe(false);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("writes inbound activeAssetCtx frames into the cache", async () => {
+		const { cache, fiber } = await Effect.runPromise(startDaemon(baseConfig));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		ws.triggerMessage(
+			JSON.stringify({
+				channel: "activeAssetCtx",
+				seq: 1,
+				data: { coin: "BTC", ctx: validCtx },
+			}),
+		);
+		await flush();
+
+		const entry = await Effect.runPromise(cache.get("BTC"));
+		expect(Option.isSome(entry)).toBe(true);
+		if (Option.isSome(entry)) {
+			expect(entry.value.ctx).toEqual(validCtx);
+		}
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("marks socket-error on close", async () => {
+		const { cache, fiber } = await Effect.runPromise(startDaemon(baseConfig));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+		expect(await Effect.runPromise(cache.hasSocketError())).toBe(false);
+
+		ws.triggerClose();
+		await flush();
+
+		expect(await Effect.runPromise(cache.hasSocketError())).toBe(true);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("ignores frames whose channel is not activeAssetCtx", async () => {
+		const { cache, fiber } = await Effect.runPromise(startDaemon(baseConfig));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		ws.triggerMessage(JSON.stringify({ channel: "pong" }));
+		ws.triggerMessage("not json");
+		await flush();
+
+		const entry = await Effect.runPromise(cache.get("BTC"));
+		expect(Option.isNone(entry)).toBe(true);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+});

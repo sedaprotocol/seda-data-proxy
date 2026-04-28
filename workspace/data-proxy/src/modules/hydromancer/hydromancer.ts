@@ -13,6 +13,7 @@ import {
 	type BatchAssetContexts,
 	fetchAssetContextsFromRest,
 } from "./rest-fallback";
+import { startWebSocketDaemon } from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 	Layer.effect(
@@ -32,6 +33,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					yield* Effect.logInfo("Hydromancer module started", {
 						name: config.name,
 					});
+					yield* startWebSocketDaemon(config, cache);
 				}).pipe(Effect.annotateLogs("_name", "hydromancer"));
 
 			const handleRequest = (

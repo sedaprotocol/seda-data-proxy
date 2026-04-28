@@ -1,4 +1,4 @@
-import { Effect, MutableHashMap, Option, SynchronizedRef } from "effect";
+import { Effect, MutableHashMap, Option } from "effect";
 import type { AssetCtx } from "../../config/hydromancer-module-config";
 
 export interface AssetCacheEntry {
@@ -9,9 +9,7 @@ export interface AssetCacheEntry {
 export const createAssetCache = () =>
 	Effect.gen(function* () {
 		const entries = MutableHashMap.empty<string, AssetCacheEntry>();
-		const socketError = yield* SynchronizedRef.make<string | undefined>(
-			undefined,
-		);
+		let socketError: string | undefined;
 
 		const set = (coin: string, ctx: AssetCtx, now: number) =>
 			Effect.sync(() => {
@@ -22,17 +20,20 @@ export const createAssetCache = () =>
 			Effect.sync(() => MutableHashMap.get(entries, coin));
 
 		const markSocketError = (error: string) =>
-			SynchronizedRef.set(socketError, error as string | undefined);
+			Effect.sync(() => {
+				socketError = error;
+			});
 
-		const clearSocketError = () => SynchronizedRef.set(socketError, undefined);
+		const clearSocketError = () =>
+			Effect.sync(() => {
+				socketError = undefined;
+			});
 
-		const hasSocketError = () =>
-			Effect.map(SynchronizedRef.get(socketError), (e) => e !== undefined);
+		const hasSocketError = () => Effect.sync(() => socketError !== undefined);
 
 		const isFresh = (coin: string, staleAfterMillis: number, now: number) =>
-			Effect.gen(function* () {
-				const error = yield* SynchronizedRef.get(socketError);
-				if (error !== undefined) return false;
+			Effect.sync(() => {
+				if (socketError !== undefined) return false;
 				const entry = MutableHashMap.get(entries, coin);
 				if (Option.isNone(entry)) return false;
 				return now - entry.value.lastUpdate <= staleAfterMillis;
