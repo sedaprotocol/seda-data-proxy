@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Effect, Fiber } from "effect";
+import { Effect, Either, Fiber } from "effect";
 import { createPriceCache } from "./price-cache";
 
 const run = <A, E>(program: Effect.Effect<A, E>) => Effect.runPromise(program);
@@ -115,5 +115,78 @@ describe("createPriceCache", () => {
 				expect(p2.price).toBe("200");
 			}),
 		);
+	});
+
+	it("should delete a price and remove it from the cache", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache();
+
+				const stale = {
+					price: "100",
+					exponent: 18,
+					feedUpdateTimestamp: 1000,
+					priceFeedId: 1,
+				};
+
+				const fiber = yield* Effect.fork(cache.getOrWaitPrice(1));
+				// Simulate a delay between getting the price and setting it, otherwise no waiter is created
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPrice(1, stale);
+
+				const first = yield* Fiber.join(fiber);
+				expect(first.price).toBe("100");
+
+				// Delete the price and attempt to get it again
+				yield* cache.deletePrice(1);
+
+				return yield* Effect.either(
+					cache.getOrWaitPrice(1).pipe(Effect.timeout("100 millis")),
+				);
+			}),
+		);
+
+		expect(Either.isLeft(result), "Expected getOrWaitPrice to fail").toBe(true);
+
+		if (Either.isLeft(result)) {
+			expect(result.left._tag, "Expected timeout error").toBe(
+				"TimeoutException",
+			);
+		}
+	});
+
+	it("should resolve a waiter when setPriceToError is called and invalidate the cache", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache();
+
+				const fiber = yield* Effect.fork(
+					cache.getOrWaitPrice(1).pipe(Effect.either),
+				);
+				// Simulate a delay between getting the price and setting it, otherwise no waiter is created
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPriceToError(1, "feed unstable");
+
+				const first = yield* Fiber.join(fiber);
+				expect(Either.isLeft(first)).toBe(true);
+				if (Either.isLeft(first)) {
+					expect(first.left._tag, "Expected FailedToGetPriceError").toBe(
+						"FailedToGetPriceError",
+					);
+				}
+
+				return yield* Effect.either(
+					cache.getOrWaitPrice(1).pipe(Effect.timeout("100 millis")),
+				);
+			}),
+		);
+
+		expect(Either.isLeft(result), "Expected getOrWaitPrice to fail").toBe(true);
+
+		if (Either.isLeft(result)) {
+			expect(result.left._tag, "Expected timeout error").toBe(
+				"TimeoutException",
+			);
+		}
 	});
 });

@@ -26,9 +26,9 @@ export const createPriceCache = () =>
 
 				if (Option.isSome(waiter)) {
 					yield* Deferred.succeed(waiter.value, price);
-				}
 
-				MutableHashMap.set(priceCache, priceFeedId, price);
+					yield* deleteWaiter(priceFeedId);
+				}
 			});
 
 		const setPriceToError = (priceFeedId: number, error: string) =>
@@ -41,6 +41,8 @@ export const createPriceCache = () =>
 						waiter.value,
 						new FailedToGetPriceError({ error }),
 					);
+
+					yield* deleteWaiter(priceFeedId);
 				}
 			});
 
@@ -86,13 +88,14 @@ export const createPriceCache = () =>
 		const deletePrice = (priceFeedId: number) => {
 			MutableHashMap.remove(priceCache, priceFeedId);
 
+			return deleteWaiter(priceFeedId);
+		};
+
+		const deleteWaiter = (priceFeedId: number) =>
 			SynchronizedRef.update(priceWaiters, (waitersMap) => {
 				MutableHashMap.remove(waitersMap, priceFeedId);
 				return waitersMap;
 			});
-
-			return Effect.void;
-		};
 
 		const size = () => {
 			return MutableHashMap.size(priceCache);
