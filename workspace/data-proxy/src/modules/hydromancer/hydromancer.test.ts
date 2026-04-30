@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Duration, Effect } from "effect";
 import * as v from "valibot";
 import {
@@ -7,6 +7,7 @@ import {
 } from "../../config/hydromancer-module-config";
 import { ModuleService } from "../module";
 import { HydromancerModuleService } from "./hydromancer";
+import { buildSubscribeFrame } from "./ws-client";
 
 const baseConfig: HydromancerModuleConfig = {
 	name: "hydromancer",
@@ -300,5 +301,131 @@ describe("HydromancerModuleService cache behavior", () => {
 			{ coin: "BTC", ...btcCtx },
 			{ coin: "ETH", ...ethCtx },
 		]);
+	});
+});
+
+class FakeWebSocket extends EventTarget {
+	static readonly CONNECTING = 0;
+	static readonly OPEN = 1;
+	static readonly CLOSING = 2;
+	static readonly CLOSED = 3;
+	static instances: FakeWebSocket[] = [];
+
+	url: string;
+	readyState = FakeWebSocket.CONNECTING;
+	sent: string[] = [];
+
+	constructor(url: string) {
+		super();
+		this.url = url;
+		FakeWebSocket.instances.push(this);
+	}
+
+	send(data: string): void {
+		this.sent.push(data);
+	}
+
+	close(): void {
+		this.readyState = FakeWebSocket.CLOSED;
+		this.dispatchEvent(new Event("close"));
+	}
+
+	triggerOpen(): void {
+		this.readyState = FakeWebSocket.OPEN;
+		this.dispatchEvent(new Event("open"));
+	}
+}
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+describe("HydromancerModuleService demand-driven subscriptions", () => {
+	const originalWebSocket = globalThis.WebSocket;
+
+	beforeEach(() => {
+		FakeWebSocket.instances = [];
+		globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	});
+
+	afterEach(() => {
+		globalThis.WebSocket = originalWebSocket;
+	});
+
+	it("subscribes via WS for a coin first seen via handleRequest", async () => {
+		globalThis.fetch = mock(
+			async () =>
+				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
+		) as unknown as typeof fetch;
+
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			subscriptionCoins: [],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const route = buildRoute("BTC");
+			return yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+		});
+
+		const response = await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+		expect(response.status).toBe(200);
+
+		await flush();
+		await flush();
+		expect(FakeWebSocket.instances.length).toBe(1);
+		const ws = FakeWebSocket.instances[0];
+
+		ws.triggerOpen();
+		await flush();
+
+		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+	});
+
+	it("does not enqueue a coin a second time on a repeat handleRequest", async () => {
+		globalThis.fetch = mock(
+			async () =>
+				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
+		) as unknown as typeof fetch;
+
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			subscriptionCoins: [],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const route = buildRoute("BTC");
+			yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+			yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+		});
+
+		await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		await flush();
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		// Only one subscribe frame, even though handleRequest was called twice.
+		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
 	});
 });

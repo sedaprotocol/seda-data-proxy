@@ -1,4 +1,12 @@
-import { Clock, Duration, Effect, Layer, Option } from "effect";
+import {
+	Clock,
+	Duration,
+	Effect,
+	Layer,
+	MutableHashMap,
+	Option,
+	Queue,
+} from "effect";
 import type { Route } from "../../config/config-parser";
 import type {
 	AssetCtx,
@@ -13,7 +21,7 @@ import {
 	type BatchAssetContexts,
 	fetchAssetContextsFromRest,
 } from "./rest-fallback";
-import { startWebSocketDaemon } from "./ws-client";
+import { buildSubscribeFrame, startWebSocketDaemon } from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 	Layer.effect(
@@ -27,13 +35,38 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 
 			const cache = yield* createAssetCache();
 			const staleAfterMillis = Duration.toMillis(config.staleAfter);
+			const newCoinQueue = yield* Queue.unbounded<string>();
+			const lastRequestToCoin = MutableHashMap.empty<string, number>();
+			const desiredCoins = MutableHashMap.empty<string, true>();
+			const currentWS: { value: WebSocket | null } = { value: null };
 
 			const start = () =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Hydromancer module started", {
 						name: config.name,
 					});
-					yield* startWebSocketDaemon(config, cache);
+
+					for (const coin of config.subscriptionCoins) {
+						yield* Queue.offer(newCoinQueue, coin);
+					}
+
+					yield* startWebSocketDaemon(
+						config,
+						cache,
+						desiredCoins,
+						currentWS,
+					);
+
+					yield* Effect.forkDaemon(
+						Effect.gen(function* () {
+							const coin = yield* Queue.take(newCoinQueue);
+							MutableHashMap.set(desiredCoins, coin, true);
+							const ws = currentWS.value;
+							if (ws !== null && ws.readyState === WebSocket.OPEN) {
+								ws.send(buildSubscribeFrame(coin));
+							}
+						}).pipe(Effect.forever),
+					);
 				}).pipe(Effect.annotateLogs("_name", "hydromancer"));
 
 			const handleRequest = (
@@ -62,6 +95,14 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					}
 
 					const now = yield* Clock.currentTimeMillis;
+
+					for (const coin of coins) {
+						if (Option.isNone(MutableHashMap.get(lastRequestToCoin, coin))) {
+							yield* Queue.offer(newCoinQueue, coin);
+						}
+						MutableHashMap.set(lastRequestToCoin, coin, now);
+					}
+
 					const cached = new Map<string, AssetCtx>();
 					const toFetch: string[] = [];
 

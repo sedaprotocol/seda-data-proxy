@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Duration, Effect, Fiber, Option, Schedule } from "effect";
+import {
+	Duration,
+	Effect,
+	Fiber,
+	MutableHashMap,
+	Option,
+	Schedule,
+} from "effect";
 import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
 import { createAssetCache } from "./asset-cache";
 import {
@@ -140,10 +147,19 @@ afterEach(() => {
 const startDaemon = (config: HydromancerModuleConfig) =>
 	Effect.gen(function* () {
 		const cache = yield* createAssetCache();
-		const fiber = yield* startWebSocketDaemon(config, cache, {
-			reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
-		});
-		return { cache, fiber };
+		const desiredCoins = MutableHashMap.empty<string, true>();
+		for (const coin of config.subscriptionCoins) {
+			MutableHashMap.set(desiredCoins, coin, true);
+		}
+		const currentWS: { value: WebSocket | null } = { value: null };
+		const fiber = yield* startWebSocketDaemon(
+			config,
+			cache,
+			desiredCoins,
+			currentWS,
+			{ reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
+		);
+		return { cache, fiber, desiredCoins, currentWS };
 	});
 
 describe("startWebSocketDaemon", () => {
@@ -225,3 +241,4 @@ describe("startWebSocketDaemon", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 });
+
