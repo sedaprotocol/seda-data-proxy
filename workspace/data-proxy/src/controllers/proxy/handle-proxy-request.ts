@@ -85,6 +85,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "hydromancer" }, (hydromancerModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Hydromancer request");
+					return yield* moduleService.handleRequest(
+						hydromancerModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");
