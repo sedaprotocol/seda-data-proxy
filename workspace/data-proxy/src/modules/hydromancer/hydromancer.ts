@@ -123,11 +123,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						}
 					}
 
-					const resolved: Array<{ coin: string } & AssetCtx> = [];
+					const resolved: Record<string, AssetCtx> = {};
 					for (const coin of coins) {
 						const ctx = cached.get(coin) ?? restBatch[coin];
 						if (ctx) {
-							resolved.push({ coin, ...ctx });
+							resolved[coin] = ctx;
 						}
 					}
 

@@ -56,7 +56,7 @@ export const AssetCtxSchema = v.object({
 	markPx: v.string(),
 	midPx: v.string(),
 	impactPxs: v.array(v.string()),
-	openInterest: v.string(),
+	openInterest: v.nullable(v.string()),
 });
 
 export type AssetCtx = v.InferOutput<typeof AssetCtxSchema>;

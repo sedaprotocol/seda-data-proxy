@@ -130,10 +130,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(200);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const body = await response.json();
-		expect(body).toEqual([
-			{ coin: "BTC", ...btcCtx },
-			{ coin: "ETH", ...ethCtx },
-		]);
+		expect(body).toEqual({ BTC: btcCtx, ETH: ethCtx });
 	});
 
 	it("filters out coins that come back null", async () => {
@@ -147,10 +144,10 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		const response = await callHandle(baseConfig, "BTC,ZZZ", {});
 		expect(response.status).toBe(200);
 		const body = await response.json();
-		expect(body).toEqual([{ coin: "BTC", ...btcCtx }]);
+		expect(body).toEqual({ BTC: btcCtx });
 	});
 
-	it("returns an empty array when every coin is unknown", async () => {
+	it("returns an empty object when every coin is unknown", async () => {
 		globalThis.fetch = mock(
 			async () => new Response(JSON.stringify({ ZZZ: null }), { status: 200 }),
 		) as unknown as typeof fetch;
@@ -158,7 +155,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		const response = await callHandle(baseConfig, "ZZZ", {});
 		expect(response.status).toBe(200);
 		const body = await response.json();
-		expect(body).toEqual([]);
+		expect(body).toEqual({});
 	});
 
 	it("substitutes path params into fetchFromModule", async () => {
@@ -246,8 +243,8 @@ describe("HydromancerModuleService cache behavior", () => {
 		expect(r1.status).toBe(200);
 		expect(r2.status).toBe(200);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(await r1.json()).toEqual([{ coin: "BTC", ...btcCtx }]);
-		expect(await r2.json()).toEqual([{ coin: "BTC", ...btcCtx }]);
+		expect(await r1.json()).toEqual({ BTC: btcCtx });
+		expect(await r2.json()).toEqual({ BTC: btcCtx });
 	});
 
 	it("refetches via REST once the entry is older than staleAfter", async () => {
@@ -297,10 +294,7 @@ describe("HydromancerModuleService cache behavior", () => {
 		expect(r1.status).toBe(200);
 		expect(r2.status).toBe(200);
 		expect(fetchedBatches).toEqual([["BTC"], ["ETH"]]);
-		expect(await r2.json()).toEqual([
-			{ coin: "BTC", ...btcCtx },
-			{ coin: "ETH", ...ethCtx },
-		]);
+		expect(await r2.json()).toEqual({ BTC: btcCtx, ETH: ethCtx });
 	});
 });
 

@@ -75,6 +75,15 @@ describe("parseInboundFrame", () => {
 			),
 		).toBeNull();
 	});
+
+	it("accepts null openInterest (testnet returns it)", () => {
+		const ctxNullOI = { ...validCtx, openInterest: null };
+		const frame = JSON.stringify({
+			channel: "activeAssetCtx",
+			data: { coin: "BTC", ctx: ctxNullOI },
+		});
+		expect(parseInboundFrame(frame)).toEqual({ coin: "BTC", ctx: ctxNullOI });
+	});
 });
 
 class FakeWebSocket extends EventTarget {
