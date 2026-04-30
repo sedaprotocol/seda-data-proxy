@@ -85,6 +85,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "lo-tech" }, (loTechModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling LO:TECH request");
+					return yield* moduleService.handleRequest(
+						loTechModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");

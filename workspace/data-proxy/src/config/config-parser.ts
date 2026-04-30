@@ -17,6 +17,11 @@ import {
 	ChainlinkStreamsModuleRouteSchema,
 	validateChainlinkStreamsModuleRoute,
 } from "./chainlink-streams-module-config";
+import {
+	type LoTechModuleRoute,
+	LoTechModuleRouteSchema,
+	validateLoTechModuleRoute,
+} from "./lo-tech-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
 	type PythLazerModuleRoute,
@@ -105,6 +110,7 @@ const ConfigSchema = v.strictObject(
 				UpstreamModuleRouteSchema,
 				PythLazerModuleRouteSchema,
 				ChainlinkStreamsModuleRouteSchema,
+				LoTechModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -136,7 +142,9 @@ const ConfigSchema = v.strictObject(
 export type Route =
 	| UpstreamModuleRoute
 	| PythLazerModuleRoute
-	| ChainlinkStreamsModuleRoute;
+	| ChainlinkStreamsModuleRoute
+	| LoTechModuleRoute;
+
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
 }
@@ -229,6 +237,11 @@ export const parseConfig = (
 
 			if (route.type === "chainlink-streams") {
 				yield* validateChainlinkStreamsModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "lo-tech") {
+				yield* validateLoTechModuleRoute(route);
 				continue;
 			}
 
@@ -398,6 +411,16 @@ export const parseConfig = (
 							chainlinkKey,
 							chainlinkApiSecret,
 						} satisfies Modules);
+					}),
+					Match.when({ type: "lo-tech" }, (m) => {
+						const loTechApiKey = process.env[m.loTechApiKeyEnvKey];
+						if (!loTechApiKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.loTechApiKeyEnvKey} to be set`,
+							);
+						}
+						envSecrets.add(loTechApiKey);
+						return Effect.succeed({ ...m, loTechApiKey } satisfies Modules);
 					}),
 					Match.exhaustive,
 				),

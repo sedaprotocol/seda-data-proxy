@@ -257,6 +257,56 @@ describe("parseConfig", () => {
 			process.env.PYTH_API_KEY = undefined;
 		});
 
+		it("should reject a lo-tech module whose API key env var is unset", () => {
+			process.env.LOTECH_API_KEY = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "lo-tech",
+							name: "lotech",
+							exchange: "binance",
+							loTechApiKeyEnvKey: "LOTECH_API_KEY",
+							priceFeeds: [{ symbol: "BTC-USDT:SPOT", dataType: "PRICE" }],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module lo-tech requires LOTECH_API_KEY to be set",
+			);
+		});
+
+		it("should resolve a lo-tech module when its API key is set", () => {
+			process.env.LOTECH_API_KEY = "lo-tech-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "lo-tech",
+							name: "lotech",
+							exchange: "binance",
+							loTechApiKeyEnvKey: "LOTECH_API_KEY",
+							priceFeeds: [{ symbol: "BTC-USDT:SPOT", dataType: "PRICE" }],
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "lo-tech") {
+				throw new Error(`expected lo-tech, got ${module.type}`);
+			}
+			expect(module.loTechApiKey).toBe("lo-tech-secret");
+			process.env.LOTECH_API_KEY = undefined;
+		});
+
 		it.each([
 			{
 				missing: "key" as const,
