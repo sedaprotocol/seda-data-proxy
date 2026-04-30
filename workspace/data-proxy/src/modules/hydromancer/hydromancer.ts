@@ -13,6 +13,7 @@ import type {
 	HydromancerModuleConfig,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createAssetCache } from "./asset-cache";
@@ -21,7 +22,11 @@ import {
 	type BatchAssetContexts,
 	fetchAssetContextsFromRest,
 } from "./rest-fallback";
-import { buildSubscribeFrame, startWebSocketDaemon } from "./ws-client";
+import {
+	buildSubscribeFrame,
+	buildUnsubscribeFrame,
+	startWebSocketDaemon,
+} from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 	Layer.effect(
@@ -62,6 +67,22 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 							}
 						}).pipe(Effect.forever),
 					);
+
+					yield* forkIdleCleanup({
+						lastRequest: lastRequestToCoin,
+						ttl: config.coinsCleanupTtl,
+						interval: config.coinsCleanupInterval,
+						onExpire: (coin) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Cleaning up idle coin", { coin });
+								yield* cache.remove(coin);
+								MutableHashMap.remove(desiredCoins, coin);
+								const ws = currentWS.value;
+								if (ws !== null && ws.readyState === WebSocket.OPEN) {
+									ws.send(buildUnsubscribeFrame(coin));
+								}
+							}),
+					});
 				}).pipe(Effect.annotateLogs("_name", "hydromancer"));
 
 			const handleRequest = (

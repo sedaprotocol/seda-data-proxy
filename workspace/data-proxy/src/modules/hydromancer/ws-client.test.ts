@@ -140,6 +140,8 @@ const baseConfig: HydromancerModuleConfig = {
 	subscriptionCoins: ["BTC", "ETH"],
 	maxCoinsPerRequest: 20,
 	reconnectMaxBackoff: Duration.seconds(30),
+	coinsCleanupTtl: Duration.minutes(2),
+	coinsCleanupInterval: Duration.seconds(30),
 };
 
 const originalWebSocket = globalThis.WebSocket;

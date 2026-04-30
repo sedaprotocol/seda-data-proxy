@@ -6,18 +6,17 @@ import {
 import {
 	Clock,
 	Data,
-	Duration,
 	Effect,
 	Layer,
 	MutableHashMap,
 	Option,
 	Queue,
 	Runtime,
-	Schedule,
 } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { PythLazerModuleConfig } from "../../config/pyth-lazer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import {
@@ -212,50 +211,25 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						}).pipe(Effect.forever),
 					);
 
-					yield* Effect.forkDaemon(
-						Effect.gen(function* () {
-							const now = yield* Clock.currentTimeMillis;
-							yield* Effect.logDebug(
-								`Cleaning up price feeds (currently running ${priceCache.size()} price feeds)..`,
-							);
+					yield* forkIdleCleanup({
+						lastRequest: lastRequestToPriceFeed,
+						ttl: config.priceFeedsCleanupTtl,
+						interval: config.priceFeedsCleanupInterval,
+						onExpire: (priceFeedId) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo(`Cleaning up price feed ${priceFeedId}`);
+								yield* priceCache.deletePrice(priceFeedId);
 
-							for (const [
-								priceFeedId,
-								lastRequestTimestamp,
-							] of MutableHashMap.fromIterable(lastRequestToPriceFeed)) {
-								const cleanupInterval = Duration.toMillis(
-									config.priceFeedsCleanupTtl,
+								const subscriptionId = MutableHashMap.get(
+									subscriptions,
+									priceFeedId,
 								);
-								const timeSinceLastRequest = now - lastRequestTimestamp;
-
-								yield* Effect.logDebug(
-									`Time since last request for price feed ${priceFeedId}: ${Duration.format(Duration.decode(timeSinceLastRequest))}`,
-								);
-
-								if (timeSinceLastRequest > cleanupInterval) {
-									yield* Effect.logInfo(
-										`Cleaning up price feed ${priceFeedId}`,
-									);
-									MutableHashMap.remove(lastRequestToPriceFeed, priceFeedId);
-									yield* priceCache.deletePrice(priceFeedId);
-
-									const subscriptionId = MutableHashMap.get(
-										subscriptions,
-										priceFeedId,
-									);
-
-									if (Option.isSome(subscriptionId)) {
-										lazerClient.unsubscribe(subscriptionId.value);
-										MutableHashMap.remove(subscriptions, priceFeedId);
-									}
+								if (Option.isSome(subscriptionId)) {
+									lazerClient.unsubscribe(subscriptionId.value);
+									MutableHashMap.remove(subscriptions, priceFeedId);
 								}
-							}
-						}).pipe(
-							Effect.schedule(
-								Schedule.spaced(config.priceFeedsCleanupInterval),
-							),
-						),
-					);
+							}),
+					});
 				}).pipe(Effect.annotateLogs("_name", "pyth-lazer"));
 
 			const handleRequest = (

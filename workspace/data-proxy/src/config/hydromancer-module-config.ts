@@ -28,6 +28,24 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	coinsCleanupTtl: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.transform((ttl) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(ttl),
+				() => new Error("Invalid coin cleanup TTL"),
+			),
+		),
+	),
+	coinsCleanupInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
+		v.transform((interval) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(interval),
+				() => new Error("Invalid coin cleanup interval"),
+			),
+		),
+	),
 });
 
 export interface HydromancerModuleConfig

@@ -19,6 +19,11 @@ export const createAssetCache = () =>
 		const get = (coin: string) =>
 			Effect.sync(() => MutableHashMap.get(entries, coin));
 
+		const remove = (coin: string) =>
+			Effect.sync(() => {
+				MutableHashMap.remove(entries, coin);
+			});
+
 		const markSocketError = (error: string) =>
 			Effect.sync(() => {
 				socketError = error;
@@ -42,6 +47,7 @@ export const createAssetCache = () =>
 		return {
 			set,
 			get,
+			remove,
 			isFresh,
 			markSocketError,
 			clearSocketError,

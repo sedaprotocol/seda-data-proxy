@@ -7,7 +7,7 @@ import {
 } from "../../config/hydromancer-module-config";
 import { ModuleService } from "../module";
 import { HydromancerModuleService } from "./hydromancer";
-import { buildSubscribeFrame } from "./ws-client";
+import { buildSubscribeFrame, buildUnsubscribeFrame } from "./ws-client";
 
 const baseConfig: HydromancerModuleConfig = {
 	name: "hydromancer",
@@ -20,6 +20,8 @@ const baseConfig: HydromancerModuleConfig = {
 	subscriptionCoins: [],
 	maxCoinsPerRequest: 20,
 	reconnectMaxBackoff: Duration.seconds(30),
+	coinsCleanupTtl: Duration.minutes(2),
+	coinsCleanupInterval: Duration.seconds(30),
 };
 
 const btcCtx = {
@@ -421,5 +423,50 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 
 		// Only one subscribe frame, even though handleRequest was called twice.
 		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+	});
+
+	it("unsubscribes a coin once it has been idle past coinsCleanupTtl", async () => {
+		globalThis.fetch = mock(
+			async () =>
+				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
+		) as unknown as typeof fetch;
+
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			subscriptionCoins: [],
+			coinsCleanupTtl: Duration.millis(20),
+			coinsCleanupInterval: Duration.millis(20),
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const route = buildRoute("BTC");
+			yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+		});
+
+		await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		await flush();
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+
+		// Wait past TTL + at least one cleanup tick.
+		await new Promise<void>((r) => setTimeout(r, 80));
+
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame("BTC"),
+			buildUnsubscribeFrame("BTC"),
+		]);
 	});
 });
