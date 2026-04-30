@@ -5,6 +5,8 @@ import type { DxFeedModuleConfig } from "./dxfeed-module-config";
 import { DxFeedModuleConfigSchema } from "./dxfeed-module-config";
 import type { HydromancerModuleConfig } from "./hydromancer-module-config";
 import { HydromancerModuleConfigSchema } from "./hydromancer-module-config";
+import type { LoTechModuleConfig } from "./lo-tech-module-config";
+import { LoTechModuleConfigSchema } from "./lo-tech-module-config";
 import type { PythLazerModuleConfig } from "./pyth-lazer-module-config";
 import { PythLazerModuleConfigSchema } from "./pyth-lazer-module-config";
 
@@ -15,6 +17,7 @@ export const ModulesSchema = v.optional(
 			ChainlinkStreamsModuleConfigSchema,
 			DxFeedModuleConfigSchema,
 			HydromancerModuleConfigSchema,
+			LoTechModuleConfigSchema,
 		]),
 	),
 	[],
@@ -24,4 +27,5 @@ export type Modules =
 	| PythLazerModuleConfig
 	| ChainlinkStreamsModuleConfig
 	| DxFeedModuleConfig
-	| HydromancerModuleConfig;
+	| HydromancerModuleConfig
+	| LoTechModuleConfig;
