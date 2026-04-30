@@ -70,10 +70,10 @@ export const validateHydromancerModuleRoute = (route: HydromancerModuleRoute) =>
 	});
 
 export const AssetCtxSchema = v.object({
-	oraclePx: v.string(),
-	markPx: v.string(),
-	midPx: v.string(),
-	impactPxs: v.array(v.string()),
+	oraclePx: v.nullable(v.string()),
+	markPx: v.nullable(v.string()),
+	midPx: v.nullable(v.string()),
+	impactPxs: v.nullable(v.array(v.string())),
 	openInterest: v.nullable(v.string()),
 });
 

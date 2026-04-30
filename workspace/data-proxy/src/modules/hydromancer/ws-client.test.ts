@@ -84,6 +84,24 @@ describe("parseInboundFrame", () => {
 		});
 		expect(parseInboundFrame(frame)).toEqual({ coin: "BTC", ctx: ctxNullOI });
 	});
+
+	it("accepts null midPx and impactPxs (some non-perp assets return them)", () => {
+		const ctxPartial = {
+			oraclePx: "151.81",
+			markPx: "374.5",
+			midPx: null,
+			impactPxs: null,
+			openInterest: null,
+		};
+		const frame = JSON.stringify({
+			channel: "activeAssetCtx",
+			data: { coin: "bmx:TSLA", ctx: ctxPartial },
+		});
+		expect(parseInboundFrame(frame)).toEqual({
+			coin: "bmx:TSLA",
+			ctx: ctxPartial,
+		});
+	});
 });
 
 class FakeWebSocket extends EventTarget {
