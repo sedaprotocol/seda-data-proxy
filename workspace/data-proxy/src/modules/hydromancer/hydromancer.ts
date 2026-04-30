@@ -50,12 +50,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						yield* Queue.offer(newCoinQueue, coin);
 					}
 
-					yield* startWebSocketDaemon(
-						config,
-						cache,
-						desiredCoins,
-						currentWS,
-					);
+					yield* startWebSocketDaemon(config, cache, desiredCoins, currentWS);
 
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
