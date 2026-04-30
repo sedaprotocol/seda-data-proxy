@@ -470,3 +470,70 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		]);
 	});
 });
+
+describe("HydromancerModuleService REST fallback when WS is errored", () => {
+	const originalWebSocket = globalThis.WebSocket;
+
+	beforeEach(() => {
+		FakeWebSocket.instances = [];
+		globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	});
+
+	afterEach(() => {
+		globalThis.WebSocket = originalWebSocket;
+	});
+
+	it("falls through to REST when the WS has been marked errored, even with a fresh cache entry", async () => {
+		const restCalls: string[][] = [];
+		globalThis.fetch = mock(
+			async (_url: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse((init?.body as string) ?? "{}");
+				restCalls.push(body.coins);
+				return new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 });
+			},
+		) as unknown as typeof fetch;
+
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			subscriptionCoins: [],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+
+			// Let the WS daemon construct a FakeWebSocket and then bring it up.
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			const route = buildRoute("BTC");
+
+			// Request 1: cache miss, REST populates BTC.
+			yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+
+			// Drop the socket: cache.markSocketError fires, currentWS clears.
+			ws.close();
+			yield* Effect.sleep(Duration.millis(0));
+
+			// Request 2: BTC is fresh in cache but socketError forces another REST.
+			yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/hydromancer"),
+			);
+		});
+
+		await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(restCalls).toEqual([["BTC"], ["BTC"]]);
+	});
+});
