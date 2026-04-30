@@ -434,7 +434,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
 			subscriptionCoins: [],
-			coinsCleanupTtl: Duration.millis(20),
+			// TTL must be long enough that the cleanup pass cannot fire before the
+			// WS is opened by the test setup; interval is short to keep the test fast.
+			coinsCleanupTtl: Duration.millis(150),
 			coinsCleanupInterval: Duration.millis(20),
 		};
 
@@ -462,7 +464,7 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
 
 		// Wait past TTL + at least one cleanup tick.
-		await new Promise<void>((r) => setTimeout(r, 80));
+		await new Promise<void>((r) => setTimeout(r, 250));
 
 		expect(ws.sent).toEqual([
 			buildSubscribeFrame("BTC"),

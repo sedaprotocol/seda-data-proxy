@@ -102,20 +102,20 @@ export const startWebSocketDaemon = (
 
 		const handleDisconnect = (
 			reason: "close" | "error",
-			closed: Deferred.Deferred<void>,
+			closed: Deferred.Deferred<void, "close" | "error">,
 		) =>
 			Effect.gen(function* () {
 				yield* Effect.logWarning("Hydromancer WS disconnected", { reason });
 				yield* cache.markSocketError(reason);
 				currentWS.value = null;
-				yield* Deferred.succeed(closed, undefined);
+				yield* Deferred.fail(closed, reason);
 			});
 
 		const connectOnce = Effect.gen(function* () {
 			const wsUrl = `${config.wsUrl}?token=${encodeURIComponent(
 				config.hydromancerApiKey,
 			)}`;
-			const closed = yield* Deferred.make<void>();
+			const closed = yield* Deferred.make<void, "close" | "error">();
 
 			yield* Effect.logInfo("Hydromancer WS connecting", {
 				name: config.name,

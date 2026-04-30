@@ -269,4 +269,92 @@ describe("startWebSocketDaemon", () => {
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
+
+	it("reconnects after a close, producing a second WebSocket instance", async () => {
+		const fastSchedule = Schedule.spaced(Duration.millis(10));
+		const { cache, fiber } = await Effect.runPromise(
+			Effect.gen(function* () {
+				const cache = yield* createAssetCache();
+				const desiredCoins = MutableHashMap.empty<string, true>();
+				for (const coin of baseConfig.subscriptionCoins) {
+					MutableHashMap.set(desiredCoins, coin, true);
+				}
+				const currentWS: { value: WebSocket | null } = { value: null };
+				const fiber = yield* startWebSocketDaemon(
+					baseConfig,
+					cache,
+					desiredCoins,
+					currentWS,
+					{ reconnectSchedule: fastSchedule },
+				);
+				return { cache, fiber };
+			}),
+		);
+		await flush();
+
+		expect(FakeWebSocket.instances.length).toBe(1);
+		const ws1 = FakeWebSocket.instances[0];
+		ws1.triggerOpen();
+		await flush();
+
+		ws1.triggerClose();
+		// Wait long enough for the daemon to retry past the 10ms schedule.
+		await new Promise<void>((r) => setTimeout(r, 40));
+
+		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+		const ws2 = FakeWebSocket.instances[1];
+		expect(ws2).not.toBe(ws1);
+
+		// The freshly-connected socket should clear the error flag once opened.
+		ws2.triggerOpen();
+		await flush();
+		expect(await Effect.runPromise(cache.hasSocketError())).toBe(false);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("re-subscribes to every desired coin after reconnect", async () => {
+		const fastSchedule = Schedule.spaced(Duration.millis(10));
+		const { fiber } = await Effect.runPromise(
+			Effect.gen(function* () {
+				const cache = yield* createAssetCache();
+				const desiredCoins = MutableHashMap.empty<string, true>();
+				for (const coin of baseConfig.subscriptionCoins) {
+					MutableHashMap.set(desiredCoins, coin, true);
+				}
+				const currentWS: { value: WebSocket | null } = { value: null };
+				const fiber = yield* startWebSocketDaemon(
+					baseConfig,
+					cache,
+					desiredCoins,
+					currentWS,
+					{ reconnectSchedule: fastSchedule },
+				);
+				return { cache, fiber };
+			}),
+		);
+		await flush();
+
+		const ws1 = FakeWebSocket.instances[0];
+		ws1.triggerOpen();
+		await flush();
+		expect(ws1.sent).toEqual([
+			buildSubscribeFrame("BTC"),
+			buildSubscribeFrame("ETH"),
+		]);
+
+		ws1.triggerClose();
+		await new Promise<void>((r) => setTimeout(r, 40));
+
+		const ws2 = FakeWebSocket.instances[1];
+		ws2.triggerOpen();
+		await flush();
+
+		expect(ws2.sent).toEqual([
+			buildSubscribeFrame("BTC"),
+			buildSubscribeFrame("ETH"),
+		]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
 });
