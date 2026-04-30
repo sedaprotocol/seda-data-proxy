@@ -74,6 +74,11 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					PythLazerClient.create({
 						token: config.pythLazerApiKey,
 						webSocketPoolConfig: {
+							urls: [
+								"wss://pyth-lazer-0.dourolabs.app/v1/stream",
+								"wss://pyth-lazer-1.dourolabs.app/v1/stream",
+								"wss://pyth-lazer-2.dourolabs.app/v1/stream",
+							],
 							onWebSocketPoolError: (error) => {
 								Runtime.runSync(
 									runtime,
@@ -148,7 +153,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			const handleStreamUpdatedMessage = (message: ParsedPayload) =>
 				Effect.gen(function* () {
 					yield* Effect.logTrace(
-						"Received message from Pyth Lazer client",
+						"Received stream updated message from Pyth Lazer client",
 						message,
 					);
 
@@ -167,13 +172,23 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Starting Pyth Lazer module");
 
+					const now = yield* Clock.currentTimeMillis;
 					for (const priceFeed of config.priceFeedIds) {
 						yield* newPriceFeedRequests.offer(priceFeed.id);
+						// Add a request timestamp so it is tracked in the cleanup interval
+						MutableHashMap.set(lastRequestToPriceFeed, priceFeed.id, now);
 					}
 
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
 							const newPriceFeedId = yield* newPriceFeedRequests.take;
+
+							if (MutableHashMap.has(subscriptions, newPriceFeedId)) {
+								yield* Effect.logDebug(
+									`Price feed ${newPriceFeedId} is already subscribed`,
+								);
+								return;
+							}
 
 							yield* Effect.logInfo(
 								`Subscribing to price feed ${newPriceFeedId}`,
@@ -208,6 +223,8 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 								],
 								subscriptionId: newSubscriptionId,
 								priceFeedIds: [newPriceFeedId],
+								// Recommended by Pyth case a previously valid feed id becomes invalid (delisting, id changed, etc.)
+								ignoreInvalidFeedIds: true,
 							});
 						}).pipe(Effect.forever),
 					);
@@ -222,7 +239,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							for (const [
 								priceFeedId,
 								lastRequestTimestamp,
-							] of MutableHashMap.fromIterable(lastRequestToPriceFeed)) {
+							] of lastRequestToPriceFeed) {
 								const cleanupInterval = Duration.toMillis(
 									config.priceFeedsCleanupTtl,
 								);
@@ -247,6 +264,15 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 									if (Option.isSome(subscriptionId)) {
 										lazerClient.unsubscribe(subscriptionId.value);
 										MutableHashMap.remove(subscriptions, priceFeedId);
+
+										const symbol = getSymbolByPriceFeedId(priceFeedId);
+										if (Option.isSome(symbol)) {
+											MutableHashMap.remove(symbolsToId, symbol.value);
+										}
+
+										yield* Effect.logInfo(
+											`Unsubscribed from price feed ${priceFeedId}`,
+										);
 									}
 								}
 							}
