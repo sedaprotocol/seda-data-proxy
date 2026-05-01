@@ -26,9 +26,7 @@ describe("queryJson", () => {
 		});
 
 		const result = Effect.runSync(Effect.either(program));
-		expect(result.toString()).toInclude(
-			"Quering JSON with $.a.b.b returned null",
-		);
+		expect(result.toString()).toInclude("JSONPath $.a.b.b returned null");
 	});
 
 	it("should return an error when the JSON body is not an object", () => {
@@ -39,7 +37,7 @@ describe("queryJson", () => {
 		const result = Effect.runSync(Effect.either(program));
 
 		expect(result.toString()).toInclude(
-			"Quering JSON with $.a.b.b returned not an array: undefined",
+			"JSONPath $.a.b.b did not return an array",
 		);
 	});
 });

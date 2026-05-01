@@ -5,6 +5,7 @@ import { JSON_PATH_HEADER_KEY } from "../../constants";
 import {
 	FailedToParseResponseBodyError,
 	NotOkUpstreamResponseError,
+	QueryJsonError,
 	UpstreamRequestFailedError,
 } from "../../errors";
 import { ModuleService } from "../../modules/module";
@@ -12,7 +13,7 @@ import type { ProxyServerOptions } from "../../proxy-server";
 import { HttpClientService } from "../../services/http-client";
 import { createSignedResponseHeaders } from "../../utils/create-headers";
 import { maybeToOption } from "../../utils/effect-utils";
-import { QueryJsonError, queryJson } from "../../utils/query-json";
+import { queryJson } from "../../utils/query-json";
 import { replaceParams } from "../../utils/replace-params";
 import { createUrlSearchParams } from "../../utils/search-params";
 import { injectSearchParamsInUrl } from "../../utils/url";
@@ -90,8 +91,10 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					yield* Effect.logDebug("Handling upstream request");
 					const upstreamHeaders = new Headers();
 
+					const url = replaceParams(upstreamModuleRoute.upstreamUrl, params);
+
 					const upstreamUrl = yield* injectSearchParamsInUrl(
-						replaceParams(upstreamModuleRoute.upstreamUrl, params),
+						url,
 						requestSearchParams,
 					).pipe(Effect.map((url) => url.toString()));
 
@@ -100,7 +103,6 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						if (!value || key === constants.PROOF_HEADER_KEY) {
 							continue;
 						}
-
 						upstreamHeaders.append(key, value);
 					}
 
@@ -116,7 +118,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 					yield* Effect.logDebug(`Fetching ${upstreamUrl}..`, {
 						headers: upstreamHeaders,
-						body,
+						body: Option.getOrUndefined(body),
 						upstreamUrl,
 					});
 
@@ -128,6 +130,17 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 							body: Option.getOrUndefined(body),
 						})
 						.pipe(
+							Effect.tapError((error) =>
+								Effect.logError("Upstream HTTP request failed", {
+									routePath: path,
+									method: request.method,
+									clientRequestUrl: request.url,
+									upstreamRequestUrl: upstreamUrl,
+									upstreamRequestHeaders: upstreamHeaders,
+									routeParams: params,
+									requestBody: Option.getOrUndefined(body),
+								}),
+							),
 							Effect.mapError(
 								(error) =>
 									new UpstreamRequestFailedError({ error, routePath: path }),
@@ -144,6 +157,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			const upstreamResponseBody = yield* httpClient
 				.parseBodyAsText(upstreamResponse)
 				.pipe(
+					// Attach the status to the error.
 					Effect.mapError(
 						(error) =>
 							new FailedToParseResponseBodyError({
@@ -155,11 +169,14 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				.pipe(
 					Effect.tapError((error) =>
 						Effect.logError(
-							`Upstream response body parsing failed for ${route.path} is not ok: ${upstreamResponse.status} err: ${error}`,
+							`Upstream response body parsing failed with status: ${upstreamResponse.status} err: ${error}`,
 							{
-								requestBody: Option.getOrUndefined(body),
+								routePath: path,
 								method: request.method,
-								upstreamUrl: upstreamResponse.url,
+								clientRequestUrl: request.url,
+								upstreamResponseUrl: upstreamResponse.url,
+								routeParams: params,
+								requestBody: Option.getOrUndefined(body),
 							},
 						),
 					),
@@ -213,6 +230,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					(error) =>
 						new QueryJsonError({
 							error: error.message,
+							data: error.data,
 							type: "config",
 							status: 500,
 						}),
@@ -242,7 +260,12 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
-							error: error.message,
+							// Attach result of operator supplied JSON path, which should
+							// limit the size of data returned to the user.
+							error: error.message.concat(
+								`for input ${JSON.stringify(responseData)}`,
+							),
+							data: error.data,
 							type: "header",
 							// Fault is from the user side
 							status: 400,
@@ -302,58 +325,41 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		});
 	}).pipe(
 		Effect.withSpan("handleProxyRequest"),
-		Effect.catchTag("VerifyProofError", (error) =>
+		Effect.tapError((error) =>
 			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 400);
+				const { message, ...errorRest } = error as unknown as {
+					message: string;
+				} & Record<string, unknown>;
+
+				yield* Effect.logError(error.message, {
+					...errorRest,
+					headers: inputParams.headers,
+					params: inputParams.params,
+					body: Option.getOrUndefined(inputParams.body),
+					path: inputParams.path,
+					method: inputParams.request.method,
+					requestUrl: inputParams.request.url,
+					requestBody: Option.getOrUndefined(inputParams.body),
+				});
 			}),
 		),
-		Effect.catchTag("IneligibleProofError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 401);
-			}),
-		),
-		Effect.catchTag("UnknownError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("FailedToParseTargetUrlError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("UpstreamRequestFailedError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("FailedToParseResponseBodyError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, 500);
-			}),
-		),
-		Effect.catchTag("NotOkUpstreamResponseError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status);
-			}),
-		),
-		Effect.catchTag("QueryJsonError", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status ?? 500);
-			}),
-		),
-		Effect.catchTag("FailedToHandleRequest", (error) =>
-			Effect.gen(function* () {
-				yield* Effect.logError(error);
-				return createErrorResponse(error, error.status);
-			}),
-		),
+		Effect.catchTags({
+			VerifyProofError: (error) =>
+				Effect.succeed(createErrorResponse(error, 400)),
+			IneligibleProofError: (error) =>
+				Effect.succeed(createErrorResponse(error, 401)),
+			UnknownError: (error) => Effect.succeed(createErrorResponse(error, 500)),
+			FailedToParseTargetUrlError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			UpstreamRequestFailedError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			FailedToParseResponseBodyError: (error) =>
+				Effect.succeed(createErrorResponse(error, 500)),
+			NotOkUpstreamResponseError: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status)),
+			QueryJsonError: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status ?? 500)),
+			FailedToHandleRequest: (error) =>
+				Effect.succeed(createErrorResponse(error, error.status)),
+		}),
 	);
