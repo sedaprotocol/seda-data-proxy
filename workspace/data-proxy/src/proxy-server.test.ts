@@ -14,6 +14,7 @@ import {
 } from "@seda-protocol/data-proxy-sdk";
 import { Effect, LogLevel, Logger } from "effect";
 import { Maybe } from "true-myth";
+import { JSON_PATH_HEADER_KEY } from "./constants";
 import { startProxyServer } from "./proxy-server";
 import { HttpClientService } from "./services/http-client";
 import {
@@ -468,6 +469,85 @@ describe("proxy server", () => {
 
 			await proxy.stop();
 		});
+	});
+
+	it("when user-supplied JSON path is invalid, the result of operator-supplied JSON path should be returned with a 400 status", async () => {
+		const picked = "PICKED_BY_OPERATOR_SUPPLIED_JSON_PATH";
+		const notPicked = "NOT_PICKED_BY_OPERATOR_SUPPLIED_JSON_PATH";
+		const upstreamBody = {
+			picked,
+			notPicked,
+		};
+		const validPath = "$.picked";
+		const invalidPath = "$.invalidPath";
+
+		const { upstreamUrl, proxyUrl, path, port } = registerHandler(
+			"get",
+			"/query-json-privacy",
+			async () => HttpResponse.json(upstreamBody),
+		);
+
+		const proxy = await Effect.runPromise(
+			startProxyServer(
+				{
+					verificationMaxRetries: 2,
+					verificationRetryDelay: 1000,
+					routeGroup: "",
+					modules: [],
+					sedaFast: {
+						enable: true,
+						maxProofAgeMs: 1000,
+						allowedClients: [],
+					},
+					statusEndpoints: {
+						root: "status",
+					},
+					baseURL: Maybe.nothing(),
+					routes: [
+						{
+							baseURL: Maybe.nothing(),
+							method: "GET",
+							path,
+							upstreamUrl,
+							forwardResponseHeaders: new Set([]),
+							headers: {},
+							jsonPath: validPath,
+							type: "upstream",
+							moduleName: "upstream",
+							useLegacyJsonPath: true,
+						},
+					],
+					fastOnly: false,
+				},
+				dataProxy,
+				{
+					disableProof: true,
+					port,
+					enableKeepAliveFiber: false,
+				},
+			)
+				.pipe(Effect.scoped)
+				.pipe(Effect.provide(HttpClientService.Default()))
+				.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+		);
+
+		const response = await fetch(proxyUrl, {
+			headers: {
+				[JSON_PATH_HEADER_KEY]: invalidPath,
+			},
+		});
+		expect(response.status).toBe(400);
+
+		const raw = await response.text();
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+		expect(parsed).not.toHaveProperty("data");
+		expect(parsed._tag).toBe("QueryJsonError");
+		expect(raw).toContain(invalidPath);
+		expect(raw).toContain(picked);
+		expect(raw).not.toContain(notPicked);
+
+		await proxy.stop();
 	});
 
 	describe("status endpoints", () => {

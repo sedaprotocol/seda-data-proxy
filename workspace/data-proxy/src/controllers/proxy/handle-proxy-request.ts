@@ -260,7 +260,11 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
-							error: error.message,
+							// Attach result of operator supplied JSON path, which should
+							// limit the size of data returned to the user.
+							error: error.message.concat(
+								`for input ${JSON.stringify(responseData)}`,
+							),
 							data: error.data,
 							type: "header",
 							// Fault is from the user side
