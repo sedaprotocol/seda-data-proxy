@@ -4,6 +4,7 @@
 	"version": "2.0.1",
 	"devDependencies": {
 		"@types/big.js": "^6.2.2",
+		"@types/ws": "^8.18.1",
 		"msw": "2.3.1"
 	},
 	"dependencies": {
@@ -14,8 +15,8 @@
 		"@effect/platform": "^0.94.5",
 		"@effect/platform-node": "^0.104.1",
 		"@elysiajs/openapi": "^1.4.14",
-		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@pythnetwork/pyth-lazer-sdk": "^6.2.1",
+		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
 		"commander": "^12.1.0",
@@ -28,6 +29,7 @@
 		"true-myth": "9.0.1",
 		"valibot": "1.1.0",
 		"winston": "^3.17.0",
-		"winston-daily-rotate-file": "^5.0.0"
+		"winston-daily-rotate-file": "^5.0.0",
+		"ws": "^8.20.0"
 	}
 }
