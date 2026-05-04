@@ -224,7 +224,6 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				}).pipe(
 					Effect.withSpan("handleLoTechRequest"),
 					Effect.catchAll((error) => {
-						// TODO: Handle error properly
 						return Effect.succeed(createErrorResponse(error, 500));
 					}),
 				);
