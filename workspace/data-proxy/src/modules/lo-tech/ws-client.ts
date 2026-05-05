@@ -1,4 +1,4 @@
-import { Duration, Effect, Runtime } from "effect";
+import { Duration, Effect, Runtime, Schedule } from "effect";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
 import type { LoTechData, LoTechDataMessage } from "./schema";
@@ -36,7 +36,7 @@ export const makeLoTechWebSocketService = (
 
 		const runWebSocketSession = (): Promise<void> =>
 			new Promise((resolve) => {
-				const url = `wss://data.lo.tech/ws/v1/${config.exchange}`;
+				const url = `${config.baseUrl}/${config.exchange}`;
 				let pingTimer: ReturnType<typeof setInterval> | undefined;
 
 				let socket: WebSocket;
@@ -64,10 +64,7 @@ export const makeLoTechWebSocketService = (
 						clearInterval(pingTimer);
 					}
 					pingTimer = setInterval(() => {
-						Runtime.runSync(
-							runtime,
-							sendIfOpen(JSON.stringify({ op: "PING" })),
-						);
+						socket.ping();
 					}, LO_TECH_PING_INTERVAL_MS);
 				});
 
@@ -155,26 +152,25 @@ export const makeLoTechWebSocketService = (
 				});
 			});
 
-		yield* Effect.forkDaemon(
-			Effect.gen(function* () {
-				while (true) {
-					yield* Effect.tryPromise({
-						try: () => runWebSocketSession(),
-						catch: (error) =>
-							new Error("Failed to run LO:TECH connection session", {
-								cause: error,
-							}),
-					}).pipe(
-						Effect.catchAll((error) =>
-							Effect.logError("LO:TECH connection session failed", {
-								error,
-							}),
-						),
-					);
-					yield* Effect.sleep(Duration.millis(config.reconnectDelayMs ?? 1000));
-				}
-			}),
+		const reconnectSchedule = Schedule.spaced(
+			Duration.millis(config.reconnectDelayMs ?? 1000),
 		);
+
+		const runSession = Effect.tryPromise({
+			try: () => runWebSocketSession(),
+			catch: (error) =>
+				new Error("Failed to run LO:TECH connection session", {
+					cause: error,
+				}),
+		}).pipe(
+			Effect.catchAll((error) =>
+				Effect.logError("LO:TECH connection session failed", {
+					error,
+				}),
+			),
+		);
+
+		yield* Effect.forkDaemon(Effect.repeat(runSession, reconnectSchedule));
 
 		return { sendIfOpen };
 	});

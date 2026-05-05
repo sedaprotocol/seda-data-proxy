@@ -108,7 +108,6 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 								JSON.stringify({
 									op: "SUBSCRIBE",
 									topics: [{ symbol: newSymbol, type: "PRICE" }],
-									// id: newSubscriptionId, // TODO Handle ack
 								}),
 							);
 						}).pipe(Effect.forever),
@@ -146,7 +145,6 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 											JSON.stringify({
 												op: "UNSUBSCRIBE",
 												topics: [{ symbol, type: "PRICE" }],
-												// id: priceFeedId.value, // TODO Handle ack
 											}),
 										);
 										MutableHashMap.remove(priceFeeds, symbol);

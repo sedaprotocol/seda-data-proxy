@@ -29,6 +29,7 @@ export type LoTechModulePriceFeed = v.InferOutput<
 
 export const LoTechModuleConfigSchema = v.strictObject({
 	name: v.string(),
+	baseUrl: v.string(),
 	exchange: v.string(),
 	priceFeeds: v.array(LoTechModulePriceFeedSchema),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
