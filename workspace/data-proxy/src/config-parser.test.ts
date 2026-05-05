@@ -266,6 +266,7 @@ describe("parseConfig", () => {
 					modules: [
 						{
 							type: "lo-tech",
+							baseUrl: "wss://base-url.com",
 							name: "lotech",
 							exchange: "binance",
 							loTechApiKeyEnvKey: "LOTECH_API_KEY",
@@ -289,6 +290,7 @@ describe("parseConfig", () => {
 					modules: [
 						{
 							type: "lo-tech",
+							baseUrl: "wss://base-url.com",
 							name: "lotech",
 							exchange: "binance",
 							loTechApiKeyEnvKey: "LOTECH_API_KEY",

@@ -17,7 +17,7 @@ import { FailedToHandleRequest, ModuleService } from "../module";
 import { FailedToHandleLoTechRequestError } from "./errors";
 import { createPriceCache } from "./price-cache";
 import type { LoTechData, LoTechDataPrice } from "./schema";
-import { makeLoTechWebSocketService } from "./ws-client";
+import { createLoTechWS } from "./ws-client";
 
 export type PriceFeedSymbol = string;
 
@@ -27,7 +27,6 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 		Effect.gen(function* () {
 			yield* Effect.logInfo("Initializing LO:TECH module");
 
-			const runtime = yield* Effect.runtime();
 			const priceCache = yield* createPriceCache();
 			const priceFeeds = MutableHashMap.empty<PriceFeedSymbol, number>();
 			const newPriceFeedRequests = yield* Queue.unbounded<PriceFeedSymbol>();
@@ -63,35 +62,30 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					);
 				});
 
-			const loTechWs = yield* makeLoTechWebSocketService({
+			const loTechWs = yield* createLoTechWS({
 				config,
-				runtime,
-				onConnected: (api) =>
-					Effect.gen(function* () {
-						for (const priceFeed of config.priceFeeds) {
-							yield* Effect.logInfo(
-								`Subscribing to price feed ${priceFeed.symbol}`,
-							);
-
-							const newSubscriptionId = priceFeedId++;
-							MutableHashMap.set(
-								priceFeeds,
-								priceFeed.symbol,
-								newSubscriptionId,
-							);
-
-							const now = yield* Clock.currentTimeMillis;
-							MutableHashMap.set(lastRequestToPriceFeed, priceFeed.symbol, now);
-
-							yield* api.subscribePrice(priceFeed.symbol, newSubscriptionId);
-						}
-					}),
 				handleDataMessage,
 			});
 
 			const start = () =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Starting LO:TECH module");
+
+					yield* loTechWs.start();
+
+					for (const priceFeed of config.priceFeeds) {
+						yield* Effect.logInfo(
+							`Subscribing to price feed ${priceFeed.symbol}`,
+						);
+
+						const newSubscriptionId = priceFeedId++;
+						MutableHashMap.set(priceFeeds, priceFeed.symbol, newSubscriptionId);
+
+						const now = yield* Clock.currentTimeMillis;
+						MutableHashMap.set(lastRequestToPriceFeed, priceFeed.symbol, now);
+
+						yield* loTechWs.subscribePrice(priceFeed.symbol, newSubscriptionId);
+					}
 
 					// Background fiber for handling new price feed subscriptions
 					yield* Effect.forkDaemon(
