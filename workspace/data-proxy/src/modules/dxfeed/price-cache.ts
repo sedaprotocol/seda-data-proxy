@@ -83,7 +83,7 @@ export const createPriceCache = () =>
 
 				return yield* Deferred.await(waiter.value).pipe(
 					Effect.timeoutFail({
-						duration: Duration.seconds(PRICE_WAIT_TIMEOUT_MS),
+						duration: Duration.millis(PRICE_WAIT_TIMEOUT_MS),
 						onTimeout: () =>
 							new FailedToGetPriceError({
 								error: `Timed out waiting for price of symbol ${symbol}`,
