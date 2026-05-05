@@ -9,7 +9,6 @@ import {
 	Queue,
 	Schedule,
 } from "effect";
-import type WebSocket from "ws";
 import type { Route } from "../../config/config-parser";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
@@ -64,22 +63,29 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					);
 				});
 
-			const onOpen = (socket: WebSocket): void => {
-				for (const [symbol, priceFeedId] of priceFeeds) {
-					socket.send(
-						JSON.stringify({
-							op: "SUBSCRIBE",
-							topics: [{ symbol, type: "PRICE" }],
-							id: priceFeedId,
-						}),
-					);
-				}
-			};
-
 			const loTechWs = yield* makeLoTechWebSocketService({
 				config,
 				runtime,
-				onOpen,
+				onConnected: (api) =>
+					Effect.gen(function* () {
+						for (const priceFeed of config.priceFeeds) {
+							yield* Effect.logInfo(
+								`Subscribing to price feed ${priceFeed.symbol}`,
+							);
+
+							const newSubscriptionId = priceFeedId++;
+							MutableHashMap.set(
+								priceFeeds,
+								priceFeed.symbol,
+								newSubscriptionId,
+							);
+
+							const now = yield* Clock.currentTimeMillis;
+							MutableHashMap.set(lastRequestToPriceFeed, priceFeed.symbol, now);
+
+							yield* api.subscribePrice(priceFeed.symbol, newSubscriptionId);
+						}
+					}),
 				handleDataMessage,
 			});
 
@@ -87,10 +93,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Starting LO:TECH module");
 
-					for (const priceFeed of config.priceFeeds) {
-						yield* newPriceFeedRequests.offer(priceFeed.symbol);
-					}
-
+					// Background fiber for handling new price feed subscriptions
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
 							const newSymbol = yield* newPriceFeedRequests.take;
@@ -98,21 +101,16 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 							yield* Effect.logInfo(`Subscribing to price feed ${newSymbol}`);
 
 							const newSubscriptionId = priceFeedId++;
-
 							MutableHashMap.set(priceFeeds, newSymbol, newSubscriptionId);
 
 							const now = yield* Clock.currentTimeMillis;
 							MutableHashMap.set(lastRequestToPriceFeed, newSymbol, now);
 
-							yield* loTechWs.sendIfOpen(
-								JSON.stringify({
-									op: "SUBSCRIBE",
-									topics: [{ symbol: newSymbol, type: "PRICE" }],
-								}),
-							);
+							yield* loTechWs.subscribePrice(newSymbol, newSubscriptionId);
 						}).pipe(Effect.forever),
 					);
 
+					// Background fiber for cleaning up price feeds subscriptions
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
 							const now = yield* Clock.currentTimeMillis;
@@ -141,12 +139,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 									const priceFeedId = MutableHashMap.get(priceFeeds, symbol);
 
 									if (Option.isSome(priceFeedId)) {
-										yield* loTechWs.sendIfOpen(
-											JSON.stringify({
-												op: "UNSUBSCRIBE",
-												topics: [{ symbol, type: "PRICE" }],
-											}),
-										);
+										yield* loTechWs.unsubscribePrice(symbol);
 										MutableHashMap.remove(priceFeeds, symbol);
 									}
 								}

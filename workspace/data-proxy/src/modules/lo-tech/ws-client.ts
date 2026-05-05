@@ -6,14 +6,34 @@ import type { LoTechData, LoTechDataMessage } from "./schema";
 // LO:TECH expects a ping every ~60 seconds to keep the connection alive.
 const LO_TECH_PING_INTERVAL_MS = 30_000;
 
+function subscribePricePayload(symbol: string, priceFeedId: number): string {
+	return JSON.stringify({
+		op: "SUBSCRIBE",
+		topics: [{ symbol, type: "PRICE" }],
+		id: priceFeedId,
+	});
+}
+
+function unsubscribePricePayload(symbol: string): string {
+	return JSON.stringify({
+		op: "UNSUBSCRIBE",
+		topics: [{ symbol, type: "PRICE" }],
+	});
+}
+
 export type LoTechWebSocketServiceApi = {
-	readonly sendIfOpen: (text: string) => Effect.Effect<void>;
+	readonly subscribePrice: (
+		symbol: string,
+		priceFeedId: number,
+	) => Effect.Effect<void>;
+	readonly unsubscribePrice: (symbol: string) => Effect.Effect<void>;
 };
 
 export type LoTechWebSocketServiceDeps = {
 	config: LoTechModuleConfig;
 	runtime: Runtime.Runtime<never>;
-	onOpen: (socket: WebSocket) => void;
+	/* Runs immediately after the socket is OPEN */
+	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
 	handleDataMessage: (data: LoTechData) => Effect.Effect<void>;
 };
 
@@ -21,18 +41,56 @@ export const makeLoTechWebSocketService = (
 	deps: LoTechWebSocketServiceDeps,
 ): Effect.Effect<LoTechWebSocketServiceApi> =>
 	Effect.gen(function* () {
-		const { config, runtime, onOpen, handleDataMessage } = deps;
+		const { config, runtime, onConnected, handleDataMessage } = deps;
 
 		let activeSocket: WebSocket | null = null;
+		const pendingOutbound: string[] = [];
 
-		const sendIfOpen = (text: string) =>
-			Effect.gen(function* () {
+		function send(text: string): Effect.Effect<void> {
+			return Effect.gen(function* () {
 				const sock = activeSocket;
 				if (sock !== null && sock.readyState === WebSocket.OPEN) {
 					yield* Effect.logDebug("Sending message to LO:TECH", { text });
 					sock.send(text);
+				} else {
+					pendingOutbound.push(text);
 				}
 			});
+		}
+
+		const subscribePrice = (symbol: string, priceFeedId: number) =>
+			send(subscribePricePayload(symbol, priceFeedId));
+
+		const unsubscribePrice = (symbol: string) =>
+			send(unsubscribePricePayload(symbol));
+
+		const api: LoTechWebSocketServiceApi = {
+			subscribePrice,
+			unsubscribePrice,
+		};
+
+		const flushPendingOutbound = (): void => {
+			const sock = activeSocket;
+			if (sock === null || sock.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			while (pendingOutbound.length > 0) {
+				const text = pendingOutbound.shift();
+				if (text === undefined) {
+					break;
+				}
+				Runtime.runSync(
+					runtime,
+					Effect.gen(function* () {
+						yield* Effect.logDebug(
+							"Flushing pending outbound message to LO:TECH",
+							{ text },
+						);
+						sock.send(text);
+					}),
+				);
+			}
+		};
 
 		const runWebSocketSession = (): Promise<void> =>
 			new Promise((resolve) => {
@@ -58,7 +116,18 @@ export const makeLoTechWebSocketService = (
 				activeSocket = socket;
 
 				socket.on("open", () => {
-					onOpen(socket);
+					if (onConnected !== undefined) {
+						Runtime.runSync(
+							runtime,
+							onConnected(api).pipe(
+								Effect.catchAll((err) =>
+									Effect.logError("LO:TECH onConnected failed", { err }),
+								),
+							),
+						);
+					}
+
+					flushPendingOutbound();
 
 					if (pingTimer !== undefined) {
 						clearInterval(pingTimer);
@@ -172,5 +241,5 @@ export const makeLoTechWebSocketService = (
 
 		yield* Effect.forkDaemon(Effect.repeat(runSession, reconnectSchedule));
 
-		return { sendIfOpen };
+		return api;
 	});
