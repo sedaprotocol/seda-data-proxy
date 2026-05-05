@@ -17,6 +17,11 @@ import {
 	ChainlinkStreamsModuleRouteSchema,
 	validateChainlinkStreamsModuleRoute,
 } from "./chainlink-streams-module-config";
+import {
+	type DxFeedModuleRoute,
+	DxFeedModuleRouteSchema,
+	validateDxFeedModuleRoute,
+} from "./dxfeed-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
 	type PythLazerModuleRoute,
@@ -105,6 +110,7 @@ const ConfigSchema = v.strictObject(
 				UpstreamModuleRouteSchema,
 				PythLazerModuleRouteSchema,
 				ChainlinkStreamsModuleRouteSchema,
+				DxFeedModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -136,7 +142,9 @@ const ConfigSchema = v.strictObject(
 export type Route =
 	| UpstreamModuleRoute
 	| PythLazerModuleRoute
-	| ChainlinkStreamsModuleRoute;
+	| ChainlinkStreamsModuleRoute
+	| DxFeedModuleRoute;
+
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
 }
@@ -229,6 +237,11 @@ export const parseConfig = (
 
 			if (route.type === "chainlink-streams") {
 				yield* validateChainlinkStreamsModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "dxfeed") {
+				yield* validateDxFeedModuleRoute(route);
 				continue;
 			}
 
@@ -397,6 +410,22 @@ export const parseConfig = (
 							...m,
 							chainlinkKey,
 							chainlinkApiSecret,
+						} satisfies Modules);
+					}),
+					Match.when({ type: "dxfeed" }, (m) => {
+						if (m.dxfeedAuthTokenEnvKey === undefined) {
+							return Effect.succeed({ ...m } satisfies Modules);
+						}
+						const dxfeedAuthToken = process.env[m.dxfeedAuthTokenEnvKey];
+						if (!dxfeedAuthToken) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.dxfeedAuthTokenEnvKey} to be set`,
+							);
+						}
+						envSecrets.add(dxfeedAuthToken);
+						return Effect.succeed({
+							...m,
+							dxfeedAuthToken,
 						} satisfies Modules);
 					}),
 					Match.exhaustive,

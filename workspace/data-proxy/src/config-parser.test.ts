@@ -257,15 +257,94 @@ describe("parseConfig", () => {
 			process.env.PYTH_API_KEY = undefined;
 		});
 
+		it("should resolve a dxfeed module without an auth token env key", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "dxfeed",
+							name: "dxfeed-demo",
+							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
+							subscriptions: [{ symbol: "AEX.IND:TEI" }],
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "dxfeed") {
+				throw new Error(`expected dxfeed, got ${module.type}`);
+			}
+			expect(module.dxfeedAuthToken).toBeUndefined();
+		});
+
+		it("should reject a dxfeed module when its auth token env var is unset", () => {
+			process.env.DXFEED_TOKEN = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "dxfeed",
+							name: "dxfeed-auth",
+							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
+							subscriptions: [{ symbol: "AEX.IND:TEI" }],
+							dxfeedAuthTokenEnvKey: "DXFEED_TOKEN",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module dxfeed requires DXFEED_TOKEN to be set",
+			);
+		});
+
+		it("should resolve a dxfeed module when its auth token env var is set", () => {
+			process.env.DXFEED_TOKEN = "dxfeed-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "dxfeed",
+							name: "dxfeed-auth",
+							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
+							subscriptions: [{ symbol: "AEX.IND:TEI" }],
+							dxfeedAuthTokenEnvKey: "DXFEED_TOKEN",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "dxfeed") {
+				throw new Error(`expected dxfeed, got ${module.type}`);
+			}
+			expect(module.dxfeedAuthToken).toBe("dxfeed-secret");
+			process.env.DXFEED_TOKEN = undefined;
+		});
+
 		it.each([
 			{
 				missing: "key" as const,
-				env: { CHAINLINK_KEY: undefined, CHAINLINK_SECRET: "secret" },
+				env: {
+					CHAINLINK_KEY: undefined as string | undefined,
+					CHAINLINK_SECRET: "secret",
+				},
 				expected: "Module chainlink-streams requires CHAINLINK_KEY to be set",
 			},
 			{
 				missing: "secret" as const,
-				env: { CHAINLINK_KEY: "key", CHAINLINK_SECRET: undefined },
+				env: {
+					CHAINLINK_KEY: "key",
+					CHAINLINK_SECRET: undefined as string | undefined,
+				},
 				expected:
 					"Module chainlink-streams requires CHAINLINK_SECRET to be set",
 			},

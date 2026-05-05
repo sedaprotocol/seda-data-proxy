@@ -86,6 +86,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "dxfeed" }, (dxFeedModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling dxFeed request");
+					return yield* moduleService.handleRequest(
+						dxFeedModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");
