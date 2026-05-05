@@ -1,5 +1,6 @@
 import {
 	Deferred,
+	Duration,
 	Effect,
 	MutableHashMap,
 	Option,
@@ -8,6 +9,8 @@ import {
 import { FailedToGetPriceError } from "./errors";
 import type { PriceFeedSymbol } from "./lo-tech";
 import type { LoTechDataPrice } from "./schema";
+
+const PRICE_WAIT_TIMEOUT_MS = 3_000;
 
 export const createPriceCache = () =>
 	Effect.gen(function* () {
@@ -81,7 +84,15 @@ export const createPriceCache = () =>
 					);
 				}
 
-				return yield* Deferred.await(waiter.value);
+				return yield* Deferred.await(waiter.value).pipe(
+					Effect.timeoutFail({
+						duration: Duration.seconds(PRICE_WAIT_TIMEOUT_MS),
+						onTimeout: () =>
+							new FailedToGetPriceError({
+								error: `Timed out waiting for price of symbol ${symbol}`,
+							}),
+					}),
+				);
 			});
 
 		const deletePrice = (symbol: PriceFeedSymbol) => {
