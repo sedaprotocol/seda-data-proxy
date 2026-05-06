@@ -19,7 +19,10 @@ import type {
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { FailedToHandleDxFeedRequestError } from "./errors";
+import {
+	FailedToConnectDxFeedError,
+	FailedToHandleDxFeedRequestError,
+} from "./errors";
 import {
 	extractNumericPrice,
 	parseDxFeedEventTypes,
@@ -27,7 +30,30 @@ import {
 import { createPriceCache } from "./price-cache";
 import type { DxFeedDataPrice } from "./schema";
 
-// export type { DxFeedSymbol } from "./schema";
+const DXFEED_CONNECTION_TIMEOUT = Duration.seconds(10);
+
+const waitForDxFeedConnected = (
+	feed: Feed,
+	webSocketUrl: string,
+	timeout: Duration.Duration,
+) =>
+	Effect.gen(function* () {
+		const timeoutMs = Duration.toMillis(timeout);
+		const deadline = (yield* Clock.currentTimeMillis) + timeoutMs;
+		while (!feed.subscriptions.state.connected) {
+			const now = yield* Clock.currentTimeMillis;
+			if (now >= deadline) {
+				const err = new FailedToConnectDxFeedError({
+					webSocketUrl,
+					timeoutMs,
+				});
+				yield* Effect.logError(err.message);
+				return yield* Effect.fail(err);
+			}
+			yield* Effect.sleep(Duration.millis(100));
+		}
+		yield* Effect.logInfo("dxFeed connected");
+	});
 
 export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 	Layer.effect(
@@ -72,6 +98,12 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			yield* Effect.sync(() => {
 				feed.connect(config.webSocketUrl);
 			}).pipe(Effect.orDie);
+
+			yield* waitForDxFeedConnected(
+				feed,
+				config.webSocketUrl,
+				DXFEED_CONNECTION_TIMEOUT,
+			).pipe(Effect.orDie);
 
 			const handleIncomingEvent = (subscribedSymbol: string, event: IEvent) =>
 				Effect.gen(function* () {
