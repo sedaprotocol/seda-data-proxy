@@ -385,6 +385,9 @@ export const parseConfig = (
 								`Module ${m.type} requires ${m.pythLazerApiKeyEnvKey} to be set`,
 							);
 						}
+
+						envSecrets.add(pythLazerApiKey);
+
 						return Effect.succeed({ ...m, pythLazerApiKey } satisfies Modules);
 					}),
 					Match.when({ type: "chainlink-streams" }, (m) => {
