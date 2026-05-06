@@ -18,6 +18,7 @@ import {
 import { FailedToParseConfigError } from "../errors";
 import { startProxyServer } from "../proxy-server";
 import { HttpClientService } from "../services/http-client";
+import { startV8HeapSnapshotDaemon } from "../services/v8-heap-snapshot-scheduler";
 import { readPackageVersion } from "./get-version.macro" with { type: "macro" };
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
@@ -71,6 +72,8 @@ export const runCmd = addCommonOptions(new Command("run"))
 					port: Number(options.port ?? SERVER_PORT),
 					disableProof: disableProof,
 				});
+
+				yield* startV8HeapSnapshotDaemon;
 			}).pipe(Effect.provide(HttpClientService.Default())),
 		);
 

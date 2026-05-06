@@ -66,3 +66,18 @@ export const DATA_PROXY_ID = Config.string("DATA_PROXY_ID").pipe(
 	Config.withDefault("data-proxy"),
 	Config.withDescription("Used as the service name in telemetry"),
 );
+
+/** When true (default), writes a V8 heap snapshot on a fixed interval in the background. */
+export const V8_HEAP_SNAPSHOT_ENABLED = Config.boolean(
+	"DATA_PROXY_V8_HEAP_SNAPSHOT_ENABLED",
+).pipe(Config.withDefault(true));
+
+/** Milliseconds between heap snapshots. Default one hour. */
+export const V8_HEAP_SNAPSHOT_INTERVAL_MS = Config.integer(
+	"DATA_PROXY_V8_HEAP_SNAPSHOT_INTERVAL_MS",
+).pipe(Config.withDefault(3_600_000));
+
+/** Directory for `.heapsnapshot` files. */
+export const V8_HEAP_SNAPSHOT_DIR = Config.string(
+	"DATA_PROXY_V8_HEAP_SNAPSHOT_DIR",
+).pipe(Config.withDefault("heap-snapshots"));
