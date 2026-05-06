@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { Config } from "effect";
 import type { Literal } from "effect/LogLevel";
@@ -7,16 +6,6 @@ import { firstLetterToUpperCase } from "./utils/string-utils";
 
 // Server constants
 export const SERVER_PORT = process.env.SERVER_PORT ?? "5384";
-export const LOG_FILE_DIR = Config.string("LOG_FILE_DIR").pipe(
-	Config.withDefault(`${resolve(process.cwd(), "logs")}`),
-);
-export const LOG_FILE_LOG_LEVEL = process.env.LOG_FILE_LOG_LEVEL ?? "debug";
-export const LOG_FILE_MAX_FILES = Config.number("LOG_FILE_MAX_FILES").pipe(
-	Config.withDefault(7),
-);
-export const LOG_FILE_DATE_PATTERN = Config.string(
-	"LOG_FILE_DATE_PATTERN",
-).pipe(Config.withDefault("yyyy-MM-dd"));
 
 // Environment constants
 export const DEFAULT_ENVIRONMENT: Environment =
@@ -72,3 +61,8 @@ export const LOG_LEVEL = Config.literal(
 )("LOG_LEVEL")
 	.pipe(Config.withDefault("Info"))
 	.pipe(Config.map((input) => firstLetterToUpperCase(input) as Literal));
+
+export const DATA_PROXY_ID = Config.string("DATA_PROXY_ID").pipe(
+	Config.withDefault("data-proxy"),
+	Config.withDescription("Used as the service name in telemetry"),
+);

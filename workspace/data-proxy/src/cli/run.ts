@@ -3,19 +3,22 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem, NodePath, NodeRuntime } from "@effect/platform-node";
 import { DataProxy, Environment } from "@seda-protocol/data-proxy-sdk";
 import { defaultConfig } from "@seda-protocol/data-proxy-sdk/src/config";
+import { provideRotatingFileLoggerWithOptions } from "@seda-protocol/rotating-file-logger";
+import { ProvideTelemetry } from "@seda-protocol/telemetry";
 import { parseJSON5 } from "confbox";
-import { Clock, Effect, Either, LogLevel, Logger } from "effect";
+import { Context, Effect, Either, Layer } from "effect";
 import { parseConfig } from "../config/config-parser";
 import {
+	DATA_PROXY_ID,
 	DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	LOG_LEVEL,
 	PRIVATE_KEY_ENV_KEY,
 	SERVER_PORT,
 } from "../constants";
 import { FailedToParseConfigError } from "../errors";
-import { logBootstrap, setEnvSecrets } from "../logger";
 import { startProxyServer } from "../proxy-server";
 import { HttpClientService } from "../services/http-client";
+import { readPackageVersion } from "./get-version.macro" with { type: "macro" };
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
 
 export const runCmd = addCommonOptions(new Command("run"))
@@ -31,40 +34,62 @@ export const runCmd = addCommonOptions(new Command("run"))
 		false,
 	)
 	.action((options) => {
-		const program = Effect.gen(function* () {
-			const { config, dataProxy } = yield* configure(options, true);
-
-			setEnvSecrets(config.value.envSecrets);
-
-			let disableProof = false;
-			if (options.debug || options.disableProof) {
-				disableProof = true;
-
-				yield* Effect.logWarning(
-					"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
-				);
+		// Secrets that need to be redacted from the logs
+		const envSecrets: Set<string> = new Set();
+		const mapLogOutput = (message: string) => {
+			let output = message;
+			for (const secret of envSecrets) {
+				output = output.replaceAll(secret, "<redacted>");
 			}
+			return output;
+		};
 
-			yield* startProxyServer(config.value.config, dataProxy, {
-				port: Number(options.port ?? SERVER_PORT),
-				disableProof: disableProof,
-				enableKeepAliveFiber: true,
-			});
-		}).pipe(Effect.provide(HttpClientService.Default()));
+		const program = Layer.effect(
+			// Use a dummy tag to define a service, so we can launch the program as a layer
+			// and keep the program in scope
+			class DataProxyProgram extends Context.Tag("DataProxyProgram")<
+				DataProxyProgram,
+				void
+			>() {},
+			Effect.gen(function* () {
+				const { config, dataProxy } = yield* configure(options, true);
+
+				for (const secret of config.value.envSecrets) {
+					envSecrets.add(secret);
+				}
+
+				let disableProof = false;
+				if (options.debug || options.disableProof) {
+					disableProof = true;
+
+					yield* Effect.logWarning(
+						"Data Proxy will run without checking proofs, this is for development and testing only. Do not use in production",
+					);
+				}
+
+				yield* startProxyServer(config.value.config, dataProxy, {
+					port: Number(options.port ?? SERVER_PORT),
+					disableProof: disableProof,
+				});
+			}).pipe(Effect.provide(HttpClientService.Default())),
+		);
 
 		const bootstrap = Effect.gen(function* () {
 			let logLevel = yield* LOG_LEVEL;
+			const dataProxyId = yield* DATA_PROXY_ID;
 
 			if (options.debug) {
 				logLevel = "Debug";
 			}
 
-			return yield* program.pipe(
-				logBootstrap(options.debug),
-				Effect.scoped,
+			return yield* Layer.launch(program).pipe(
+				ProvideTelemetry(dataProxyId, readPackageVersion(), {}),
+				provideRotatingFileLoggerWithOptions({
+					logLevel,
+					mapOutput: mapLogOutput,
+				}),
 				Effect.provide(NodeFileSystem.layer),
 				Effect.provide(NodePath.layer),
-				Logger.withMinimumLogLevel(LogLevel.fromLiteral(logLevel)),
 			);
 		});
 
@@ -203,7 +228,7 @@ const configure = (
 		const publicKey = dataProxy.publicKey.toString("hex");
 		yield* Effect.logInfo(`🔐 Using public key: ${publicKey}`);
 		if (options.skipRegistrationCheck) {
-			console.log("⚠️  Registration check was skipped\n");
+			yield* Effect.logWarning("⚠️  Registration check was skipped\n");
 		} else {
 			const dataProxyRegistration = yield* Effect.either(
 				dataProxy.getDataProxyRegistration(),

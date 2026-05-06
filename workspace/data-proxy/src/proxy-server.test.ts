@@ -89,7 +89,6 @@ describe("proxy server", () => {
 				{
 					disableProof: true,
 					port,
-					enableKeepAliveFiber: false,
 				},
 			)
 				.pipe(Effect.scoped)
@@ -155,7 +154,6 @@ describe("proxy server", () => {
 				{
 					disableProof: true,
 					port,
-					enableKeepAliveFiber: false,
 				},
 			)
 				.pipe(Effect.scoped)
@@ -218,7 +216,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -297,7 +294,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -377,7 +373,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -449,7 +444,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -523,7 +517,6 @@ describe("proxy server", () => {
 				{
 					disableProof: true,
 					port,
-					enableKeepAliveFiber: false,
 				},
 			)
 				.pipe(Effect.scoped)
@@ -603,7 +596,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -699,7 +691,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
@@ -775,7 +766,6 @@ describe("proxy server", () => {
 					{
 						disableProof: true,
 						port,
-						enableKeepAliveFiber: false,
 					},
 				)
 					.pipe(Effect.scoped)
