@@ -20,6 +20,7 @@
 		"@pythnetwork/pyth-lazer-sdk": "^6.2.1",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
+		"chalk": "^5.3.0",
 		"commander": "^12.1.0",
 		"confbox": "^0.2.4",
 		"date-fns": "^4.1.0",
