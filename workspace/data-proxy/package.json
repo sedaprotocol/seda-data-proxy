@@ -17,6 +17,8 @@
 		"@effect/platform-node": "^0.104.1",
 		"@elysiajs/openapi": "^1.4.14",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
+		"@seda-protocol/rotating-file-logger": "2.1.0",
+		"@seda-protocol/telemetry": "1.1.0",
 		"@pythnetwork/pyth-lazer-sdk": "^6.2.1",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
@@ -29,8 +31,6 @@
 		"jsonpath-plus": "^10.3.0",
 		"secp256k1": "^5.0.1",
 		"true-myth": "9.0.1",
-		"valibot": "1.1.0",
-		"winston": "^3.17.0",
-		"winston-daily-rotate-file": "^5.0.0"
+		"valibot": "1.1.0"
 	}
 }

@@ -4,7 +4,6 @@ import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import {
 	Duration,
 	Effect,
-	HashMap,
 	Layer,
 	Match,
 	MutableHashMap,
@@ -26,12 +25,6 @@ import { StatusContext, statusPlugin } from "./status-plugin";
 export interface ProxyServerOptions {
 	port: number;
 	disableProof: boolean;
-	/**
-	 * If false, the keep alive fiber will not be started.
-	 * This is because of a bug where the scope gets cleaned up while executing.
-	 * We need this option because in tests we want to not have an infinite loop of keep alive fibers.
-	 */
-	enableKeepAliveFiber: boolean;
 }
 
 export const startProxyServer = (
@@ -223,13 +216,8 @@ export const startProxyServer = (
 			`Docs are at http://127.0.0.1:${serverOptions.port}/docs`,
 		);
 
-		// NOTE: For some reason the program gets half out of scope and the logger stops working
-		// This is a workaround to keep the main fiber alive
-		if (serverOptions.enableKeepAliveFiber) {
-			yield* Effect.void.pipe(
-				Effect.schedule(Schedule.spaced(Duration.seconds(10))),
-			);
-		}
-
 		return server;
-	});
+	}).pipe(
+		// We need a scope for the memoized modules
+		Effect.scoped,
+	);

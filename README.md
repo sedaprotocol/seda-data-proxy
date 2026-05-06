@@ -385,11 +385,9 @@ The following environment variables are available for configuration:
 | Environment variable | Description | Default |
 | --- | --- | --- |
 | `SERVER_PORT` | Port the HTTP server listens on. | `5384` |
-| `LOG_LEVEL` | Console log level. | `info` |
-| `LOG_FILE_DIR` | Directory for rotating log files. When set, file logging is enabled. | `./logs/` |
-| `LOG_FILE_LOG_LEVEL` | Log level for file transport. | `debug` |
-| `LOG_FILE_MAX_FILES` | How many log files to keep (time or count), per winston-daily-rotate-file. | `14d` |
-| `LOG_FILE_DATE_PATTERN` | Date pattern used in rotated log filenames. | `YYYY-MM-DD` |
+| `LOG_LEVEL` | Minimum log level. | `info` |
+| `LOG_DIR` | Directory for rotating log files. | `./logs/` |
+| `LOG_MAX_FILES` | How many log files to keep (time or count). | `14d` |
 
 ## SEDA FAST Support
 
