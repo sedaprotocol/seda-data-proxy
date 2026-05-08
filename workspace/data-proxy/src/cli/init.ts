@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { exists, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { Command } from "@commander-js/extra-typings";
 import { Secp256k1 } from "@cosmjs/crypto";
 import { Environment } from "@seda-protocol/data-proxy-sdk";
@@ -52,7 +53,7 @@ export const initCmd = new Command("init")
 			process.exit(1);
 		}
 
-		if (!(await exists(args.privateKeyFile))) {
+		if (!existsSync(args.privateKeyFile)) {
 			const privateKeyBuff = randomBytes(32);
 			const keyPair = await Secp256k1.makeKeypair(privateKeyBuff);
 			const keyPairJson: FileKeyPair = {
@@ -74,7 +75,7 @@ export const initCmd = new Command("init")
 			);
 		}
 
-		if (!(await exists(args.config))) {
+		if (!existsSync(args.config)) {
 			const config: Partial<Config> = {
 				routeGroup: "proxy",
 				routes: [

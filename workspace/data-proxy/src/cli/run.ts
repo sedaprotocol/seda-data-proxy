@@ -122,7 +122,7 @@ export const validateCmd = addCommonOptions(new Command("validate"))
 function addCommonOptions(command: Command) {
 	return command
 		.addOption(
-			new Option("-c, --config <string>", "Path to config.json")
+			new Option("-c, --config <string>", "Path to config.json or config.jsonc")
 				.default("./config.json")
 				.env("DATA_PROXY_CONFIG"),
 		)
@@ -188,7 +188,28 @@ const configure = (
 			process.exit(1);
 		}
 
-		const configFile = yield* Effect.either(fs.readFile(options.config));
+		const configFileName = yield* Effect.gen(function* () {
+			// Path provided exists, use it.
+			const fileExists = yield* fs.exists(options.config);
+			if (fileExists) {
+				return options.config;
+			}
+
+			let alternatePath = options.config;
+			const isJsoncFile = options.config.endsWith(".jsonc");
+			if (isJsoncFile) {
+				alternatePath = options.config.replace(/.jsonc$/, ".json");
+			} else {
+				alternatePath = options.config.replace(/.json$/, ".jsonc");
+			}
+
+			yield* Effect.logWarning(
+				`Config file ${options.config} does not exist, trying ${alternatePath}`,
+			);
+			return alternatePath;
+		});
+
+		const configFile = yield* Effect.either(fs.readFile(configFileName));
 		if (Either.isLeft(configFile)) {
 			yield* Effect.logError(`Failed to read config: ${configFile.left}`);
 			process.exit(1);
@@ -208,7 +229,7 @@ const configure = (
 			process.exit(1);
 		}
 
-		yield* Effect.logInfo(`Using config: ${options.config}`);
+		yield* Effect.logInfo(`Using config: ${configFileName}`);
 		const [config, hasWarnings] = yield* parseConfig(parsedConfig.right);
 		if (config.isErr) {
 			yield* Effect.logError(`Invalid config: ${config.error}`);
