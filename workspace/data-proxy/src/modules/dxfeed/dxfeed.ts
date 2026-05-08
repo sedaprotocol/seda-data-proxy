@@ -21,8 +21,8 @@ import type { DxFeedModuleConfig } from "../../config/dxfeed-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleDxFeedRequestError } from "./errors";
-import { createPriceCache } from "./price-cache";
 import { type DxFeedDataPrice, extractPriceDataFromEvent } from "./schema";
 
 export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
@@ -35,7 +35,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			});
 
 			const runtime = yield* Effect.runtime();
-			const priceCache = yield* createPriceCache();
+			const priceCache = yield* createPriceCache<string, DxFeedDataPrice>();
 			const subscriptions = MutableHashMap.empty<string, number>();
 			const unsubscribeBySymbol = MutableHashMap.empty<string, () => void>();
 			const newSubscriptionRequests = yield* Queue.unbounded<string>();

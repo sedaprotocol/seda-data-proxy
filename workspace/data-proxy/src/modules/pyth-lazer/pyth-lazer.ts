@@ -19,12 +19,12 @@ import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { createPriceCache } from "../shared/price-cache";
 import {
 	FailedToHandlePythLazerRequestError,
 	extractPriceFeedIdFromErrorMessage,
 } from "./errors";
 import { getPriceIdBySymbol } from "./get-symbol-price-id";
-import { createPriceCache } from "./price-cache";
 
 export class FailedToCreateLazerClientError extends Data.TaggedError(
 	"FailedToCreateLazerClientError",
@@ -45,7 +45,10 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 		Effect.gen(function* () {
 			yield* Effect.logInfo("Initializing Pyth Lazer module");
 			const runtime = yield* Effect.runtime();
-			const priceCache = yield* createPriceCache();
+			const priceCache = yield* createPriceCache<
+				PriceFeedId,
+				ParsedFeedPayload
+			>();
 			// The timestamp of the last request to the price feed
 			const lastRequestToPriceFeed = MutableHashMap.empty<
 				PriceFeedId,

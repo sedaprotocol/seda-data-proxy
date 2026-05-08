@@ -1,0 +1,228 @@
+import { describe, expect, it } from "bun:test";
+import type { ParsedFeedPayload } from "@pythnetwork/pyth-lazer-sdk";
+import { Effect, Either, Fiber } from "effect";
+import type { LoTechDataPrice } from "../lo-tech/schema";
+import { createPriceCache } from "./price-cache";
+
+const run = <A, E>(program: Effect.Effect<A, E>) => Effect.runPromise(program);
+
+/** Minimal arbitrary value shape for generic cache behavior tests */
+type SampleValue = { tag: "sample"; n: number; label: string };
+
+const sample = (
+	overrides: Partial<Omit<SampleValue, "tag">> = {},
+): SampleValue => ({
+	tag: "sample",
+	n: 0,
+	label: "x",
+	...overrides,
+});
+
+const loTechPrice = (
+	symbol: string,
+	overrides: Partial<LoTechDataPrice> = {},
+): LoTechDataPrice => ({
+	type: "PRICE",
+	symbol,
+	ingress_ts: 1000,
+	publish_ts: null,
+	transaction_ts: 1000,
+	price: 100,
+	spread: 1,
+	...overrides,
+});
+
+describe("createPriceCache", () => {
+	it("should set and get a price", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 123, label: "a" });
+				yield* cache.setPrice("k1", entry);
+				const got = yield* cache.getOrWaitPrice("k1");
+				expect(got).toEqual(entry);
+				expect(got.n).toBe(123);
+				expect(got.label).toBe("a");
+			}),
+		);
+	});
+
+	it("should wait for price when getOrWaitPrice is called before setPrice", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 300, label: "wait" });
+				const waiter = yield* Effect.fork(cache.getOrWaitPrice("k2"));
+				yield* cache.setPrice("k2", entry);
+				const result = yield* Fiber.join(waiter);
+				expect(result).toEqual(entry);
+			}),
+		);
+	});
+
+	it("should resolve multiple waiters when setPrice is called", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 400, label: "multi" });
+				const waiterA = yield* Effect.fork(cache.getOrWaitPrice("k3"));
+				const waiterB = yield* Effect.fork(cache.getOrWaitPrice("k3"));
+				yield* cache.setPrice("k3", entry);
+				const [a, b] = yield* Effect.all([
+					Fiber.join(waiterA),
+					Fiber.join(waiterB),
+				]);
+				expect(a).toEqual(entry);
+				expect(b).toEqual(entry);
+			}),
+		);
+	});
+
+	it("should always return the latest price when price is updated", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const key = "k4";
+				yield* cache.setPrice(key, sample({ n: 100, label: "first" }));
+				const first = yield* cache.getOrWaitPrice(key);
+				expect(first.n).toBe(100);
+
+				yield* cache.setPrice(key, sample({ n: 200, label: "second" }));
+				const latest = yield* cache.getOrWaitPrice(key);
+				expect(latest.n).toBe(200);
+				expect(latest.label).toBe("second");
+			}),
+		);
+	});
+
+	it("should keep different keys independent", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				yield* cache.setPrice("a", sample({ n: 1, label: "a" }));
+				yield* cache.setPrice("b", sample({ n: 2, label: "b" }));
+				const [p1, p2] = yield* Effect.all([
+					cache.getOrWaitPrice("a"),
+					cache.getOrWaitPrice("b"),
+				]);
+				expect(p1.n).toBe(1);
+				expect(p2.n).toBe(2);
+			}),
+		);
+	});
+
+	it("should work with numeric keys", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<number, SampleValue>();
+				yield* cache.setPrice(42, sample({ n: 42, label: "id" }));
+				const got = yield* cache.getOrWaitPrice(42);
+				expect(got.n).toBe(42);
+			}),
+		);
+	});
+
+	it("should delete a price and remove it from the cache", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<number, SampleValue>();
+
+				const stale = sample({ n: 100, label: "stale" });
+
+				const fiber = yield* Effect.fork(cache.getOrWaitPrice(1));
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPrice(1, stale);
+
+				const first = yield* Fiber.join(fiber);
+				expect(first.n).toBe(100);
+
+				yield* cache.deletePrice(1);
+
+				return yield* Effect.either(
+					cache.getOrWaitPrice(1).pipe(Effect.timeout("100 millis")),
+				);
+			}),
+		);
+
+		expect(Either.isLeft(result), "Expected getOrWaitPrice to fail").toBe(true);
+
+		if (Either.isLeft(result)) {
+			expect(result.left._tag, "Expected timeout error").toBe(
+				"TimeoutException",
+			);
+		}
+	});
+
+	it("should resolve a waiter when setPriceToError is called", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<number, SampleValue>();
+
+				const fiber = yield* Effect.fork(
+					cache.getOrWaitPrice(1).pipe(Effect.either),
+				);
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPriceToError(1, "feed unstable");
+
+				const first = yield* Fiber.join(fiber);
+				expect(Either.isLeft(first)).toBe(true);
+				if (Either.isLeft(first)) {
+					expect(first.left._tag, "Expected FailedToGetPriceError").toBe(
+						"FailedToGetPriceError",
+					);
+				}
+
+				return yield* Effect.either(
+					cache.getOrWaitPrice(1).pipe(Effect.timeout("100 millis")),
+				);
+			}),
+		);
+
+		expect(Either.isLeft(result), "Expected getOrWaitPrice to fail").toBe(true);
+
+		if (Either.isLeft(result)) {
+			expect(result.left._tag, "Expected timeout error").toBe(
+				"TimeoutException",
+			);
+		}
+	});
+});
+
+describe("createPriceCache with LoTech-shaped payloads", () => {
+	it("should round-trip string-keyed LoTech price rows", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, LoTechDataPrice>();
+				const entry = loTechPrice("ETH-USDT", {
+					price: 123.45,
+					spread: 0.02,
+				});
+				yield* cache.setPrice("ETH-USDT", entry);
+				const got = yield* cache.getOrWaitPrice("ETH-USDT");
+				expect(got).toEqual(entry);
+				expect(got.symbol).toBe("ETH-USDT");
+			}),
+		);
+	});
+});
+
+describe("createPriceCache with Pyth Lazer-shaped payloads", () => {
+	it("should round-trip numeric-keyed parsed feed payloads", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<number, ParsedFeedPayload>();
+				const entry: ParsedFeedPayload = {
+					price: "100",
+					exponent: 18,
+					feedUpdateTimestamp: 1000,
+					priceFeedId: 1,
+				};
+				yield* cache.setPrice(1, entry);
+				const got = yield* cache.getOrWaitPrice(1);
+				expect(got.price).toBe("100");
+				expect(got.exponent).toBe(18);
+				expect(got.feedUpdateTimestamp).toBe(1000);
+			}),
+		);
+	});
+});

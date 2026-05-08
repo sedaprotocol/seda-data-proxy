@@ -17,8 +17,8 @@ import {
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleLoTechRequestError } from "./errors";
-import { createPriceCache } from "./price-cache";
 import type { LoTechDataPrice, LoTechParsedData } from "./schema";
 import { makeLoTechWebSocketService } from "./ws-client";
 
@@ -31,13 +31,16 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 			yield* Effect.logInfo("Initializing LO:TECH module");
 
 			const runtime = yield* Effect.runtime();
-			const priceCache = yield* createPriceCache();
 			const priceFeeds = MutableHashMap.empty<PriceFeedSymbol, number>();
 			const newPriceFeedRequests = yield* Queue.unbounded<PriceFeedSymbol>();
 			// The timestamp of the last request to the price feed used for cleanup.
 			const lastRequestToPriceFeed = MutableHashMap.empty<
 				PriceFeedSymbol,
 				number
+			>();
+			const priceCache = yield* createPriceCache<
+				PriceFeedSymbol,
+				LoTechDataPrice
 			>();
 
 			let priceFeedId = 0;
