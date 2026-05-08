@@ -6,7 +6,6 @@
 	"scripts": {
 		"start": "bun run check-ts && bun run ./workspace/data-proxy",
 		"fmt": "bunx biome check --write .",
-		"build": "bun run check-ts && bun run build.ts",
 		"check-fmt": "bunx biome check .",
 		"check-ts": "bunx tsc --noEmit"
 	},

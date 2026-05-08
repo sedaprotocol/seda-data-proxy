@@ -2,7 +2,7 @@ name: 🧪 Test
 on: [pull_request]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,8 +20,3 @@ jobs:
 
       - name: 🧪 Test project
         run: bun test
-
-      - name: 🔨 Build seda-data-proxy
-        run: |
-          mkdir -p build
-          bun run build

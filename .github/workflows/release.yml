@@ -12,8 +12,8 @@ env:
   REGISTRY_IMAGE: ghcr.io/sedaprotocol/seda-data-proxy
 
 jobs:
-  build:
-    name: 🛠️ Build JS Artifact and Changelog
+  changelog:
+    name: 🛠️ Generate Changelog
     runs-on: ubuntu-latest
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
@@ -27,11 +27,6 @@ jobs:
       - name: 📦 Install Dependencies
         run: bun install
 
-      - name: 🔨 Build seda-data-proxy
-        run: |
-          mkdir -p build
-          bun run build
-
       - name: 📝 Generate Changelog
         id: changelog
         uses: TriPSs/conventional-changelog-action@v5.3.0
@@ -43,29 +38,6 @@ jobs:
           skip-git-pull: true
           git-push: false
 
-      - name: 🔢 Generate Checksum
-        uses: jmgilman/actions-generate-checksum@v1
-        with:
-          patterns: |
-            build/seda-data-proxy-darwin-arm64
-            build/seda-data-proxy-darwin-x64
-            build/seda-data-proxy-linux-arm64
-            build/seda-data-proxy-linux-arm64-musl
-            build/seda-data-proxy-linux-x64
-            build/seda-data-proxy-linux-x64-musl
-
-      - name: ⬆️ Upload artifacts and checksum for release
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-assets
-          path: |
-            build/seda-data-proxy-darwin-arm64
-            build/seda-data-proxy-darwin-x64
-            build/seda-data-proxy-linux-arm64
-            build/seda-data-proxy-linux-arm64-musl
-            build/seda-data-proxy-linux-x64
-            build/seda-data-proxy-linux-x64-musl
-            checksum.txt
 
   build_and_push_docker_images:
     name: 🐳 Build and Push Docker Images
@@ -120,14 +92,8 @@ jobs:
   create_release:
     name: 🎉 Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build, build_and_push_docker_images]
+    needs: [changelog, build_and_push_docker_images]
     steps:
-      - name: 📥 Download all release assets
-        uses: actions/download-artifact@v4
-        with:
-          name: release-assets
-          path: ./release-assets
-
       - name: 🎉 Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
@@ -136,7 +102,6 @@ jobs:
           allowUpdates: true
           generateReleaseNotes: true
           body: ${{ needs.build.outputs.changelog }}
-          artifacts: ./release-assets/**/*
           token: ${{ secrets.GITHUB_TOKEN }}
           commit: ${{ github.sha }}
           tag: ${{ github.ref_name }} 
