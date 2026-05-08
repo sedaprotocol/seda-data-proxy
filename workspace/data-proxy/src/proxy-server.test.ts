@@ -106,8 +106,6 @@ describe("proxy server", () => {
 		expect(result).toEqual({
 			receivedBody: '{"key": "value"}',
 		});
-
-		await proxy.stop();
 	});
 
 	it("should forward requests without params", async () => {
@@ -167,8 +165,6 @@ describe("proxy server", () => {
 		expect(result).toEqual({
 			receivedParams: {},
 		});
-
-		await proxy.stop();
 	});
 
 	describe("public endpoint configuration", () => {
@@ -244,8 +240,6 @@ describe("proxy server", () => {
 			);
 
 			expect(isValid, "Signature verification failed").toBe(true);
-
-			await proxy.stop();
 		});
 
 		it("should support rewriting the protocol and host at the route level", async () => {
@@ -322,8 +316,6 @@ describe("proxy server", () => {
 			);
 
 			expect(isValid, "Signature verification failed").toBe(true);
-
-			await proxy.stop();
 		});
 	});
 
@@ -460,8 +452,6 @@ describe("proxy server", () => {
 			expect(parsed).not.toHaveProperty("data");
 			expect(parsed._tag).toBe("QueryJsonError");
 			expect(raw).not.toContain(sensitiveData);
-
-			await proxy.stop();
 		});
 	});
 
@@ -539,8 +529,6 @@ describe("proxy server", () => {
 		expect(raw).toContain(invalidPath);
 		expect(raw).toContain(picked);
 		expect(raw).not.toContain(notPicked);
-
-		await proxy.stop();
 	});
 
 	describe("status endpoints", () => {
@@ -642,8 +630,6 @@ describe("proxy server", () => {
 					errors: 1,
 				},
 			});
-
-			await proxy.stop();
 		});
 
 		it("should return the pubkey of the proxy for <statusRoot>/info", async () => {
@@ -713,8 +699,6 @@ describe("proxy server", () => {
 				chainId: expect.any(String),
 				rpcChainId: expect.any(String),
 			});
-
-			await proxy.stop();
 		});
 
 		it("should secure the status endpoint with an API key when configured", async () => {
@@ -814,8 +798,6 @@ describe("proxy server", () => {
 					errors: 0,
 				},
 			});
-
-			await proxy.stop();
 		});
 	});
 });
