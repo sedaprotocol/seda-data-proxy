@@ -27,10 +27,10 @@ jobs:
       - name: 📦 Install Dependencies
         run: bun install
 
-      - name: 🔨 Build seda-data-proxy
-        run: |
-          mkdir -p build
-          bun run build
+      # - name: 🔨 Build seda-data-proxy
+      #   run: |
+      #     mkdir -p build
+      #     bun run build
 
       - name: 📝 Generate Changelog
         id: changelog
@@ -43,29 +43,29 @@ jobs:
           skip-git-pull: true
           git-push: false
 
-      - name: 🔢 Generate Checksum
-        uses: jmgilman/actions-generate-checksum@v1
-        with:
-          patterns: |
-            build/seda-data-proxy-darwin-arm64
-            build/seda-data-proxy-darwin-x64
-            build/seda-data-proxy-linux-arm64
-            build/seda-data-proxy-linux-arm64-musl
-            build/seda-data-proxy-linux-x64
-            build/seda-data-proxy-linux-x64-musl
+      # - name: 🔢 Generate Checksum
+      #   uses: jmgilman/actions-generate-checksum@v1
+      #   with:
+      #     patterns: |
+      #       build/seda-data-proxy-darwin-arm64
+      #       build/seda-data-proxy-darwin-x64
+      #       build/seda-data-proxy-linux-arm64
+      #       build/seda-data-proxy-linux-arm64-musl
+      #       build/seda-data-proxy-linux-x64
+      #       build/seda-data-proxy-linux-x64-musl
 
-      - name: ⬆️ Upload artifacts and checksum for release
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-assets
-          path: |
-            build/seda-data-proxy-darwin-arm64
-            build/seda-data-proxy-darwin-x64
-            build/seda-data-proxy-linux-arm64
-            build/seda-data-proxy-linux-arm64-musl
-            build/seda-data-proxy-linux-x64
-            build/seda-data-proxy-linux-x64-musl
-            checksum.txt
+      # - name: ⬆️ Upload artifacts and checksum for release
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: release-assets
+      #     path: |
+      #       build/seda-data-proxy-darwin-arm64
+      #       build/seda-data-proxy-darwin-x64
+      #       build/seda-data-proxy-linux-arm64
+      #       build/seda-data-proxy-linux-arm64-musl
+      #       build/seda-data-proxy-linux-x64
+      #       build/seda-data-proxy-linux-x64-musl
+      #       checksum.txt
 
   build_and_push_docker_images:
     name: 🐳 Build and Push Docker Images

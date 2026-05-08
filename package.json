@@ -4,7 +4,7 @@
 	"main": "./src/index.ts",
 	"type": "module",
 	"scripts": {
-		"start": "bun run check-ts && bun run ./workspace/data-proxy",
+		"start": "bun run ./workspace/data-proxy",
 		"fmt": "bunx biome check --write .",
 		"build": "bun run check-ts && bun run build.ts",
 		"check-fmt": "bunx biome check .",

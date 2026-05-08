@@ -1,5 +1,10 @@
 import "./cometd-bootstrap";
-import { Feed, type IEvent } from "@dxfeed/api";
+import {
+	DXLinkFeed,
+	DXLinkWebSocketClient,
+	FeedContract,
+	FeedDataFormat,
+} from "@dxfeed/dxlink-api";
 import {
 	Clock,
 	Duration,
@@ -12,10 +17,7 @@ import {
 	Schedule,
 } from "effect";
 import type { Route } from "../../config/config-parser";
-import type {
-	DxFeedEventTypeName,
-	DxFeedModuleConfig,
-} from "../../config/dxfeed-module-config";
+import type { DxFeedModuleConfig } from "../../config/dxfeed-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
@@ -23,37 +25,34 @@ import {
 	FailedToConnectDxFeedError,
 	FailedToHandleDxFeedRequestError,
 } from "./errors";
-import {
-	extractNumericPrice,
-	parseDxFeedEventTypes,
-} from "./parse-event-types";
+import { extractNumericPrice } from "./parse-event-types";
 import { createPriceCache } from "./price-cache";
 import type { DxFeedDataPrice } from "./schema";
 
-const DXFEED_CONNECTION_TIMEOUT = Duration.seconds(10);
+// const DXFEED_CONNECTION_TIMEOUT = Duration.seconds(10);
 
-const waitForDxFeedConnected = (
-	feed: Feed,
-	webSocketUrl: string,
-	timeout: Duration.Duration,
-) =>
-	Effect.gen(function* () {
-		const timeoutMs = Duration.toMillis(timeout);
-		const deadline = (yield* Clock.currentTimeMillis) + timeoutMs;
-		while (!feed.subscriptions.state.connected) {
-			const now = yield* Clock.currentTimeMillis;
-			if (now >= deadline) {
-				const err = new FailedToConnectDxFeedError({
-					webSocketUrl,
-					timeoutMs,
-				});
-				yield* Effect.logError(err.message);
-				return yield* Effect.fail(err);
-			}
-			yield* Effect.sleep(Duration.millis(100));
-		}
-		yield* Effect.logInfo("dxFeed connected");
-	});
+// const waitForDxFeedConnected = (
+// 	feed: Feed,
+// 	webSocketUrl: string,
+// 	timeout: Duration.Duration,
+// ) =>
+// 	Effect.gen(function* () {
+// 		const timeoutMs = Duration.toMillis(timeout);
+// 		const deadline = (yield* Clock.currentTimeMillis) + timeoutMs;
+// 		while (!feed.subscriptions.state.connected) {
+// 			const now = yield* Clock.currentTimeMillis;
+// 			if (now >= deadline) {
+// 				const err = new FailedToConnectDxFeedError({
+// 					webSocketUrl,
+// 					timeoutMs,
+// 				});
+// 				yield* Effect.logError(err.message);
+// 				return yield* Effect.fail(err);
+// 			}
+// 			yield* Effect.sleep(Duration.millis(100));
+// 		}
+// 		yield* Effect.logInfo("dxFeed connected");
+// 	});
 
 export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 	Layer.effect(
@@ -73,39 +72,80 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 
 			let subscriptionId = 0;
 
-			const defaultEventTypeNames = config.defaultEventTypes;
-
-			const eventTypesByConfiguredSymbol = new Map(
-				config.subscriptions.map((sub) => [
-					sub.symbol,
-					sub.eventTypes ?? defaultEventTypeNames,
-				]),
-			);
-
-			const resolveEventTypeNamesForSymbol = (
-				symbol: string,
-			): readonly DxFeedEventTypeName[] => {
-				const fromConfig = eventTypesByConfiguredSymbol.get(symbol);
-				return fromConfig ?? defaultEventTypeNames;
-			};
-
-			const feed = new Feed();
+			const client = new DXLinkWebSocketClient();
 
 			if (config.dxfeedAuthToken !== undefined) {
-				feed.setAuthToken(config.dxfeedAuthToken);
+				client.setAuthToken(config.dxfeedAuthToken);
 			}
 
-			yield* Effect.sync(() => {
-				feed.connect(config.webSocketUrl);
-			}).pipe(Effect.orDie);
+			client.connect(config.webSocketUrl);
 
-			yield* waitForDxFeedConnected(
-				feed,
-				config.webSocketUrl,
-				DXFEED_CONNECTION_TIMEOUT,
-			).pipe(Effect.orDie);
+			const feed = new DXLinkFeed(client, FeedContract.AUTO);
 
-			const handleIncomingEvent = (subscribedSymbol: string, event: IEvent) =>
+			feed.configure({
+				// TODO config?
+				acceptAggregationPeriod: 10,
+				// TODO config?
+				acceptDataFormat: FeedDataFormat.FULL,
+				acceptEventFields: {
+					Quote: config.eventFields,
+				},
+			});
+
+			feed.addEventListener((events) => {
+				for (const event of events) {
+					// Fuck you DxFeed
+					Runtime.runSync(runtime, Effect.logInfo("dxFeed event", event));
+				}
+			});
+
+			client.addErrorListener((error) => {
+				Runtime.runSync(runtime, Effect.logError("dxFeed error", error));
+			});
+
+			const subscribeSymbol = (symbol: string) =>
+				Effect.gen(function* () {
+					if (MutableHashMap.has(unsubscribeBySymbol, symbol)) {
+						return;
+					}
+
+					yield* Effect.logInfo(`Subscribing to dxFeed symbol ${symbol}`);
+
+					const subscription = {
+						type: "Quote",
+						symbol,
+					};
+
+					feed.addSubscriptions([subscription]);
+
+					MutableHashMap.set(unsubscribeBySymbol, symbol, () =>
+						feed.removeSubscriptions(subscription),
+					);
+				});
+
+			const unsubscribeSymbol = (symbol: string) => {
+				const unsub = MutableHashMap.get(unsubscribeBySymbol, symbol);
+
+				if (Option.isSome(unsub)) {
+					unsub.value();
+					MutableHashMap.remove(unsubscribeBySymbol, symbol);
+					MutableHashMap.remove(subscriptions, symbol);
+				}
+			};
+
+			for (const symbol of config.subscriptions) {
+				const newSubscriptionId = subscriptionId++;
+				MutableHashMap.set(subscriptions, symbol, newSubscriptionId);
+				yield* subscribeSymbol(symbol);
+			}
+
+			// yield* waitForDxFeedConnected(
+			// 	feed,
+			// 	config.webSocketUrl,
+			// 	DXFEED_CONNECTION_TIMEOUT,
+			// ).pipe(Effect.orDie);
+
+			const handleIncomingEvent = (subscribedSymbol: string, event: any) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("dxFeed event", {
 						subscribedSymbol,
@@ -133,53 +173,6 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 					yield* priceCache.setPrice(subscribedSymbol, payload);
 				});
 
-			const subscribeMarketData = (symbol: string) =>
-				Effect.gen(function* () {
-					if (MutableHashMap.has(unsubscribeBySymbol, symbol)) {
-						return;
-					}
-
-					const eventTypeNames = resolveEventTypeNamesForSymbol(symbol);
-					const eventTypes = parseDxFeedEventTypes(eventTypeNames);
-
-					yield* Effect.logInfo(`Subscribing to dxFeed symbol ${symbol}`, {
-						eventTypes: eventTypeNames,
-					});
-
-					const unsub = feed.subscribe<IEvent>(
-						eventTypes,
-						[symbol],
-						(event) => {
-							Runtime.runFork(
-								runtime,
-								handleIncomingEvent(symbol, event).pipe(
-									Effect.catchAll((error) =>
-										Effect.logError(`dxFeed handler error: ${String(error)}`),
-									),
-								),
-							);
-						},
-					);
-
-					MutableHashMap.set(unsubscribeBySymbol, symbol, unsub);
-				});
-
-			const unsubscribeSymbol = (symbol: string) =>
-				Effect.sync(() => {
-					const unsub = MutableHashMap.get(unsubscribeBySymbol, symbol);
-					if (Option.isSome(unsub)) {
-						unsub.value();
-						MutableHashMap.remove(unsubscribeBySymbol, symbol);
-						MutableHashMap.remove(subscriptions, symbol);
-					}
-				});
-
-			for (const sub of config.subscriptions) {
-				const newSubscriptionId = subscriptionId++;
-				MutableHashMap.set(subscriptions, sub.symbol, newSubscriptionId);
-				yield* subscribeMarketData(sub.symbol);
-			}
-
 			const start = () =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Starting dxFeed module");
@@ -199,7 +192,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 							const now = yield* Clock.currentTimeMillis;
 							MutableHashMap.set(lastRequestToSubscription, newSymbol, now);
 
-							yield* subscribeMarketData(newSymbol);
+							yield* subscribeSymbol(newSymbol);
 						}).pipe(Effect.forever),
 					);
 
@@ -225,10 +218,10 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 								);
 
 								if (timeSinceLastRequest > cleanupInterval) {
-									const configured = eventTypesByConfiguredSymbol.has(symbol);
-									if (configured) {
-										continue;
-									}
+									// const configured = eventTypesByConfiguredSymbol.has(symbol);
+									// if (configured) {
+									// 	continue;
+									// }
 
 									yield* Effect.logInfo(
 										`Cleaning up dxFeed subscription ${symbol}`,
@@ -238,7 +231,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 
 									const id = MutableHashMap.get(subscriptions, symbol);
 									if (Option.isSome(id)) {
-										yield* unsubscribeSymbol(symbol);
+										unsubscribeSymbol(symbol);
 									}
 								}
 							}

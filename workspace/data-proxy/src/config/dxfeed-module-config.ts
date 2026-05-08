@@ -1,28 +1,17 @@
-import { EventType } from "@dxfeed/api";
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
 import { RouteSchema } from "./route-config";
 
-type EventTypeKeys = `${EventType}`;
-export type DxFeedEventTypeName = EventTypeKeys[number];
-
-export const DxFeedEventTypeSchema = v.picklist(Object.values(EventType));
-
-export const DxFeedSubscriptionSchema = v.object({
-	symbol: v.string(),
-	eventTypes: v.optional(v.array(DxFeedEventTypeSchema)),
-});
-
-export type DxFeedSubscription = v.InferOutput<typeof DxFeedSubscriptionSchema>;
+const eventFields = ["eventSymbol", "askPrice", "bidPrice"] as const;
+export type DxFeedEventField = (typeof eventFields)[number];
 
 export const DxFeedModuleConfigSchema = v.strictObject({
 	name: v.string(),
 	webSocketUrl: v.string(),
-	subscriptions: v.array(DxFeedSubscriptionSchema),
-	defaultEventTypes: v.optional(v.array(DxFeedEventTypeSchema), [
-		EventType.Summary,
-		EventType.Trade,
-	]),
+	// TODO
+	subscriptions: v.optional(v.array(v.string()), []),
+	eventFields: v.optional(v.array(v.picklist(eventFields)), eventFields),
+
 	maxFeedsPerRequest: v.optional(v.number(), 100),
 	dxfeedAuthTokenEnvKey: v.optional(v.string()),
 	subscriptionsCleanupTtl: v.pipe(
