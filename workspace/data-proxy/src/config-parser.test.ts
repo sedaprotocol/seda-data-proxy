@@ -382,6 +382,88 @@ describe("parseConfig", () => {
 			process.env.LOTECH_API_KEY = undefined;
 		});
 
+		it("should reject a pm-insights module when the email env var is unset", () => {
+			process.env.PM_INSIGHTS_EMAIL = undefined;
+			process.env.PM_INSIGHTS_PASSWORD = "pw";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pm-insights",
+							name: "pm-insights",
+							emailEnvKey: "PM_INSIGHTS_EMAIL",
+							passwordEnvKey: "PM_INSIGHTS_PASSWORD",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module pm-insights requires PM_INSIGHTS_EMAIL to be set",
+			);
+		});
+
+		it("should reject a pm-insights module when the password env var is unset", () => {
+			process.env.PM_INSIGHTS_EMAIL = "user@example.com";
+			process.env.PM_INSIGHTS_PASSWORD = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pm-insights",
+							name: "pm-insights",
+							emailEnvKey: "PM_INSIGHTS_EMAIL",
+							passwordEnvKey: "PM_INSIGHTS_PASSWORD",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module pm-insights requires PM_INSIGHTS_PASSWORD to be set",
+			);
+
+			process.env.PM_INSIGHTS_EMAIL = undefined;
+		});
+
+		it("should resolve a pm-insights module and track email and password as secrets", () => {
+			process.env.PM_INSIGHTS_EMAIL = "user@example.com";
+			process.env.PM_INSIGHTS_PASSWORD = "secret-password";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pm-insights",
+							name: "pm-insights",
+							emailEnvKey: "PM_INSIGHTS_EMAIL",
+							passwordEnvKey: "PM_INSIGHTS_PASSWORD",
+							tokenRefreshIntervalMinutes: 45,
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "pm-insights") {
+				throw new Error(`expected pm-insights, got ${module.type}`);
+			}
+			expect(module.email).toBe("user@example.com");
+			expect(module.password).toBe("secret-password");
+			expect(module.tokenRefreshIntervalMinutes).toBe(45);
+			expect(result.value.envSecrets.has("user@example.com")).toBe(true);
+			expect(result.value.envSecrets.has("secret-password")).toBe(true);
+
+			process.env.PM_INSIGHTS_EMAIL = undefined;
+			process.env.PM_INSIGHTS_PASSWORD = undefined;
+		});
+
 		it.each([
 			{
 				missing: "key" as const,

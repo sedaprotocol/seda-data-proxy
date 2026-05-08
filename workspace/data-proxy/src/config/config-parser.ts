@@ -34,6 +34,11 @@ import {
 } from "./lo-tech-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
+	type PmInsightsModuleRoute,
+	PmInsightsModuleRouteSchema,
+	validatePmInsightsModuleRoute,
+} from "./pm-insights-module-config";
+import {
 	type PythLazerModuleRoute,
 	PythLazerModuleRouteSchema,
 	validatePythLazerModuleRoute,
@@ -123,6 +128,7 @@ const ConfigSchema = v.strictObject(
 				DxFeedModuleRouteSchema,
 				HydromancerModuleRouteSchema,
 				LoTechModuleRouteSchema,
+				PmInsightsModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -157,7 +163,8 @@ export type Route =
 	| ChainlinkStreamsModuleRoute
 	| DxFeedModuleRoute
 	| HydromancerModuleRoute
-	| LoTechModuleRoute;
+	| LoTechModuleRoute
+	| PmInsightsModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -266,6 +273,11 @@ export const parseConfig = (
 
 			if (route.type === "lo-tech") {
 				yield* validateLoTechModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "pm-insights") {
+				yield* validatePmInsightsModuleRoute(route);
 				continue;
 			}
 
@@ -480,6 +492,23 @@ export const parseConfig = (
 						}
 						envSecrets.add(loTechApiKey);
 						return Effect.succeed({ ...m, loTechApiKey } satisfies Modules);
+					}),
+					Match.when({ type: "pm-insights" }, (m) => {
+						const email = process.env[m.emailEnvKey];
+						const password = process.env[m.passwordEnvKey];
+						if (!email) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.emailEnvKey} to be set`,
+							);
+						}
+						if (!password) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.passwordEnvKey} to be set`,
+							);
+						}
+						envSecrets.add(email);
+						envSecrets.add(password);
+						return Effect.succeed({ ...m, email, password } satisfies Modules);
 					}),
 					Match.exhaustive,
 				),

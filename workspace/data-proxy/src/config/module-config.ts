@@ -7,6 +7,8 @@ import type { HydromancerModuleConfig } from "./hydromancer-module-config";
 import { HydromancerModuleConfigSchema } from "./hydromancer-module-config";
 import type { LoTechModuleConfig } from "./lo-tech-module-config";
 import { LoTechModuleConfigSchema } from "./lo-tech-module-config";
+import type { PmInsightsModuleConfig } from "./pm-insights-module-config";
+import { PmInsightsModuleConfigSchema } from "./pm-insights-module-config";
 import type { PythLazerModuleConfig } from "./pyth-lazer-module-config";
 import { PythLazerModuleConfigSchema } from "./pyth-lazer-module-config";
 
@@ -18,6 +20,7 @@ export const ModulesSchema = v.optional(
 			DxFeedModuleConfigSchema,
 			HydromancerModuleConfigSchema,
 			LoTechModuleConfigSchema,
+			PmInsightsModuleConfigSchema,
 		]),
 	),
 	[],
@@ -28,4 +31,5 @@ export type Modules =
 	| ChainlinkStreamsModuleConfig
 	| DxFeedModuleConfig
 	| HydromancerModuleConfig
-	| LoTechModuleConfig;
+	| LoTechModuleConfig
+	| PmInsightsModuleConfig;

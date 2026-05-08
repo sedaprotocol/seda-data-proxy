@@ -2,16 +2,7 @@ import { randomUUID } from "node:crypto";
 import node from "@elysiajs/node";
 import { openapi } from "@elysiajs/openapi";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
-import {
-	Duration,
-	Effect,
-	Layer,
-	Match,
-	MutableHashMap,
-	Option,
-	Runtime,
-	Schedule,
-} from "effect";
+import { Effect, Layer, Match, MutableHashMap, Option, Runtime } from "effect";
 import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
 import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
@@ -21,6 +12,7 @@ import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
 import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
 import { LoTechModuleService } from "./modules/lo-tech/lo-tech";
 import { EmptyModuleService, ModuleService } from "./modules/module";
+import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
@@ -60,6 +52,9 @@ export const startProxyServer = (
 				Match.when({ type: "lo-tech" }, (m) =>
 					Layer.memoize(LoTechModuleService(m)),
 				),
+				Match.when({ type: "pm-insights" }, (m) =>
+					Layer.memoize(PmInsightsModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -78,7 +73,8 @@ export const startProxyServer = (
 				route.type === "chainlink-streams" ||
 				route.type === "dxfeed" ||
 				route.type === "hydromancer" ||
-				route.type === "lo-tech"
+				route.type === "lo-tech" ||
+				route.type === "pm-insights"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {

@@ -116,6 +116,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "pm-insights" }, (pmInsightsModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling PM Insights request");
+					return yield* moduleService.handleRequest(
+						pmInsightsModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");
