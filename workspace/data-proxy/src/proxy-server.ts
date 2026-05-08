@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import node from "@elysiajs/node";
 import { openapi } from "@elysiajs/openapi";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import {
@@ -76,7 +77,9 @@ export const startProxyServer = (
 			}
 		}
 
-		const server = new Elysia()
+		const server = new Elysia({
+			adapter: node(),
+		})
 			.use(
 				openapi({
 					path: "/docs",

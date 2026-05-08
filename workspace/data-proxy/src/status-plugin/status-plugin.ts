@@ -1,9 +1,9 @@
+import { node } from "@elysiajs/node";
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Either, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
-import { effectToAsyncResult } from "../utils/effect-utils";
 import { getVersions } from "../utils/versions";
 import type { Context } from "./types";
 
@@ -18,6 +18,7 @@ export const statusPlugin = (
 
 		return (app: Elysia) => {
 			const plugin = new Elysia({
+				adapter: node(),
 				name: "status",
 			});
 
