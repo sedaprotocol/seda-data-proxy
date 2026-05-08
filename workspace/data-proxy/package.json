@@ -7,7 +7,7 @@
 		"msw": "2.3.1"
 	},
 	"dependencies": {
-		"@dxfeed/api": "^1.0.0",
+		"@dxfeed/dxlink-api": "^0.8.0",
 		"cometd-nodejs-client": "^1.0.0",
 		"@commander-js/extra-typings": "^12.1.0",
 		"@cosmjs/crypto": "^0.33.1",

@@ -17,12 +17,3 @@ export class FailedToGetPriceError extends Data.TaggedError(
 	message = `Failed to get price: ${this.error}`;
 	status = 500;
 }
-
-export class FailedToConnectDxFeedError extends Data.TaggedError(
-	"FailedToConnectDxFeedError",
-)<{
-	webSocketUrl: string;
-	timeoutMs: number;
-}> {
-	message = `dxFeed did not reach connected state within ${this.timeoutMs}ms (url: ${this.webSocketUrl})`;
-}
