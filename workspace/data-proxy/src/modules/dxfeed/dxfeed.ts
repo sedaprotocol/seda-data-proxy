@@ -217,7 +217,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						);
 					}
 
-					yield* Effect.logInfo("Handling dxFeed request", { route, params });
+					yield* Effect.logDebug("Handling dxFeed request", { route, params });
 
 					const symbols = replaceParams(route.fetchFromModule, params)
 						.split(",")
