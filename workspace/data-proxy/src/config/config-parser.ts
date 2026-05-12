@@ -22,6 +22,11 @@ import {
 	DxFeedModuleRouteSchema,
 	validateDxFeedModuleRoute,
 } from "./dxfeed-module-config";
+import {
+	type HydromancerModuleRoute,
+	HydromancerModuleRouteSchema,
+	validateHydromancerModuleRoute,
+} from "./hydromancer-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
 	type PythLazerModuleRoute,
@@ -111,6 +116,7 @@ const ConfigSchema = v.strictObject(
 				PythLazerModuleRouteSchema,
 				ChainlinkStreamsModuleRouteSchema,
 				DxFeedModuleRouteSchema,
+				HydromancerModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -143,7 +149,8 @@ export type Route =
 	| UpstreamModuleRoute
 	| PythLazerModuleRoute
 	| ChainlinkStreamsModuleRoute
-	| DxFeedModuleRoute;
+	| DxFeedModuleRoute
+	| HydromancerModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -242,6 +249,11 @@ export const parseConfig = (
 
 			if (route.type === "dxfeed") {
 				yield* validateDxFeedModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "hydromancer") {
+				yield* validateHydromancerModuleRoute(route);
 				continue;
 			}
 
@@ -429,6 +441,22 @@ export const parseConfig = (
 						return Effect.succeed({
 							...m,
 							dxfeedAuthToken,
+						} satisfies Modules);
+					}),
+					Match.when({ type: "hydromancer" }, (m) => {
+						const hydromancerApiKey = process.env[m.hydromancerApiKeyEnvKey];
+
+						if (!hydromancerApiKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.hydromancerApiKeyEnvKey} to be set`,
+							);
+						}
+
+						envSecrets.add(hydromancerApiKey);
+
+						return Effect.succeed({
+							...m,
+							hydromancerApiKey,
 						} satisfies Modules);
 					}),
 					Match.exhaustive,
