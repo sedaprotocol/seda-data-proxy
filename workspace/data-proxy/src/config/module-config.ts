@@ -3,6 +3,8 @@ import type { ChainlinkStreamsModuleConfig } from "./chainlink-streams-module-co
 import { ChainlinkStreamsModuleConfigSchema } from "./chainlink-streams-module-config";
 import type { DxFeedModuleConfig } from "./dxfeed-module-config";
 import { DxFeedModuleConfigSchema } from "./dxfeed-module-config";
+import type { HydromancerModuleConfig } from "./hydromancer-module-config";
+import { HydromancerModuleConfigSchema } from "./hydromancer-module-config";
 import type { PythLazerModuleConfig } from "./pyth-lazer-module-config";
 import { PythLazerModuleConfigSchema } from "./pyth-lazer-module-config";
 
@@ -12,6 +14,7 @@ export const ModulesSchema = v.optional(
 			PythLazerModuleConfigSchema,
 			ChainlinkStreamsModuleConfigSchema,
 			DxFeedModuleConfigSchema,
+			HydromancerModuleConfigSchema,
 		]),
 	),
 	[],
@@ -20,4 +23,5 @@ export const ModulesSchema = v.optional(
 export type Modules =
 	| PythLazerModuleConfig
 	| ChainlinkStreamsModuleConfig
-	| DxFeedModuleConfig;
+	| DxFeedModuleConfig
+	| HydromancerModuleConfig;

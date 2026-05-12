@@ -18,6 +18,7 @@ import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
 import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
+import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
 import { EmptyModuleService, ModuleService } from "./modules/module";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
@@ -52,6 +53,9 @@ export const startProxyServer = (
 				Match.when({ type: "dxfeed" }, (m) =>
 					Layer.memoize(DxFeedModuleService(m)),
 				),
+				Match.when({ type: "hydromancer" }, (m) =>
+					Layer.memoize(HydromancerModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -68,7 +72,8 @@ export const startProxyServer = (
 			if (
 				route.type === "pyth-lazer" ||
 				route.type === "chainlink-streams" ||
-				route.type === "dxfeed"
+				route.type === "dxfeed" ||
+				route.type === "hydromancer"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {
