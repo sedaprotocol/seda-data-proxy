@@ -15,6 +15,8 @@ export const PmInsightsModuleConfigSchema = v.strictObject({
 		v.pipe(v.number(), v.minValue(1)),
 		50,
 	),
+	/** How often to retry the login request if it fails. Default 5 minutes. */
+	tokenRetryIntervalMinutes: v.optional(v.pipe(v.number(), v.minValue(1)), 5),
 });
 
 export interface PmInsightsModuleConfig

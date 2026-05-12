@@ -109,7 +109,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 					return yield* Effect.fail(
 						new FailedToHandlePmInsightsRequestError({
 							error: `Login failed with status ${response.status}: ${responseBody}`,
-							status: response.status >= 500 ? 502 : 401,
+							status: 502,
 						}),
 					);
 				}
@@ -128,22 +128,6 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 				yield* Effect.logInfo("PM Insights bearer token refreshed");
 			}).pipe(Effect.provide(fetchHttpClientLayer));
 
-			const refreshLogin = Effect.gen(function* () {
-				const result = yield* Effect.either(performLogin);
-				if (result._tag === "Left") {
-					const err = result.left;
-					yield* Effect.logError(
-						"PM Insights login refresh failed; keeping previous token",
-						{
-							message:
-								err instanceof FailedToHandlePmInsightsRequestError
-									? err.message
-									: `${err}`,
-						},
-					);
-				}
-			});
-
 			yield* performLogin.pipe(Effect.orDie);
 
 			const start = () =>
@@ -152,13 +136,35 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						name: config.name,
 					});
 
+					// Set up login refresh and retry schedules
 					const refreshInterval = Duration.minutes(
 						config.tokenRefreshIntervalMinutes,
 					);
-
+					const retryInterval = Duration.minutes(
+						config.tokenRetryIntervalMinutes,
+					);
 					yield* Effect.forkDaemon(
-						refreshLogin.pipe(
+						performLogin.pipe(
 							Effect.schedule(Schedule.spaced(refreshInterval)),
+							Effect.catchAll((error) => {
+								return Effect.logError(
+									"PM Insights login refresh failed - Initiating retry",
+									{ error },
+								).pipe(
+									Effect.flatMap(() =>
+										Effect.retry(
+											performLogin.pipe(
+												Effect.tapError((error) =>
+													Effect.logError("PM Insights login retry failed", {
+														error,
+													}),
+												),
+											),
+											Schedule.spaced(retryInterval),
+										),
+									),
+								);
+							}),
 						),
 					);
 				}).pipe(Effect.annotateLogs("_name", "pm-insights"));
@@ -261,13 +267,16 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 					);
 
 					// PM Insights returns 400 for invalid credentials
-					const authFailed = response.status === 400;
-					if (authFailed) {
+					if (response.status === 400) {
 						yield* Effect.logWarning(
 							"PM Insights upstream rejected credentials; refreshing login",
 							{ status: response.status },
 						);
-						yield* refreshLogin;
+						yield* performLogin.pipe(
+							Effect.catchAll((error) =>
+								Effect.logError("PM Insights login refresh failed", { error }),
+							),
+						);
 					}
 
 					const upstreamOk = response.status >= 200 && response.status < 300;
