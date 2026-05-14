@@ -57,7 +57,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				route: Route,
 				_params: Record<string, string>,
 				_request: Request,
-				body: string,
+				body?: string,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "hydromancer") {
@@ -68,12 +68,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						);
 					}
 
-					const parsedBody = parseAssetContextRequestBody(body);
+					const parsedBody = parseAssetContextRequestBody(body ?? "");
 					if (Option.isNone(parsedBody)) {
 						return yield* Effect.fail(
 							new FailedToHandleHydromancerRequestError({
-								error:
-									"Hydromancer module only handles assetContext bodies",
+								error: "Hydromancer module only handles assetContext bodies",
 								status: 400,
 							}),
 						);

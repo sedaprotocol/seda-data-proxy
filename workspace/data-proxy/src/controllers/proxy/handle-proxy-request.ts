@@ -73,7 +73,6 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						pythLazerModuleRoute,
 						params,
 						request,
-						Option.getOrElse(body, () => ""),
 					);
 				}),
 			),
@@ -84,7 +83,6 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						chainlinkStreamsModuleRoute,
 						params,
 						request,
-						Option.getOrElse(body, () => ""),
 					);
 				}),
 			),
@@ -95,7 +93,6 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						dxFeedModuleRoute,
 						params,
 						request,
-						Option.getOrElse(body, () => ""),
 					);
 				}),
 			),
