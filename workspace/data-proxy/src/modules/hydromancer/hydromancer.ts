@@ -1,12 +1,12 @@
 import { Clock, Duration, Effect, Layer, MutableHashMap, Option } from "effect";
 import type { Route } from "../../config/config-parser";
-import type {
-	AssetCtx,
-	HydromancerModuleConfig,
+import {
+	type AssetCtx,
+	type HydromancerModuleConfig,
+	parseAssetContextRequestBody,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
-import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createAssetCache } from "./asset-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
@@ -55,8 +55,8 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 
 			const handleRequest = (
 				route: Route,
-				params: Record<string, string>,
-				_request: Request,
+				_params: Record<string, string>,
+				request: Request,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "hydromancer") {
@@ -67,7 +67,25 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						);
 					}
 
-					const coins = replaceParams(route.fetchFromModule, params).split(",");
+					const bodyText = yield* Effect.tryPromise({
+						try: () => request.clone().text(),
+						catch: () =>
+							new FailedToHandleHydromancerRequestError({
+								error: "Failed to read request body",
+								status: 400,
+							}),
+					});
+					const parsedBody = parseAssetContextRequestBody(bodyText);
+					if (Option.isNone(parsedBody)) {
+						return yield* Effect.fail(
+							new FailedToHandleHydromancerRequestError({
+								error:
+									"Hydromancer module only handles assetContext bodies",
+								status: 400,
+							}),
+						);
+					}
+					const coins = parsedBody.value.coins;
 
 					if (coins.length > config.maxCoinsPerRequest) {
 						return yield* Effect.fail(
@@ -86,7 +104,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						MutableHashMap.set(lastRequestToCoin, coin, now);
 					}
 
-					const resolved: Record<string, AssetCtx> = {};
+					// Pre-seed every requested coin to null so the response shape matches
+					// Hydromancer's native /info: a key per coin, unresolved ones stay null.
+					const resolved: Record<string, AssetCtx | null> = {};
+					for (const coin of coins) resolved[coin] = null;
+
 					const toFetch: string[] = [];
 
 					for (const coin of coins) {

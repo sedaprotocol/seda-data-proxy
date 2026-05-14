@@ -148,7 +148,9 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 					// Inject all configured headers by the data proxy node configuration
 					// Important: configured headers take precedence over headers sent in the request
-					for (const [key, value] of Object.entries(route.headers)) {
+					for (const [key, value] of Object.entries(
+						upstreamModuleRoute.headers,
+					)) {
 						upstreamHeaders.set(key, replaceParams(value, params));
 					}
 
