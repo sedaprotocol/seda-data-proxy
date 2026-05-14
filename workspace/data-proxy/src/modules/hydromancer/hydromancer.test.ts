@@ -57,11 +57,20 @@ const buildAssetContextRequest = (coins: string[]) =>
 		body: JSON.stringify({ type: "assetContext", coins }),
 	});
 
+const assetContextBody = (coins: string[]) =>
+	JSON.stringify({ type: "assetContext", coins });
+
 const callHandle = (config: HydromancerModuleConfig, coins: string[]) => {
 	const route = buildRoute();
+	const body = assetContextBody(coins);
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
-		return yield* svc.handleRequest(route, {}, buildAssetContextRequest(coins));
+		return yield* svc.handleRequest(
+			route,
+			{},
+			buildAssetContextRequest(coins),
+			body,
+		);
 	});
 	return Effect.runPromise(
 		program.pipe(Effect.provide(HydromancerModuleService(config))),
@@ -79,6 +88,7 @@ const callHandleRaw = (config: HydromancerModuleConfig, rawBody: string) => {
 				method: "POST",
 				body: rawBody,
 			}),
+			rawBody,
 		);
 	});
 	return Effect.runPromise(
@@ -102,6 +112,7 @@ const callHandleSequence = (
 				route,
 				{},
 				buildAssetContextRequest(coins),
+				assetContextBody(coins),
 			);
 			responses.push(response);
 			if (between) {
@@ -376,6 +387,7 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				route,
 				{},
 				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 		});
 
@@ -410,8 +422,18 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
-			yield* svc.handleRequest(route, {}, buildAssetContextRequest(["BTC"]));
-			yield* svc.handleRequest(route, {}, buildAssetContextRequest(["BTC"]));
+			yield* svc.handleRequest(
+				route,
+				{},
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
+			);
+			yield* svc.handleRequest(
+				route,
+				{},
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
+			);
 		});
 
 		await Effect.runPromise(
@@ -447,7 +469,12 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
-			yield* svc.handleRequest(route, {}, buildAssetContextRequest(["BTC"]));
+			yield* svc.handleRequest(
+				route,
+				{},
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
+			);
 		});
 
 		await Effect.runPromise(
@@ -513,14 +540,24 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			const route = buildRoute();
 
 			// Request 1: cache miss, REST populates BTC.
-			yield* svc.handleRequest(route, {}, buildAssetContextRequest(["BTC"]));
+			yield* svc.handleRequest(
+				route,
+				{},
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
+			);
 
 			// Drop the socket: cache.markSocketError fires, currentWS clears.
 			ws.close();
 			yield* Effect.sleep(Duration.millis(0));
 
 			// Request 2: BTC is fresh in cache but socketError forces another REST.
-			yield* svc.handleRequest(route, {}, buildAssetContextRequest(["BTC"]));
+			yield* svc.handleRequest(
+				route,
+				{},
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
+			);
 		});
 
 		await Effect.runPromise(

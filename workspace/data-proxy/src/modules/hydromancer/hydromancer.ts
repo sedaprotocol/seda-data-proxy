@@ -56,7 +56,8 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 			const handleRequest = (
 				route: Route,
 				_params: Record<string, string>,
-				request: Request,
+				_request: Request,
+				body: string,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "hydromancer") {
@@ -67,15 +68,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						);
 					}
 
-					const bodyText = yield* Effect.tryPromise({
-						try: () => request.clone().text(),
-						catch: () =>
-							new FailedToHandleHydromancerRequestError({
-								error: "Failed to read request body",
-								status: 400,
-							}),
-					});
-					const parsedBody = parseAssetContextRequestBody(bodyText);
+					const parsedBody = parseAssetContextRequestBody(body);
 					if (Option.isNone(parsedBody)) {
 						return yield* Effect.fail(
 							new FailedToHandleHydromancerRequestError({
