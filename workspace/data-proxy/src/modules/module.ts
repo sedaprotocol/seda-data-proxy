@@ -16,6 +16,7 @@ export class ModuleService extends Context.Tag("ModuleService")<
 			route: Route,
 			params: Record<string, string>,
 			request: Request,
+			body?: string,
 		) => Effect.Effect<Response, FailedToHandleRequest>;
 	}
 >() {}
@@ -29,6 +30,7 @@ export const EmptyModuleService = Layer.effect(
 				route: Route,
 				params: Record<string, string>,
 				request: Request,
+				body?: string,
 			) => Effect.succeed(new Response("Not implemented", { status: 500 })),
 		});
 	}),

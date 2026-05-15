@@ -1,3 +1,4 @@
+import { tryParseSync } from "@seda-protocol/utils";
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
 import { RouteSchema } from "./route-config";
@@ -75,14 +76,15 @@ export const HydromancerModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	type: v.literal("hydromancer"),
 	moduleName: v.string(),
-	fetchFromModule: v.string(),
 });
 
 export type HydromancerModuleRoute = v.InferOutput<
 	typeof HydromancerModuleRouteSchema
 >;
 
-export const validateHydromancerModuleRoute = (route: HydromancerModuleRoute) =>
+export const validateHydromancerModuleRoute = (
+	_route: HydromancerModuleRoute,
+) =>
 	Effect.gen(function* () {
 		return yield* Effect.void;
 	});
@@ -96,3 +98,26 @@ export const AssetCtxSchema = v.object({
 });
 
 export type AssetCtx = v.InferOutput<typeof AssetCtxSchema>;
+
+// Request body the module accepts. Anything else is rejected with 400.
+export const AssetContextRequestBodySchema = v.object({
+	type: v.literal("assetContext"),
+	coins: v.array(v.string()),
+});
+
+export type AssetContextRequestBody = v.InferOutput<
+	typeof AssetContextRequestBodySchema
+>;
+
+export const parseAssetContextRequestBody = (
+	raw: string,
+): Option.Option<AssetContextRequestBody> => {
+	let json: unknown;
+	try {
+		json = JSON.parse(raw);
+	} catch {
+		return Option.none();
+	}
+	const parsed = tryParseSync(AssetContextRequestBodySchema, json);
+	return parsed.isErr ? Option.none() : Option.some(parsed.value);
+};

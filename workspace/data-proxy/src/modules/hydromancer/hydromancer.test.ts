@@ -42,26 +42,34 @@ const ethCtx = {
 	openInterest: "192841.521",
 };
 
-const buildRoute = (fetchFromModule: string) =>
+const buildRoute = () =>
 	v.parse(HydromancerModuleRouteSchema, {
 		type: "hydromancer",
 		moduleName: "hydromancer",
-		path: "/hydromancer/:coin",
-		fetchFromModule,
+		path: "/info",
+		method: ["POST"],
 	});
 
-const callHandle = (
-	config: HydromancerModuleConfig,
-	fetchFromModule: string,
-	params: Record<string, string>,
-) => {
-	const route = buildRoute(fetchFromModule);
+const buildAssetContextRequest = (coins: string[]) =>
+	new Request("http://proxy.local/info", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ type: "assetContext", coins }),
+	});
+
+const assetContextBody = (coins: string[]) =>
+	JSON.stringify({ type: "assetContext", coins });
+
+const callHandle = (config: HydromancerModuleConfig, coins: string[]) => {
+	const route = buildRoute();
+	const body = assetContextBody(coins);
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
 		return yield* svc.handleRequest(
 			route,
-			params,
-			new Request("http://proxy.local/hydromancer/BTC"),
+			{},
+			buildAssetContextRequest(coins),
+			body,
 		);
 	});
 	return Effect.runPromise(
@@ -72,24 +80,42 @@ const callHandle = (
 	);
 };
 
-type CallSpec = { fetchFromModule: string; params: Record<string, string> };
+const callHandleRaw = (config: HydromancerModuleConfig, rawBody: string) => {
+	const route = buildRoute();
+	const program = Effect.gen(function* () {
+		const svc = yield* ModuleService;
+		return yield* svc.handleRequest(
+			route,
+			{},
+			new Request("http://proxy.local/info", {
+				method: "POST",
+				body: rawBody,
+			}),
+			rawBody,
+		);
+	});
+	return Effect.runPromise(
+		program.pipe(Effect.provide(HydromancerModuleService(config))),
+	);
+};
 
 // Runs multiple handleRequest invocations against the SAME module instance,
 // so cache state carries across calls. Returns responses in order.
 const callHandleSequence = (
 	config: HydromancerModuleConfig,
-	calls: CallSpec[],
+	calls: string[][],
 	between?: () => Promise<void>,
 ) => {
+	const route = buildRoute();
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
 		const responses: Response[] = [];
-		for (const call of calls) {
-			const route = buildRoute(call.fetchFromModule);
+		for (const coins of calls) {
 			const response = yield* svc.handleRequest(
 				route,
-				call.params,
-				new Request("http://proxy.local/hydromancer"),
+				{},
+				buildAssetContextRequest(coins),
+				assetContextBody(coins),
 			);
 			responses.push(response);
 			if (between) {
@@ -136,14 +162,14 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		);
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC,ETH", {});
+		const response = await callHandle(baseConfig, ["BTC", "ETH"]);
 		expect(response.status).toBe(200);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const body = await response.json();
 		expect(body).toEqual({ BTC: btcCtx, ETH: ethCtx });
 	});
 
-	it("filters out coins that come back null", async () => {
+	it("keeps null entries for coins that come back null", async () => {
 		globalThis.fetch = mock(
 			async () =>
 				new Response(JSON.stringify({ BTC: btcCtx, ZZZ: null }), {
@@ -151,35 +177,21 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 				}),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC,ZZZ", {});
+		const response = await callHandle(baseConfig, ["BTC", "ZZZ"]);
 		expect(response.status).toBe(200);
 		const body = await response.json();
-		expect(body).toEqual({ BTC: btcCtx });
+		expect(body).toEqual({ BTC: btcCtx, ZZZ: null });
 	});
 
-	it("returns an empty object when every coin is unknown", async () => {
+	it("returns null for every requested coin when none resolve", async () => {
 		globalThis.fetch = mock(
 			async () => new Response(JSON.stringify({ ZZZ: null }), { status: 200 }),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "ZZZ", {});
+		const response = await callHandle(baseConfig, ["ZZZ"]);
 		expect(response.status).toBe(200);
 		const body = await response.json();
-		expect(body).toEqual({});
-	});
-
-	it("substitutes path params into fetchFromModule", async () => {
-		const captured: { body?: unknown } = {};
-		globalThis.fetch = mock(
-			async (_input: URL | RequestInfo, init?: RequestInit) => {
-				captured.body = JSON.parse(init?.body as string);
-				return new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 });
-			},
-		) as unknown as typeof fetch;
-
-		const response = await callHandle(baseConfig, "{:coin}", { coin: "BTC" });
-		expect(response.status).toBe(200);
-		expect(captured.body).toEqual({ type: "assetContext", coins: ["BTC"] });
+		expect(body).toEqual({ ZZZ: null });
 	});
 
 	it("passes through a 4xx upstream status", async () => {
@@ -187,7 +199,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 			async () => new Response("Bad request", { status: 400 }),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC", {});
+		const response = await callHandle(baseConfig, ["BTC"]);
 		expect(response.status).toBe(400);
 	});
 
@@ -196,7 +208,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 			async () => new Response("internal", { status: 500 }),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC", {});
+		const response = await callHandle(baseConfig, ["BTC"]);
 		expect(response.status).toBe(502);
 	});
 
@@ -207,7 +219,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 			throw error;
 		}) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC", {});
+		const response = await callHandle(baseConfig, ["BTC"]);
 		expect(response.status).toBe(504);
 	});
 
@@ -219,7 +231,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 				}),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(baseConfig, "BTC", {});
+		const response = await callHandle(baseConfig, ["BTC"]);
 		expect(response.status).toBe(502);
 	});
 
@@ -232,8 +244,22 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 			async () => new Response("{}", { status: 200 }),
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(tightConfig, "BTC,ETH,SOL", {});
+		const response = await callHandle(tightConfig, ["BTC", "ETH", "SOL"]);
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("HydromancerModuleService.handleRequest (non-assetContext)", () => {
+	it("returns 400 for a body shape other than assetContext", async () => {
+		const fetchMock = mock(async () => new Response("{}", { status: 200 }));
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandleRaw(
+			baseConfig,
+			JSON.stringify({ type: "userState" }),
+		);
+		expect(response.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -245,10 +271,7 @@ describe("HydromancerModuleService cache behavior", () => {
 		);
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-		const [r1, r2] = await callHandleSequence(baseConfig, [
-			{ fetchFromModule: "BTC", params: {} },
-			{ fetchFromModule: "BTC", params: {} },
-		]);
+		const [r1, r2] = await callHandleSequence(baseConfig, [["BTC"], ["BTC"]]);
 
 		expect(r1.status).toBe(200);
 		expect(r2.status).toBe(200);
@@ -270,10 +293,7 @@ describe("HydromancerModuleService cache behavior", () => {
 
 		await callHandleSequence(
 			tightConfig,
-			[
-				{ fetchFromModule: "BTC", params: {} },
-				{ fetchFromModule: "BTC", params: {} },
-			],
+			[["BTC"], ["BTC"]],
 			() => new Promise((r) => setTimeout(r, 60)),
 		);
 
@@ -297,8 +317,8 @@ describe("HydromancerModuleService cache behavior", () => {
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const [r1, r2] = await callHandleSequence(baseConfig, [
-			{ fetchFromModule: "BTC", params: {} },
-			{ fetchFromModule: "BTC,ETH", params: {} },
+			["BTC"],
+			["BTC", "ETH"],
 		]);
 
 		expect(r1.status).toBe(200);
@@ -368,11 +388,12 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			const route = buildRoute("BTC");
+			const route = buildRoute();
 			return yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 		});
 
@@ -409,16 +430,18 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			const route = buildRoute("BTC");
+			const route = buildRoute();
 			yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 			yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 		});
 
@@ -457,11 +480,12 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			const route = buildRoute("BTC");
+			const route = buildRoute();
 			yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 		});
 
@@ -528,13 +552,14 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			ws.triggerOpen();
 			yield* Effect.sleep(Duration.millis(0));
 
-			const route = buildRoute("BTC");
+			const route = buildRoute();
 
 			// Request 1: cache miss, REST populates BTC.
 			yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 
 			// Drop the socket: cache.markSocketError fires, currentWS clears.
@@ -545,7 +570,8 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			yield* svc.handleRequest(
 				route,
 				{},
-				new Request("http://proxy.local/hydromancer"),
+				buildAssetContextRequest(["BTC"]),
+				assetContextBody(["BTC"]),
 			);
 		});
 
