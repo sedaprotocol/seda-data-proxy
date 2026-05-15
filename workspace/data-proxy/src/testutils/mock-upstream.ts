@@ -16,6 +16,11 @@ const handlers = [
 	http.all(`${TEST_LOCAL_PROXY_BASE}*`, () => {
 		return passthrough();
 	}),
+	http.all("https://rpc.devnet.seda.xyz/status", () => {
+		return Response.json({
+			result: { node_info: { network: "seda-1-devnet" } },
+		});
+	}),
 ];
 
 export const server = setupServer(...handlers);

@@ -4,6 +4,8 @@ import {
 	Duration,
 	Effect,
 	Fiber,
+	LogLevel,
+	Logger,
 	MutableHashMap,
 	Option,
 	TestClock,
@@ -12,7 +14,12 @@ import {
 import { forkIdleCleanup } from "./idle-cleanup";
 
 const provideTestClock = <A, E>(effect: Effect.Effect<A, E, never>) =>
-	Effect.runPromise(effect.pipe(Effect.provide(TestContext.TestContext)));
+	Effect.runPromise(
+		effect.pipe(
+			Effect.provide(TestContext.TestContext),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		),
+	);
 
 describe("forkIdleCleanup", () => {
 	it("removes an entry that has been idle past the TTL and calls onExpire once", async () => {

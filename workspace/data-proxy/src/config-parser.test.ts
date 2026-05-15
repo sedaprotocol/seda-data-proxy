@@ -3,7 +3,7 @@ import {
 	assertIsErrorResult,
 	assertIsOkResult,
 } from "@seda-protocol/utils/testing";
-import { Effect } from "effect";
+import { Effect, LogLevel, Logger } from "effect";
 import { parseConfig } from "./config/config-parser";
 
 describe("parseConfig", () => {
@@ -168,7 +168,7 @@ describe("parseConfig", () => {
 						upstreamUrl: "aaaaaa.com/{*}",
 					},
 				],
-			}),
+			}).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
 		);
 
 		expect(result).toBeOkResult();

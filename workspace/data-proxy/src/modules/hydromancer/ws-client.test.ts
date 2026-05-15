@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Duration, Effect, Fiber, Option, Schedule } from "effect";
+import {
+	Duration,
+	Effect,
+	Fiber,
+	LogLevel,
+	Logger,
+	Option,
+	Schedule,
+} from "effect";
 import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
 import { createAssetCache } from "./asset-cache";
 import {
@@ -193,7 +201,7 @@ const startService = (
 		}
 		const fiber = yield* ws.start();
 		return { cache, ws, fiber };
-	});
+	}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
 describe("createHydromancerWS", () => {
 	it("opens the WS with the token query and sends subscribe frames on open", async () => {

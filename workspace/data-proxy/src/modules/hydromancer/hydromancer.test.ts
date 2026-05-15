@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, LogLevel, Logger } from "effect";
 import * as v from "valibot";
 import {
 	type HydromancerModuleConfig,
@@ -65,7 +65,10 @@ const callHandle = (
 		);
 	});
 	return Effect.runPromise(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		),
 	);
 };
 
@@ -96,7 +99,10 @@ const callHandleSequence = (
 		return responses;
 	});
 	return Effect.runPromise(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		),
 	);
 };
 
@@ -371,7 +377,10 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		const response = await Effect.runPromise(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config)),
+				Logger.withMinimumLogLevel(LogLevel.None),
+			),
 		);
 		expect(response.status).toBe(200);
 
@@ -414,7 +423,10 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		await Effect.runPromise(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config)),
+				Logger.withMinimumLogLevel(LogLevel.None),
+			),
 		);
 
 		await flush();
@@ -454,7 +466,10 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		await Effect.runPromise(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config)),
+				Logger.withMinimumLogLevel(LogLevel.None),
+			),
 		);
 
 		await flush();
@@ -535,7 +550,10 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 		});
 
 		await Effect.runPromise(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config)),
+				Logger.withMinimumLogLevel(LogLevel.None),
+			),
 		);
 
 		expect(restCalls).toEqual([["BTC"], ["BTC"]]);
