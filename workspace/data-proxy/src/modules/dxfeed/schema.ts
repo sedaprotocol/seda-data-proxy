@@ -1,22 +1,37 @@
+import {
+	type DxFeedEventType,
+	dxfeedEventTypes,
+} from "../../config/dxfeed-module-config";
+
 export type DxFeedFullEventData = Record<string, unknown> & {
 	symbol: string;
+	type: DxFeedEventType;
 };
 
 export const extractFullEventDataFromEvent = (
 	event: unknown,
 ): DxFeedFullEventData | undefined => {
-	const record = event as Record<string, unknown>;
-	const symbol = readString(record, "eventSymbol");
-	if (symbol === undefined) {
+	if (
+		typeof event !== "object" ||
+		event === null ||
+		!("eventSymbol" in event) ||
+		!("eventType" in event)
+	) {
 		return undefined;
 	}
-	return { ...record, symbol };
+
+	const symbol = event.eventSymbol;
+	if (typeof symbol !== "string") {
+		return undefined;
+	}
+
+	const type = event.eventType;
+	if (!isDxFeedEventType(type)) {
+		return undefined;
+	}
+
+	return { ...event, symbol, type };
 };
 
-const readString = (
-	record: Record<string, unknown>,
-	key: string,
-): string | undefined => {
-	const value = record[key];
-	return typeof value === "string" ? value : undefined;
-};
+const isDxFeedEventType = (type: unknown): type is DxFeedEventType =>
+	dxfeedEventTypes.includes(type as DxFeedEventType);

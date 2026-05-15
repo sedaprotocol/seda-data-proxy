@@ -68,7 +68,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			const feed = new DXLinkFeed(client, FeedContract.AUTO);
 
 			feed.configure({
-				acceptAggregationPeriod: 10,
+				acceptAggregationPeriod: config.acceptAggregationPeriod,
 				acceptDataFormat: FeedDataFormat.FULL,
 			});
 
@@ -79,27 +79,19 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						for (const event of events) {
 							yield* Effect.logDebug("dxFeed event", event);
 
-							const priceData = extractFullEventDataFromEvent(event);
-							if (priceData === undefined) {
+							const eventData = extractFullEventDataFromEvent(event);
+							if (eventData === undefined) {
 								yield* Effect.logError(
-									"Failed to extract price data from event",
-									{
-										event,
-									},
+									"Failed to extract symbol and type from event",
+									event,
 								);
 								continue;
 							}
 
-							const eventType =
-								((event as Record<string, unknown>).eventType as string) ??
-								"Quote";
-							const key = dxfeedKey(
-								priceData.symbol,
-								eventType as DxFeedEventType,
-							);
+							const key = dxfeedKey(eventData.symbol, eventData.type);
 
 							if (MutableHashMap.has(subscriptions, key)) {
-								yield* priceCache.setPrice(key, priceData);
+								yield* priceCache.setPrice(key, eventData);
 							} else {
 								yield* Effect.logError("Received event for unsubscribed key", {
 									key,

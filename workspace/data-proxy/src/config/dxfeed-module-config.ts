@@ -26,10 +26,19 @@ const DxFeedSubscriptionSchema = v.union([
 
 export const DxFeedModuleConfigSchema = v.strictObject({
 	name: v.string(),
+	dxfeedAuthTokenEnvKey: v.optional(v.string()),
 	webSocketUrl: v.string(),
+	/**
+	 * Aggregation period in seconds.
+	 * If not specified, the channel will use the default value.
+	 * If specified as 0, the channel will try not aggregate events.
+	 */
+	acceptAggregationPeriod: v.optional(v.number()),
+	/**
+	 * Default subscriptions to be added to the feed.
+	 */
 	subscriptions: v.optional(v.array(DxFeedSubscriptionSchema), []),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
-	dxfeedAuthTokenEnvKey: v.optional(v.string()),
 	subscriptionsCleanupTtl: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
 		v.transform((ttl) =>
@@ -53,7 +62,7 @@ export const DxFeedModuleConfigSchema = v.strictObject({
 
 // DxFeedKey is a eventType-symbol composite key used to identify subscriptions.
 // Event type prefix is separated from symbol by a dash.
-export type DxFeedKey = string;
+export type DxFeedKey = `${DxFeedEventType}-${string}`;
 
 export function dxfeedKey(
 	symbol: string,
@@ -71,7 +80,7 @@ export const DxFeedModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	moduleName: v.string(),
 	fetchFromModule: v.string(),
-	eventType: v.optional(v.picklist(dxfeedEventTypes), "Quote"),
+	eventType: v.picklist(dxfeedEventTypes),
 	type: v.literal("dxfeed"),
 });
 
