@@ -2,18 +2,32 @@ import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
 import { RouteSchema } from "./route-config";
 
-export const eventFields = [
-	"askPrice",
-	"bidPrice",
-	"bidTime",
-	"askTime",
+export const dxfeedEventTypes = [
+	// Events on orders:
+	"Quote",
+	"Order",
+	"SpreadOrder",
+	// Events on transactions:
+	"Trade",
+	"TradeETH",
+	"TimeAndSale",
+	"Summary",
+	// Information about the security instrument:
+	"Profile",
 ] as const;
+export type DxFeedEventType = (typeof dxfeedEventTypes)[number];
+
+const DxFeedSubscriptionSchema = v.union([
+	v.strictObject({
+		symbol: v.string(),
+		type: v.picklist(dxfeedEventTypes),
+	}),
+]);
 
 export const DxFeedModuleConfigSchema = v.strictObject({
 	name: v.string(),
 	webSocketUrl: v.string(),
-	subscriptions: v.optional(v.array(v.string()), []),
-	eventFields: v.optional(v.array(v.picklist(eventFields)), eventFields),
+	subscriptions: v.optional(v.array(DxFeedSubscriptionSchema), []),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
 	dxfeedAuthTokenEnvKey: v.optional(v.string()),
 	subscriptionsCleanupTtl: v.pipe(
@@ -37,11 +51,16 @@ export const DxFeedModuleConfigSchema = v.strictObject({
 	type: v.literal("dxfeed"),
 });
 
-export type DxFeedModuleEventField = v.InferOutput<
-	typeof DxFeedModuleConfigSchema
->["eventFields"];
+// DxFeedKey is a eventType-symbol composite key used to identify subscriptions.
+// Event type prefix is separated from symbol by a dash.
+export type DxFeedKey = string;
 
-export type DxFeedEventField = DxFeedModuleEventField[number];
+export function dxfeedKey(
+	symbol: string,
+	eventType: DxFeedEventType,
+): DxFeedKey {
+	return `${eventType}-${symbol}`;
+}
 
 export interface DxFeedModuleConfig
 	extends v.InferOutput<typeof DxFeedModuleConfigSchema> {
@@ -52,6 +71,7 @@ export const DxFeedModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	moduleName: v.string(),
 	fetchFromModule: v.string(),
+	eventType: v.optional(v.picklist(dxfeedEventTypes), "Quote"),
 	type: v.literal("dxfeed"),
 });
 

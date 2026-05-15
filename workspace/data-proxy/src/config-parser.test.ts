@@ -266,7 +266,9 @@ describe("parseConfig", () => {
 							type: "dxfeed",
 							name: "dxfeed-demo",
 							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
-							subscriptions: ["AEX.IND:TEI"],
+							subscriptions: [
+								{ symbol: "AEX.IND:TEI", type: "Quote" },
+							],
 						},
 					],
 				}),
@@ -291,7 +293,9 @@ describe("parseConfig", () => {
 							type: "dxfeed",
 							name: "dxfeed-auth",
 							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
-							subscriptions: ["AEX.IND:TEI"],
+							subscriptions: [
+								{ symbol: "AEX.IND:TEI", type: "Quote" },
+							],
 							dxfeedAuthTokenEnvKey: "DXFEED_TOKEN",
 						},
 					],
@@ -314,7 +318,9 @@ describe("parseConfig", () => {
 							type: "dxfeed",
 							name: "dxfeed-auth",
 							webSocketUrl: "wss://demo.dxfeed.com/webservice/cometd",
-							subscriptions: ["AEX.IND:TEI"],
+							subscriptions: [
+								{ symbol: "AEX.IND:TEI", type: "Quote" },
+							],
 							dxfeedAuthTokenEnvKey: "DXFEED_TOKEN",
 						},
 					],

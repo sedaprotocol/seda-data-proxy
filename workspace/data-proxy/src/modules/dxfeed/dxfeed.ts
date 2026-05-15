@@ -17,13 +17,21 @@ import {
 	Schedule,
 } from "effect";
 import type { Route } from "../../config/config-parser";
-import type { DxFeedModuleConfig } from "../../config/dxfeed-module-config";
+import {
+	type DxFeedEventType,
+	type DxFeedKey,
+	type DxFeedModuleConfig,
+	dxfeedKey,
+} from "../../config/dxfeed-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleDxFeedRequestError } from "./errors";
-import { type DxFeedDataPrice, extractPriceDataFromEvent } from "./schema";
+import {
+	type DxFeedFullEventData,
+	extractFullEventDataFromEvent,
+} from "./schema";
 
 export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 	Layer.effect(
@@ -35,11 +43,17 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			});
 
 			const runtime = yield* Effect.runtime();
-			const priceCache = yield* createPriceCache<string, DxFeedDataPrice>();
-			const subscriptions = MutableHashMap.empty<string, number>();
-			const unsubscribeBySymbol = MutableHashMap.empty<string, () => void>();
-			const newSubscriptionRequests = yield* Queue.unbounded<string>();
-			const lastRequestToSubscription = MutableHashMap.empty<string, number>();
+			const priceCache = yield* createPriceCache<
+				DxFeedKey,
+				DxFeedFullEventData
+			>();
+			const subscriptions = MutableHashMap.empty<DxFeedKey, number>();
+			const unsubscribeByKey = MutableHashMap.empty<DxFeedKey, () => void>();
+			const newSubscriptionRequests = yield* Queue.unbounded<{
+				symbol: string;
+				eventType: DxFeedEventType;
+			}>();
+			const lastRequestByKey = MutableHashMap.empty<DxFeedKey, number>();
 
 			let subscriptionId = 0;
 
@@ -56,10 +70,6 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			feed.configure({
 				acceptAggregationPeriod: 10,
 				acceptDataFormat: FeedDataFormat.FULL,
-				acceptEventFields: {
-					// We always want the eventSymbol
-					Quote: ["eventSymbol", ...config.eventFields],
-				},
 			});
 
 			feed.addEventListener((events) => {
@@ -69,10 +79,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						for (const event of events) {
 							yield* Effect.logDebug("dxFeed event", event);
 
-							const priceData = extractPriceDataFromEvent(
-								event,
-								config.eventFields,
-							);
+							const priceData = extractFullEventDataFromEvent(event);
 							if (priceData === undefined) {
 								yield* Effect.logError(
 									"Failed to extract price data from event",
@@ -83,15 +90,20 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 								continue;
 							}
 
-							if (MutableHashMap.has(subscriptions, priceData.symbol)) {
-								yield* priceCache.setPrice(priceData.symbol, priceData);
+							const eventType =
+								((event as Record<string, unknown>).eventType as string) ??
+								"Quote";
+							const key = dxfeedKey(
+								priceData.symbol,
+								eventType as DxFeedEventType,
+							);
+
+							if (MutableHashMap.has(subscriptions, key)) {
+								yield* priceCache.setPrice(key, priceData);
 							} else {
-								yield* Effect.logError(
-									"Received event for unsubscribed symbol",
-									{
-										symbol: priceData.symbol,
-									},
-								);
+								yield* Effect.logError("Received event for unsubscribed key", {
+									key,
+								});
 							}
 						}
 					}),
@@ -102,40 +114,50 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 				Runtime.runSync(runtime, Effect.logError("dxFeed error", error));
 			});
 
-			const subscribeSymbol = (symbol: string) =>
+			const subscribeSymbol = (
+				symbol: string,
+				eventType: DxFeedEventType = "Quote",
+			) =>
 				Effect.gen(function* () {
-					if (MutableHashMap.has(unsubscribeBySymbol, symbol)) {
+					const key = dxfeedKey(symbol, eventType);
+					if (MutableHashMap.has(unsubscribeByKey, key)) {
 						return;
 					}
 
-					yield* Effect.logInfo(`Subscribing to dxFeed symbol ${symbol}`);
+					yield* Effect.logInfo(
+						`Subscribing to dxFeed symbol ${symbol} (${eventType})`,
+					);
 
 					const subscription = {
-						type: "Quote",
+						type: eventType,
 						symbol,
 					};
 
 					feed.addSubscriptions([subscription]);
 
-					MutableHashMap.set(unsubscribeBySymbol, symbol, () =>
+					MutableHashMap.set(unsubscribeByKey, key, () =>
 						feed.removeSubscriptions(subscription),
 					);
 				});
 
-			const unsubscribeSymbol = (symbol: string) => {
-				const unsub = MutableHashMap.get(unsubscribeBySymbol, symbol);
+			const unsubscribeByCompositeKey = (key: string) => {
+				const unsub = MutableHashMap.get(unsubscribeByKey, key);
 
 				if (Option.isSome(unsub)) {
 					unsub.value();
-					MutableHashMap.remove(unsubscribeBySymbol, symbol);
-					MutableHashMap.remove(subscriptions, symbol);
+					MutableHashMap.remove(unsubscribeByKey, key);
+					MutableHashMap.remove(subscriptions, key);
 				}
 			};
 
-			for (const symbol of config.subscriptions) {
+			for (const sub of config.subscriptions) {
+				const symbol = sub.symbol;
+				const eventType = sub.type;
+
+				const key = dxfeedKey(symbol, eventType);
 				const newSubscriptionId = subscriptionId++;
-				MutableHashMap.set(subscriptions, symbol, newSubscriptionId);
-				yield* subscribeSymbol(symbol);
+				MutableHashMap.set(subscriptions, key, newSubscriptionId);
+				yield* subscribeSymbol(symbol, eventType);
 			}
 
 			const start = () =>
@@ -145,19 +167,20 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 					// Subscribe to new symbols as they are requested
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
-							const newSymbol = yield* newSubscriptionRequests.take;
+							const { symbol, eventType } = yield* newSubscriptionRequests.take;
+							const key = dxfeedKey(symbol, eventType);
 
 							yield* Effect.logInfo(
-								`Subscribing to dxFeed symbol ${newSymbol}`,
+								`Subscribing to dxFeed symbol ${symbol} (${eventType})`,
 							);
 
 							const newSubscriptionId = subscriptionId++;
-							MutableHashMap.set(subscriptions, newSymbol, newSubscriptionId);
+							MutableHashMap.set(subscriptions, key, newSubscriptionId);
 
 							const now = yield* Clock.currentTimeMillis;
-							MutableHashMap.set(lastRequestToSubscription, newSymbol, now);
+							MutableHashMap.set(lastRequestByKey, key, now);
 
-							yield* subscribeSymbol(newSymbol);
+							yield* subscribeSymbol(symbol, eventType);
 						}).pipe(Effect.forever),
 					);
 
@@ -169,29 +192,26 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 								`Cleaning up dxFeed subscriptions (running ${priceCache.size()})`,
 							);
 
-							for (const [
-								symbol,
-								lastRequestTimestamp,
-							] of lastRequestToSubscription) {
+							for (const [key, lastRequestTimestamp] of lastRequestByKey) {
 								const cleanupInterval = Duration.toMillis(
 									config.subscriptionsCleanupTtl,
 								);
 								const timeSinceLastRequest = now - lastRequestTimestamp;
 
 								yield* Effect.logDebug(
-									`Time since last request for dxFeed ${symbol}: ${Duration.format(Duration.decode(timeSinceLastRequest))}`,
+									`Time since last request for dxFeed ${key}: ${Duration.format(Duration.decode(timeSinceLastRequest))}`,
 								);
 
 								if (timeSinceLastRequest > cleanupInterval) {
 									yield* Effect.logInfo(
-										`Cleaning up dxFeed subscription ${symbol}`,
+										`Cleaning up dxFeed subscription ${key}`,
 									);
-									MutableHashMap.remove(lastRequestToSubscription, symbol);
-									yield* priceCache.deletePrice(symbol);
+									MutableHashMap.remove(lastRequestByKey, key);
+									yield* priceCache.deletePrice(key);
 
-									const id = MutableHashMap.get(subscriptions, symbol);
+									const id = MutableHashMap.get(subscriptions, key);
 									if (Option.isSome(id)) {
-										unsubscribeSymbol(symbol);
+										unsubscribeByCompositeKey(key);
 									}
 								}
 							}
@@ -219,6 +239,9 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 
 					yield* Effect.logDebug("Handling dxFeed request", { route, params });
 
+					const eventType: DxFeedEventType =
+						route.type === "dxfeed" ? (route.eventType ?? "Quote") : "Quote";
+
 					const symbols = replaceParams(route.fetchFromModule, params)
 						.split(",")
 						.map((s) => s.trim())
@@ -235,23 +258,24 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						);
 					}
 
-					const prices: DxFeedDataPrice[] = [];
+					const prices: DxFeedFullEventData[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
 					for (const symbol of symbols) {
+						const key = dxfeedKey(symbol, eventType);
 						const lastRequestTimestamp = MutableHashMap.get(
-							lastRequestToSubscription,
-							symbol,
+							lastRequestByKey,
+							key,
 						);
 						if (Option.isNone(lastRequestTimestamp)) {
-							yield* newSubscriptionRequests.offer(symbol);
+							yield* newSubscriptionRequests.offer({ symbol, eventType });
 						}
-						MutableHashMap.set(lastRequestToSubscription, symbol, now);
+						MutableHashMap.set(lastRequestByKey, key, now);
 
-						const price = yield* priceCache.getOrWaitPrice(symbol).pipe(
+						const price = yield* priceCache.getOrWaitPrice(key).pipe(
 							Effect.catchTag("FailedToGetPriceError", (error) =>
 								Effect.gen(function* () {
-									yield* priceCache.deletePrice(symbol);
+									yield* priceCache.deletePrice(key);
 									return yield* Effect.fail(error);
 								}),
 							),
