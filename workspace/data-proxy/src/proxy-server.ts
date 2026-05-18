@@ -6,7 +6,7 @@ import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Layer, Match, MutableHashMap, Option, Runtime } from "effect";
 import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
-import { DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
+import { DATA_PROXY_ID, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
 import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
@@ -30,6 +30,7 @@ export const startProxyServer = (
 	serverOptions: ProxyServerOptions,
 ) =>
 	Effect.gen(function* () {
+		const serviceName = yield* DATA_PROXY_ID;
 		const runtime = yield* Effect.runtime<HttpClientService>();
 		const modules = MutableHashMap.empty<
 			string,
@@ -93,7 +94,7 @@ export const startProxyServer = (
 					path: "/docs",
 				}),
 			)
-			.use(opentelemetry())
+			.use(opentelemetry({ serviceName }))
 			// Assign a unique ID to every request
 			.derive(() => {
 				return {
