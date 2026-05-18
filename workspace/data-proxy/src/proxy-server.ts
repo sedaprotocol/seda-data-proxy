@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { opentelemetry } from "@elysia/opentelemetry";
 import node from "@elysiajs/node";
 import { openapi } from "@elysiajs/openapi";
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
@@ -16,6 +17,7 @@ import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
+import { withIncomingTrace } from "./utils/with-incoming-trace";
 
 export interface ProxyServerOptions {
 	port: number;
@@ -91,6 +93,7 @@ export const startProxyServer = (
 					path: "/docs",
 				}),
 			)
+			.use(opentelemetry())
 			// Assign a unique ID to every request
 			.derive(() => {
 				return {
@@ -170,8 +173,13 @@ export const startProxyServer = (
 					app.route(
 						routeMethod,
 						route.path,
-						async ({ headers, params, body, path, requestId, request }) =>
-							Runtime.runPromise(
+						async ({ headers, params, body, path, requestId, request }) => {
+							const annotations = {
+								requestId,
+								method: request.method,
+								path,
+							};
+							return Runtime.runPromise(
 								runtime,
 								Effect.gen(function* () {
 									// requestBody is now always a string because of the parse function in this route
@@ -196,11 +204,12 @@ export const startProxyServer = (
 										dataProxy,
 									}).pipe(Effect.provide(moduleLayer));
 								}).pipe(
-									Effect.annotateLogs("requestId", requestId),
-									Effect.annotateLogs("method", request.method),
-									Effect.annotateLogs("path", path),
+									withIncomingTrace,
+									Effect.annotateLogs(annotations),
+									Effect.annotateSpans(annotations),
 								),
-							),
+							);
+						},
 						{
 							config: {},
 							parse: ({ request }) => {

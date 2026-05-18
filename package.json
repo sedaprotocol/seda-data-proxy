@@ -17,7 +17,10 @@
 	},
 	"workspaces": ["workspace/*"],
 	"overrides": {
-		"effect": "3.19.19"
+		"effect": "3.19.19",
+		"@opentelemetry/core": "2.5.1",
+		"@opentelemetry/resources": "2.5.1",
+		"@opentelemetry/sdk-metrics": "2.5.1"
 	},
 	"peerDependencies": {
 		"typescript": "^5.8.3"

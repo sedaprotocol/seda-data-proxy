@@ -1,7 +1,7 @@
 {
 	"name": "@seda-protocol/data-proxy",
 	"main": "./src/index.ts",
-	"version": "2.6.0",
+	"version": "2.7.0",
 	"devDependencies": {
 		"@types/big.js": "^6.2.2",
 		"@types/ws": "^8.18.1",
@@ -16,7 +16,9 @@
 		"@dotenvx/dotenvx": "^1.51.4",
 		"@effect/platform": "^0.94.5",
 		"@effect/platform-node": "^0.104.1",
+		"@effect/opentelemetry": "0.63.0",
 		"@elysiajs/openapi": "^1.4.14",
+		"@elysia/opentelemetry": "1.4.12",
 		"@pythnetwork/pyth-lazer-sdk": "^6.2.1",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/rotating-file-logger": "2.1.0",
