@@ -69,24 +69,13 @@ export const statusPlugin = (
 					),
 				);
 
-				group.get("info", async () =>
-					Runtime.runPromise(
-						runtime,
-						Effect.gen(function* () {
-							const chainId = yield* Effect.either(
-								getRpcChainId(dataProxy.options.rpcUrl),
-							);
-
-							return Response.json({
-								pubKey: context.getPublicKey(),
-								fastConfig: context.getFastConfig(),
-								version: getVersions().proxy,
-								chainId: dataProxy.options.chainId,
-								rpcChainId: Either.isRight(chainId) ? chainId.right : null,
-							});
-						}),
-					),
-				);
+				group.get("info", async () => {
+					return Response.json({
+						pubKey: context.getPublicKey(),
+						fastConfig: context.getFastConfig(),
+						version: getVersions().proxy,
+					});
+				});
 
 				return group;
 			});
