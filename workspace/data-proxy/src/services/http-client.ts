@@ -22,13 +22,13 @@ export class HttpClientService extends Effect.Service<HttpClientService>()(
 					});
 
 					return upstreamResponse;
-				}).pipe(Effect.withSpan("executeHttp"));
+				}).pipe(Effect.withSpan("HttpClientService.request"));
 
 			const parseBodyAsText = (response: Response) =>
 				Effect.tryPromise({
 					try: async () => response.text(),
 					catch: (error) => new FailedToParseResponseBodyError({ error }),
-				});
+				}).pipe(Effect.withSpan("HttpClientService.parseBodyAsText"));
 
 			return { request, parseBodyAsText };
 		}),

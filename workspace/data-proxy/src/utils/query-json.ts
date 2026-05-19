@@ -49,4 +49,4 @@ export const queryJson = (
 		}
 
 		return yield* Effect.succeed(data[0] as unknown);
-	});
+	}).pipe(Effect.withSpan("queryJson", { attributes: { path } }));

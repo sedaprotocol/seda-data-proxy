@@ -199,28 +199,29 @@ export class DataProxy {
 	 *
 	 * @param data
 	 */
-	signData(
+	signData = (
 		requestUrl: string,
 		requestMethod: string,
 		requestBody: Buffer,
 		responseBody: Buffer,
-	) {
-		const signResult = this.hashAndSign(
-			this.generateMessage(
-				requestUrl,
-				requestMethod,
-				requestBody,
-				responseBody,
-			),
-		);
+	) =>
+		Effect.gen(this, function* () {
+			const signResult = this.hashAndSign(
+				this.generateMessage(
+					requestUrl,
+					requestMethod,
+					requestBody,
+					responseBody,
+				),
+			);
 
-		return Effect.succeed({
-			publicKey: this.publicKey.toString("hex"),
-			signature: Buffer.from(signResult.signature).toString("hex"),
-			recId: signResult.recid,
-			version: this.version,
-		});
-	}
+			return yield* Effect.succeed({
+				publicKey: this.publicKey.toString("hex"),
+				signature: Buffer.from(signResult.signature).toString("hex"),
+				recId: signResult.recid,
+				version: this.version,
+			});
+		}).pipe(Effect.withSpan("DataProxy.signData"));
 
 	generateMessage(
 		requestUrl: string,

@@ -269,6 +269,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				route.jsonPath,
 				route.useLegacyJsonPath,
 			).pipe(
+				Effect.annotateSpans("type", "route-config"),
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
@@ -300,6 +301,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 				jsonPathRequestHeader.value,
 				route.useLegacyJsonPath,
 			).pipe(
+				Effect.annotateSpans("type", "request-header"),
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
