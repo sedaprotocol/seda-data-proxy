@@ -83,4 +83,6 @@ export const fetchAssetContextsFromRest = (
 		}
 
 		return validated.value;
-	});
+	}).pipe(
+		Effect.withSpan("fetchAssetContextsFromRest", { attributes: { coins } }),
+	);

@@ -33,5 +33,5 @@ export const getPriceIdBySymbol = (symbol: string, client: PythLazerClient) => {
 		}
 
 		return yield* Effect.succeed(priceFeedId.value);
-	});
+	}).pipe(Effect.withSpan("getPriceIdBySymbol", { attributes: { symbol } }));
 };

@@ -86,7 +86,9 @@ export const createPriceCache = <K, V>() =>
 							}),
 					}),
 				);
-			});
+			}).pipe(
+				Effect.withSpan("priceCache.getOrWaitPrice", { attributes: { key } }),
+			);
 
 		const deletePrice = (key: K) => {
 			MutableHashMap.remove(priceCache, key);
