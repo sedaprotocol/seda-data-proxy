@@ -17,7 +17,7 @@ export const fetchAssetContextsFromRest = (
 ): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> =>
 	Effect.gen(function* () {
 		const url = new URL("/info", config.restBaseUrl);
-		const timeoutMs = Duration.toMillis(config.restFetchTimeout);
+		const timeoutMs = Duration.toMillis(config.assetCtxRestFetchTimeout);
 
 		const response = yield* Effect.tryPromise({
 			try: () =>

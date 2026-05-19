@@ -9,17 +9,17 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 	wsUrl: v.string(),
 	restBaseUrl: v.string(),
 	hydromancerApiKeyEnvKey: v.string(),
-	staleAfter: v.pipe(
+	assetCtxStaleAfter: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "10 seconds"),
 		v.transform((value) =>
 			Option.getOrThrowWith(
 				Duration.decodeUnknown(value),
-				() => new Error("Invalid staleAfter duration"),
+				() => new Error("Invalid assetCtxStaleAfter duration"),
 			),
 		),
 	),
-	subscriptionCoins: v.optional(v.array(v.string()), []),
-	maxCoinsPerRequest: v.optional(v.number(), 20),
+	assetCtxSubscriptionCoins: v.optional(v.array(v.string()), []),
+	assetCtxMaxCoinsPerRequest: v.optional(v.number(), 20),
 	reconnectMaxBackoff: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
 		v.transform((value) =>
@@ -38,7 +38,7 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	coinsCleanupTtl: v.pipe(
+	assetCtxCleanupTtl: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
 		v.transform((ttl) =>
 			Option.getOrThrowWith(
@@ -47,7 +47,7 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	coinsCleanupInterval: v.pipe(
+	assetCtxCleanupInterval: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
 		v.transform((interval) =>
 			Option.getOrThrowWith(
@@ -56,12 +56,42 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	restFetchTimeout: v.pipe(
+	assetCtxRestFetchTimeout: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "15 seconds"),
 		v.transform((value) =>
 			Option.getOrThrowWith(
 				Duration.decodeUnknown(value),
-				() => new Error("Invalid restFetchTimeout duration"),
+				() => new Error("Invalid assetCtxRestFetchTimeout duration"),
+			),
+		),
+	),
+	l2BookSubscriptionCoins: v.optional(v.array(v.string()), []),
+	l2BookMaxCoinsPerRequest: v.optional(v.number(), 20),
+	l2BookNSigFigs: v.optional(v.number()),
+	l2BookWaitTimeout: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "1 second"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookWaitTimeout duration"),
+			),
+		),
+	),
+	l2BookCleanupTtl: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookCleanupTtl duration"),
+			),
+		),
+	),
+	l2BookCleanupInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookCleanupInterval duration"),
 			),
 		),
 	),
@@ -120,4 +150,51 @@ export const parseAssetContextRequestBody = (
 	}
 	const parsed = tryParseSync(AssetContextRequestBodySchema, json);
 	return parsed.isErr ? Option.none() : Option.some(parsed.value);
+};
+
+export const BookLevelSchema = v.object({
+	px: v.string(),
+	sz: v.string(),
+	n: v.number(),
+});
+
+export type BookLevel = v.InferOutput<typeof BookLevelSchema>;
+
+export const BookSnapshotSchema = v.object({
+	coin: v.string(),
+	levels: v.tuple([v.array(BookLevelSchema), v.array(BookLevelSchema)]),
+	time: v.number(),
+});
+
+export type BookSnapshot = v.InferOutput<typeof BookSnapshotSchema>;
+
+export const L2BookRequestBodySchema = v.object({
+	type: v.literal("l2Book"),
+	coins: v.array(v.string()),
+});
+
+export type L2BookRequestBody = v.InferOutput<typeof L2BookRequestBodySchema>;
+
+export type ParsedHydromancerBody =
+	| { kind: "assetContext"; body: AssetContextRequestBody }
+	| { kind: "l2Book"; body: L2BookRequestBody };
+
+export const parseHydromancerBody = (
+	raw: string,
+): Option.Option<ParsedHydromancerBody> => {
+	let json: unknown;
+	try {
+		json = JSON.parse(raw);
+	} catch {
+		return Option.none();
+	}
+	const assetCtx = tryParseSync(AssetContextRequestBodySchema, json);
+	if (!assetCtx.isErr) {
+		return Option.some({ kind: "assetContext", body: assetCtx.value });
+	}
+	const book = tryParseSync(L2BookRequestBodySchema, json);
+	if (!book.isErr) {
+		return Option.some({ kind: "l2Book", body: book.value });
+	}
+	return Option.none();
 };

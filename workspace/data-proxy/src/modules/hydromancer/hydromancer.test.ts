@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Duration, Effect } from "effect";
 import * as v from "valibot";
 import {
+	type BookSnapshot,
 	type HydromancerModuleConfig,
 	HydromancerModuleRouteSchema,
 } from "../../config/hydromancer-module-config";
@@ -16,14 +17,19 @@ const baseConfig: HydromancerModuleConfig = {
 	restBaseUrl: "https://api.hydromancer.test",
 	hydromancerApiKeyEnvKey: "HYDROMANCER_API_KEY",
 	hydromancerApiKey: "test-api-key",
-	staleAfter: Duration.seconds(10),
-	subscriptionCoins: [],
-	maxCoinsPerRequest: 20,
+	assetCtxStaleAfter: Duration.seconds(10),
+	assetCtxSubscriptionCoins: [],
+	assetCtxMaxCoinsPerRequest: 20,
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
-	coinsCleanupTtl: Duration.minutes(2),
-	coinsCleanupInterval: Duration.seconds(30),
-	restFetchTimeout: Duration.seconds(15),
+	assetCtxCleanupTtl: Duration.minutes(2),
+	assetCtxCleanupInterval: Duration.seconds(30),
+	assetCtxRestFetchTimeout: Duration.seconds(15),
+	l2BookSubscriptionCoins: [],
+	l2BookMaxCoinsPerRequest: 20,
+	l2BookWaitTimeout: Duration.seconds(1),
+	l2BookCleanupTtl: Duration.minutes(2),
+	l2BookCleanupInterval: Duration.seconds(30),
 };
 
 const btcCtx = {
@@ -41,6 +47,25 @@ const ethCtx = {
 	impactPxs: ["3449", "3450"],
 	openInterest: "192841.521",
 };
+
+const btcSnapshot: BookSnapshot = {
+	coin: "BTC",
+	levels: [
+		[{ px: "96000", sz: "1.5", n: 3 }],
+		[{ px: "96100", sz: "2.0", n: 5 }],
+	],
+	time: 1700000000000,
+};
+
+const buildL2BookRequest = (coins: string[]) =>
+	new Request("http://proxy.local/info", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ type: "l2Book", coins }),
+	});
+
+const l2BookBody = (coins: string[]) =>
+	JSON.stringify({ type: "l2Book", coins });
 
 const buildRoute = () =>
 	v.parse(HydromancerModuleRouteSchema, {
@@ -229,10 +254,10 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(502);
 	});
 
-	it("rejects when more coins than maxCoinsPerRequest are requested", async () => {
+	it("rejects when more coins than assetCtxMaxCoinsPerRequest are requested", async () => {
 		const tightConfig: HydromancerModuleConfig = {
 			...baseConfig,
-			maxCoinsPerRequest: 2,
+			assetCtxMaxCoinsPerRequest: 2,
 		};
 		globalThis.fetch = mock(
 			async () => new Response("{}", { status: 200 }),
@@ -274,10 +299,10 @@ describe("HydromancerModuleService cache behavior", () => {
 		expect(await r2.json()).toEqual({ BTC: btcCtx });
 	});
 
-	it("refetches via REST once the entry is older than staleAfter", async () => {
+	it("refetches via REST once the entry is older than assetCtxStaleAfter", async () => {
 		const tightConfig: HydromancerModuleConfig = {
 			...baseConfig,
-			staleAfter: Duration.millis(20),
+			assetCtxStaleAfter: Duration.millis(20),
 		};
 		const fetchMock = mock(
 			async () =>
@@ -352,6 +377,10 @@ class FakeWebSocket extends EventTarget {
 		this.readyState = FakeWebSocket.OPEN;
 		this.dispatchEvent(new Event("open"));
 	}
+
+	triggerMessage(data: string): void {
+		this.dispatchEvent(new MessageEvent("message", { data }));
+	}
 }
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -376,7 +405,7 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
-			subscriptionCoins: [],
+			assetCtxSubscriptionCoins: [],
 		};
 
 		const program = Effect.gen(function* () {
@@ -404,7 +433,7 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		ws.triggerOpen();
 		await flush();
 
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 	});
 
 	it("does not enqueue a coin a second time on a repeat handleRequest", async () => {
@@ -415,7 +444,7 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
-			subscriptionCoins: [],
+			assetCtxSubscriptionCoins: [],
 		};
 
 		const program = Effect.gen(function* () {
@@ -447,10 +476,10 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		await flush();
 
 		// Only one subscribe frame, even though handleRequest was called twice.
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 	});
 
-	it("unsubscribes a coin once it has been idle past coinsCleanupTtl", async () => {
+	it("unsubscribes a coin once it has been idle past assetCtxCleanupTtl", async () => {
 		globalThis.fetch = mock(
 			async () =>
 				new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 }),
@@ -458,11 +487,11 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
-			subscriptionCoins: [],
+			assetCtxSubscriptionCoins: [],
 			// TTL must be long enough that the cleanup pass cannot fire before the
 			// WS is opened by the test setup; interval is short to keep the test fast.
-			coinsCleanupTtl: Duration.millis(150),
-			coinsCleanupInterval: Duration.millis(20),
+			assetCtxCleanupTtl: Duration.millis(150),
+			assetCtxCleanupInterval: Duration.millis(20),
 		};
 
 		const program = Effect.gen(function* () {
@@ -487,14 +516,14 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		ws.triggerOpen();
 		await flush();
 
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 
 		// Wait past TTL + at least one cleanup tick.
 		await new Promise<void>((r) => setTimeout(r, 250));
 
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildUnsubscribeFrame("BTC"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildUnsubscribeFrame("activeAssetCtx", "BTC"),
 		]);
 	});
 });
@@ -523,7 +552,7 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
-			subscriptionCoins: [],
+			assetCtxSubscriptionCoins: [],
 		};
 
 		const program = Effect.gen(function* () {
@@ -566,4 +595,157 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 
 		expect(restCalls).toEqual([["BTC"], ["BTC"]]);
 	});
+});
+
+describe("HydromancerModuleService l2Book flow", () => {
+	const originalWebSocket = globalThis.WebSocket;
+
+	beforeEach(() => {
+		FakeWebSocket.instances = [];
+		globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	});
+
+	afterEach(() => {
+		globalThis.WebSocket = originalWebSocket;
+	});
+
+	it("returns the seeded snapshot for a pre-subscribed coin", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			l2BookSubscriptionCoins: ["BTC"],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			ws.triggerMessage(
+				JSON.stringify({ channel: "l2Book", data: btcSnapshot }),
+			);
+			yield* Effect.sleep(Duration.millis(0));
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildL2BookRequest(["BTC"]),
+				l2BookBody(["BTC"]),
+			);
+		});
+
+		const response = await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ BTC: btcSnapshot });
+	});
+
+	it("returns null for an unseeded coin once l2BookWaitTimeout elapses", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			l2BookSubscriptionCoins: [],
+			l2BookWaitTimeout: Duration.millis(50),
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildL2BookRequest(["BTC"]),
+				l2BookBody(["BTC"]),
+			);
+		});
+
+		const response = await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ BTC: null });
+	});
+
+	it("returns a mixed batch of seeded snapshot and null on the same call", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			l2BookSubscriptionCoins: ["BTC", "ETH"],
+			l2BookWaitTimeout: Duration.millis(50),
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			ws.triggerMessage(
+				JSON.stringify({ channel: "l2Book", data: btcSnapshot }),
+			);
+			yield* Effect.sleep(Duration.millis(0));
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildL2BookRequest(["BTC", "ETH"]),
+				l2BookBody(["BTC", "ETH"]),
+			);
+		});
+
+		const response = await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ BTC: btcSnapshot, ETH: null });
+	});
+
+	it("rejects an l2Book batch larger than l2BookMaxCoinsPerRequest", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			l2BookMaxCoinsPerRequest: 1,
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildL2BookRequest(["BTC", "ETH"]),
+				l2BookBody(["BTC", "ETH"]),
+			);
+		});
+
+		const response = await Effect.runPromise(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(400);
+	});
+
 });

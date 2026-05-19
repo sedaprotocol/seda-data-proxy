@@ -2,12 +2,14 @@ import { Clock, Duration, Effect, Layer, MutableHashMap, Option } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	type AssetCtx,
+	type BookSnapshot,
 	type HydromancerModuleConfig,
-	parseAssetContextRequestBody,
+	parseHydromancerBody,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { createPriceCache } from "../shared/price-cache";
 import { createAssetCache } from "./asset-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
 import { fetchAssetContextsFromRest } from "./rest-fallback";
@@ -24,9 +26,13 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 			});
 
 			const cache = yield* createAssetCache();
-			const ws = yield* createHydromancerWS(config, cache);
-			const staleAfterMillis = Duration.toMillis(config.staleAfter);
+			const bookCache = yield* createPriceCache<string, BookSnapshot>({
+				timeout: config.l2BookWaitTimeout,
+			});
+			const ws = yield* createHydromancerWS(config, cache, bookCache);
+			const assetCtxStaleAfterMillis = Duration.toMillis(config.assetCtxStaleAfter);
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();
+			const lastRequestToBookCoin = MutableHashMap.empty<string, number>();
 
 			const start = () =>
 				Effect.gen(function* () {
@@ -36,53 +42,44 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 
 					yield* ws.start();
 
-					for (const coin of config.subscriptionCoins) {
-						yield* ws.subscribe(coin);
+					for (const coin of config.assetCtxSubscriptionCoins) {
+						yield* ws.subscribeAssetCtx(coin);
+					}
+					for (const coin of config.l2BookSubscriptionCoins) {
+						yield* ws.subscribeBook(coin);
 					}
 
 					yield* forkIdleCleanup({
 						lastRequest: lastRequestToCoin,
-						ttl: config.coinsCleanupTtl,
-						interval: config.coinsCleanupInterval,
+						ttl: config.assetCtxCleanupTtl,
+						interval: config.assetCtxCleanupInterval,
 						onExpire: (coin) =>
 							Effect.gen(function* () {
 								yield* Effect.logInfo("Cleaning up idle coin", { coin });
 								yield* cache.remove(coin);
-								yield* ws.unsubscribe(coin);
+								yield* ws.unsubscribeAssetCtx(coin);
+							}),
+					});
+
+					yield* forkIdleCleanup({
+						lastRequest: lastRequestToBookCoin,
+						ttl: config.l2BookCleanupTtl,
+						interval: config.l2BookCleanupInterval,
+						onExpire: (coin) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Cleaning up idle book coin", { coin });
+								yield* bookCache.deletePrice(coin);
+								yield* ws.unsubscribeBook(coin);
 							}),
 					});
 				}).pipe(Effect.annotateLogs("_name", "hydromancer"));
 
-			const handleRequest = (
-				route: Route,
-				_params: Record<string, string>,
-				_request: Request,
-				body?: string,
-			) =>
+			const handleAssetContextRequest = (coins: string[]) =>
 				Effect.gen(function* () {
-					if (route.type !== "hydromancer") {
-						return yield* Effect.fail(
-							new FailedToHandleRequest({
-								msg: "Route is not a Hydromancer module",
-							}),
-						);
-					}
-
-					const parsedBody = parseAssetContextRequestBody(body ?? "");
-					if (Option.isNone(parsedBody)) {
+					if (coins.length > config.assetCtxMaxCoinsPerRequest) {
 						return yield* Effect.fail(
 							new FailedToHandleHydromancerRequestError({
-								error: "Hydromancer module only handles assetContext bodies",
-								status: 400,
-							}),
-						);
-					}
-					const coins = parsedBody.value.coins;
-
-					if (coins.length > config.maxCoinsPerRequest) {
-						return yield* Effect.fail(
-							new FailedToHandleHydromancerRequestError({
-								error: `Too many coins, max is ${config.maxCoinsPerRequest} but got ${coins.length}`,
+								error: `Too many coins, max is ${config.assetCtxMaxCoinsPerRequest} but got ${coins.length}`,
 								status: 400,
 							}),
 						);
@@ -92,7 +89,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					const socketHealthy = !(yield* ws.hasError());
 
 					for (const coin of coins) {
-						yield* ws.subscribe(coin);
+						yield* ws.subscribeAssetCtx(coin);
 						MutableHashMap.set(lastRequestToCoin, coin, now);
 					}
 
@@ -106,7 +103,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					for (const coin of coins) {
 						if (
 							socketHealthy &&
-							(yield* cache.isFresh(coin, staleAfterMillis, now))
+							(yield* cache.isFresh(coin, assetCtxStaleAfterMillis, now))
 						) {
 							const entry = yield* cache.get(coin);
 							if (Option.isSome(entry)) {
@@ -135,6 +132,73 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						status: 200,
 						headers: { "Content-Type": "application/json" },
 					});
+				});
+
+			const handleL2BookRequest = (coins: string[]) =>
+				Effect.gen(function* () {
+					if (coins.length > config.l2BookMaxCoinsPerRequest) {
+						return yield* Effect.fail(
+							new FailedToHandleHydromancerRequestError({
+								error: `Too many coins, max is ${config.l2BookMaxCoinsPerRequest} but got ${coins.length}`,
+								status: 400,
+							}),
+						);
+					}
+
+					const now = yield* Clock.currentTimeMillis;
+
+					for (const coin of coins) {
+						yield* ws.subscribeBook(coin);
+						MutableHashMap.set(lastRequestToBookCoin, coin, now);
+					}
+
+					const resolved: Record<string, BookSnapshot | null> = {};
+					for (const coin of coins) resolved[coin] = null;
+
+					for (const coin of coins) {
+						resolved[coin] = yield* bookCache.getOrWaitPrice(coin).pipe(
+							Effect.catchTag("FailedToGetPriceError", () =>
+								Effect.succeed(null),
+							),
+						);
+					}
+
+					return new Response(JSON.stringify(resolved), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				});
+
+			const handleRequest = (
+				route: Route,
+				_params: Record<string, string>,
+				_request: Request,
+				body?: string,
+			) =>
+				Effect.gen(function* () {
+					if (route.type !== "hydromancer") {
+						return yield* Effect.fail(
+							new FailedToHandleRequest({
+								msg: "Route is not a Hydromancer module",
+							}),
+						);
+					}
+
+					const parsed = parseHydromancerBody(body ?? "");
+					if (Option.isNone(parsed)) {
+						return yield* Effect.fail(
+							new FailedToHandleHydromancerRequestError({
+								error:
+									"Hydromancer module only handles assetContext or l2Book bodies",
+								status: 400,
+							}),
+						);
+					}
+
+					if (parsed.value.kind === "l2Book") {
+						return yield* handleL2BookRequest(parsed.value.body.coins);
+					}
+					return yield* handleAssetContextRequest(parsed.value.body.coins);
 				}).pipe(
 					Effect.withSpan("handleHydromancerRequest"),
 					Effect.catchAll((error) =>
