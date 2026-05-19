@@ -22,7 +22,7 @@
 		"@pythnetwork/pyth-lazer-sdk": "^6.2.1",
 		"@seda-protocol/data-proxy-sdk": "workspace:*",
 		"@seda-protocol/rotating-file-logger": "2.1.0",
-		"@seda-protocol/telemetry": "1.1.0",
+		"@seda-protocol/telemetry": "2.0.0",
 		"@seda-protocol/utils": "^2.0.0",
 		"big.js": "7.0.1",
 		"chalk": "^5.3.0",
