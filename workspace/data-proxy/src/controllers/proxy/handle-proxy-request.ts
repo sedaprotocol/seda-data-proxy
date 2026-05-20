@@ -372,6 +372,15 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 		Effect.withSpan("handleProxyRequest"),
 		Effect.tapError((error) =>
 			Effect.gen(function* () {
+				// We don't want to log errors for 4xx status codes
+				if (
+					error._tag === "NotOkUpstreamResponseError" &&
+					error.status >= 400 &&
+					error.status < 500
+				) {
+					return;
+				}
+
 				const { message, ...errorRest } = error as unknown as {
 					message: string;
 				} & Record<string, unknown>;
