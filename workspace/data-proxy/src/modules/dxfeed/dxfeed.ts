@@ -281,7 +281,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 				}).pipe(
 					Effect.withSpan("handleDxFeedRequest"),
 					Effect.catchAll((error) => {
-						return Effect.succeed(createErrorResponse(error, 500));
+						return Effect.succeed(createErrorResponse(error, error.status));
 					}),
 				);
 
