@@ -8,8 +8,13 @@ import {
 	Option,
 	Schedule,
 } from "effect";
-import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
-import { createAssetCache } from "./asset-cache";
+import type {
+	AssetCtx,
+	BookSnapshot,
+	HydromancerModuleConfig,
+} from "../../config/hydromancer-module-config";
+import { createFreshnessCache } from "../shared/freshness-cache";
+import { createPriceCache } from "../shared/price-cache";
 import {
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
@@ -26,17 +31,24 @@ const validCtx = {
 };
 
 describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
-	it("produces the documented subscribe shape", () => {
-		expect(JSON.parse(buildSubscribeFrame("BTC"))).toEqual({
+	it("produces the documented activeAssetCtx subscribe shape", () => {
+		expect(JSON.parse(buildSubscribeFrame("activeAssetCtx", "BTC"))).toEqual({
 			method: "subscribe",
 			subscription: { type: "activeAssetCtx", coin: "BTC" },
 		});
 	});
 
-	it("produces the documented unsubscribe shape", () => {
-		expect(JSON.parse(buildUnsubscribeFrame("ETH"))).toEqual({
+	it("produces the documented activeAssetCtx unsubscribe shape", () => {
+		expect(JSON.parse(buildUnsubscribeFrame("activeAssetCtx", "ETH"))).toEqual({
 			method: "unsubscribe",
 			subscription: { type: "activeAssetCtx", coin: "ETH" },
+		});
+	});
+
+	it("produces the documented l2Book subscribe shape", () => {
+		expect(JSON.parse(buildSubscribeFrame("l2Book", "BTC"))).toEqual({
+			method: "subscribe",
+			subscription: { type: "l2Book", coin: "BTC" },
 		});
 	});
 });
@@ -49,7 +61,11 @@ describe("parseInboundFrame", () => {
 			cursor: "x",
 			data: { coin: "ETH", ctx: validCtx },
 		});
-		expect(parseInboundFrame(frame)).toEqual({ coin: "ETH", ctx: validCtx });
+		expect(parseInboundFrame(frame)).toEqual({
+			kind: "activeAssetCtx",
+			coin: "ETH",
+			ctx: validCtx,
+		});
 	});
 
 	it("returns null for a non-activeAssetCtx channel", () => {
@@ -83,7 +99,11 @@ describe("parseInboundFrame", () => {
 			channel: "activeAssetCtx",
 			data: { coin: "BTC", ctx: ctxNullOI },
 		});
-		expect(parseInboundFrame(frame)).toEqual({ coin: "BTC", ctx: ctxNullOI });
+		expect(parseInboundFrame(frame)).toEqual({
+			kind: "activeAssetCtx",
+			coin: "BTC",
+			ctx: ctxNullOI,
+		});
 	});
 
 	it("accepts null midPx and impactPxs (some non-perp assets return them)", () => {
@@ -99,9 +119,28 @@ describe("parseInboundFrame", () => {
 			data: { coin: "bmx:TSLA", ctx: ctxPartial },
 		});
 		expect(parseInboundFrame(frame)).toEqual({
+			kind: "activeAssetCtx",
 			coin: "bmx:TSLA",
 			ctx: ctxPartial,
 		});
+	});
+
+	it("extracts an l2Book snapshot from a valid l2Book frame", () => {
+		const snapshot: BookSnapshot = {
+			coin: "BTC",
+			levels: [[{ px: "100", sz: "1", n: 1 }], [{ px: "101", sz: "2", n: 2 }]],
+			time: 1700000000000,
+		};
+		const frame = JSON.stringify({ channel: "l2Book", data: snapshot });
+		expect(parseInboundFrame(frame)).toEqual({ kind: "l2Book", snapshot });
+	});
+
+	it("returns null for an l2Book frame missing required fields", () => {
+		const frame = JSON.stringify({
+			channel: "l2Book",
+			data: { coin: "BTC", levels: [[]] },
+		});
+		expect(parseInboundFrame(frame)).toBeNull();
 	});
 });
 
@@ -120,7 +159,12 @@ class FakeWebSocket extends EventTarget {
 	constructor(url: string) {
 		super();
 		this.url = url;
-		FakeWebSocket.instances.push(this);
+		// Only record sockets this test file opened. A leaked WS daemon from
+		// another test file also constructs FakeWebSockets; filtering by URL
+		// keeps those out of `instances` so the reconnect tests stay reliable.
+		if (url.includes("wsclient.test")) {
+			FakeWebSocket.instances.push(this);
+		}
 	}
 
 	send(data: string): void {
@@ -155,10 +199,25 @@ class FakeWebSocket extends EventTarget {
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
+// Polls until at least `count` WebSocket instances exist. Reconnect tests use
+// this instead of a fixed wall-clock wait, which races the reconnect schedule
+// once the machine is under load.
+const waitForInstances = async (count: number, timeoutMs = 2000) => {
+	const startedAt = Date.now();
+	while (FakeWebSocket.instances.length < count) {
+		if (Date.now() - startedAt > timeoutMs) {
+			throw new Error(
+				`Timed out waiting for ${count} WebSocket instances; saw ${FakeWebSocket.instances.length}`,
+			);
+		}
+		await new Promise<void>((r) => setTimeout(r, 5));
+	}
+};
+
 const baseConfig: HydromancerModuleConfig = {
 	name: "hydromancer",
 	type: "hydromancer",
-	wsUrl: "wss://api.hydromancer.test/ws",
+	wsUrl: "wss://wsclient.test/ws",
 	restBaseUrl: "https://api.hydromancer.test",
 	hydromancerApiKeyEnvKey: "HYDROMANCER_API_KEY",
 	hydromancerApiKey: "test-api-key",
@@ -170,6 +229,11 @@ const baseConfig: HydromancerModuleConfig = {
 	coinsCleanupTtl: Duration.minutes(2),
 	coinsCleanupInterval: Duration.seconds(30),
 	restFetchTimeout: Duration.seconds(15),
+	l2BookSubscriptionCoins: [],
+	l2BookMaxCoinsPerRequest: 20,
+	l2BookWaitTimeout: Duration.seconds(1),
+	l2BookCleanupTtl: Duration.minutes(2),
+	l2BookCleanupInterval: Duration.seconds(30),
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -187,20 +251,22 @@ afterEach(() => {
 const startService = (
 	config: HydromancerModuleConfig,
 	preSubscribed: string[] = config.subscriptionCoins,
-	options?: Parameters<typeof createHydromancerWS>[2],
+	options?: Parameters<typeof createHydromancerWS>[3],
 ) =>
 	Effect.gen(function* () {
-		const cache = yield* createAssetCache();
+		const cache = yield* createFreshnessCache<string, AssetCtx>();
+		const bookCache = yield* createPriceCache<string, BookSnapshot>();
 		const ws = yield* createHydromancerWS(
 			config,
 			cache,
+			bookCache,
 			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
 		);
 		for (const coin of preSubscribed) {
-			yield* ws.subscribe(coin);
+			yield* ws.subscribe("activeAssetCtx", coin);
 		}
 		const fiber = yield* ws.start();
-		return { cache, ws, fiber };
+		return { cache, bookCache, ws, fiber };
 	}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
 describe("createHydromancerWS", () => {
@@ -212,14 +278,14 @@ describe("createHydromancerWS", () => {
 
 		expect(FakeWebSocket.instances.length).toBe(1);
 		const ws = FakeWebSocket.instances[0];
-		expect(ws.url).toBe("wss://api.hydromancer.test/ws?token=test-api-key");
+		expect(ws.url).toBe("wss://wsclient.test/ws?token=test-api-key");
 
 		ws.triggerOpen();
 		await flush();
 
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildSubscribeFrame("ETH"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildSubscribeFrame("activeAssetCtx", "ETH"),
 		]);
 		expect(await Effect.runPromise(service.hasError())).toBe(false);
 
@@ -242,10 +308,12 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		const entry = await Effect.runPromise(cache.get("BTC"));
+		const entry = await Effect.runPromise(
+			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
+		);
 		expect(Option.isSome(entry)).toBe(true);
 		if (Option.isSome(entry)) {
-			expect(entry.value.ctx).toEqual(validCtx);
+			expect(entry.value).toEqual(validCtx);
 		}
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -269,7 +337,45 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		expect(Option.isNone(await Effect.runPromise(cache.get("ETH")))).toBe(true);
+		expect(
+			Option.isNone(
+				await Effect.runPromise(cache.get("ETH", Number.MAX_SAFE_INTEGER, 0)),
+			),
+		).toBe(true);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("routes l2Book frames to the book cache and leaves the asset cache untouched", async () => {
+		const {
+			cache,
+			bookCache,
+			ws: service,
+			fiber,
+		} = await Effect.runPromise(startService(baseConfig, []));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		await Effect.runPromise(service.subscribe("l2Book", "BTC"));
+		await flush();
+
+		const snapshot: BookSnapshot = {
+			coin: "BTC",
+			levels: [[{ px: "100", sz: "1", n: 1 }], [{ px: "101", sz: "2", n: 2 }]],
+			time: 1700000000000,
+		};
+		ws.triggerMessage(JSON.stringify({ channel: "l2Book", data: snapshot }));
+		await flush();
+
+		const fromBook = await Effect.runPromise(bookCache.getOrWaitPrice("BTC"));
+		expect(fromBook).toEqual(snapshot);
+
+		const fromAsset = await Effect.runPromise(
+			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
+		);
+		expect(Option.isNone(fromAsset)).toBe(true);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -303,7 +409,9 @@ describe("createHydromancerWS", () => {
 		ws.triggerMessage("not json");
 		await flush();
 
-		const entry = await Effect.runPromise(cache.get("BTC"));
+		const entry = await Effect.runPromise(
+			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
+		);
 		expect(Option.isNone(entry)).toBe(true);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -317,13 +425,13 @@ describe("createHydromancerWS", () => {
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 
-		await Effect.runPromise(service.subscribe("BTC"));
-		await Effect.runPromise(service.subscribe("BTC"));
+		await Effect.runPromise(service.subscribe("activeAssetCtx", "BTC"));
+		await Effect.runPromise(service.subscribe("activeAssetCtx", "BTC"));
 		await flush();
 
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -337,22 +445,22 @@ describe("createHydromancerWS", () => {
 		ws.triggerOpen();
 		await flush();
 
-		await Effect.runPromise(service.unsubscribe("ETH"));
+		await Effect.runPromise(service.unsubscribe("activeAssetCtx", "ETH"));
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 
-		await Effect.runPromise(service.unsubscribe("BTC"));
+		await Effect.runPromise(service.unsubscribe("activeAssetCtx", "BTC"));
 		await flush();
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildUnsubscribeFrame("BTC"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildUnsubscribeFrame("activeAssetCtx", "BTC"),
 		]);
 
-		await Effect.runPromise(service.unsubscribe("BTC"));
+		await Effect.runPromise(service.unsubscribe("activeAssetCtx", "BTC"));
 		await flush();
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildUnsubscribeFrame("BTC"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildUnsubscribeFrame("activeAssetCtx", "BTC"),
 		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -373,7 +481,7 @@ describe("createHydromancerWS", () => {
 		await flush();
 
 		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
+		await waitForInstances(2);
 
 		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
 		const ws2 = FakeWebSocket.instances[1];
@@ -399,20 +507,20 @@ describe("createHydromancerWS", () => {
 		ws1.triggerOpen();
 		await flush();
 		expect(ws1.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildSubscribeFrame("ETH"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildSubscribeFrame("activeAssetCtx", "ETH"),
 		]);
 
 		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
+		await waitForInstances(2);
 
 		const ws2 = FakeWebSocket.instances[1];
 		ws2.triggerOpen();
 		await flush();
 
 		expect(ws2.sent).toEqual([
-			buildSubscribeFrame("BTC"),
-			buildSubscribeFrame("ETH"),
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+			buildSubscribeFrame("activeAssetCtx", "ETH"),
 		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -439,13 +547,13 @@ describe("createHydromancerWS", () => {
 		ws1.triggerOpen();
 		await flush();
 
-		await new Promise<void>((r) => setTimeout(r, 40));
+		await waitForInstances(2);
 		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
 		const ws2 = FakeWebSocket.instances[1];
 		ws2.triggerOpen();
 		await flush();
 
-		expect(ws2.sent).toEqual([buildSubscribeFrame("BTC")]);
+		expect(ws2.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 		expect(await Effect.runPromise(service.hasError())).toBe(false);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

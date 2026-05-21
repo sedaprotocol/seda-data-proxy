@@ -19,8 +19,12 @@ export class FailedToGetPriceError extends Data.TaggedError(
 	status = 500;
 }
 
-export const createPriceCache = <K, V>() =>
+export const createPriceCache = <K, V>(options?: {
+	timeout?: Duration.Duration;
+}) =>
 	Effect.gen(function* () {
+		const waitTimeout =
+			options?.timeout ?? Duration.millis(PRICE_WAIT_TIMEOUT_MS);
 		const priceCache = MutableHashMap.empty<K, V>();
 		const priceWaiters = yield* SynchronizedRef.make(
 			MutableHashMap.empty<K, Deferred.Deferred<V, FailedToGetPriceError>>(),
@@ -79,7 +83,7 @@ export const createPriceCache = <K, V>() =>
 
 				return yield* Deferred.await(waiter).pipe(
 					Effect.timeoutFail({
-						duration: Duration.millis(PRICE_WAIT_TIMEOUT_MS),
+						duration: waitTimeout,
 						onTimeout: () =>
 							new FailedToGetPriceError({
 								error: `Timed out waiting for price of key ${key}`,
@@ -103,8 +107,28 @@ export const createPriceCache = <K, V>() =>
 
 		const size = () => MutableHashMap.size(priceCache);
 
+		// Waits for a value; on timeout or error evicts the waiter entry and
+		// resolves to null. For callers where a missing value is a valid result.
+		const tryGetOrWait = (key: K) =>
+			getOrWaitPrice(key).pipe(
+				Effect.catchTag("FailedToGetPriceError", () =>
+					Effect.as(deletePrice(key), null),
+				),
+			);
+
+		// Waits for a value; on timeout or error deletes the cached entry and
+		// rethrows. For callers where a missing value must fail the request.
+		const getOrWaitOrEvict = (key: K) =>
+			getOrWaitPrice(key).pipe(
+				Effect.catchTag("FailedToGetPriceError", (error) =>
+					Effect.zipRight(deletePrice(key), Effect.fail(error)),
+				),
+			);
+
 		return {
 			getOrWaitPrice,
+			tryGetOrWait,
+			getOrWaitOrEvict,
 			setPrice,
 			deletePrice,
 			setPriceToError,

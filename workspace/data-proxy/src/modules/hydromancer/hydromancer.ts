@@ -2,16 +2,18 @@ import { Clock, Duration, Effect, Layer, MutableHashMap, Option } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	type AssetCtx,
+	type BookSnapshot,
 	type HydromancerModuleConfig,
-	parseAssetContextRequestBody,
+	parseHydromancerBody,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { createAssetCache } from "./asset-cache";
+import { createFreshnessCache } from "../shared/freshness-cache";
+import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
 import { fetchAssetContextsFromRest } from "./rest-fallback";
-import { createHydromancerWS } from "./ws-client";
+import { type HydromancerChannel, createHydromancerWS } from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 	Layer.effect(
@@ -23,94 +25,127 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				restBaseUrl: config.restBaseUrl,
 			});
 
-			const cache = yield* createAssetCache();
-			const ws = yield* createHydromancerWS(config, cache);
-			const staleAfterMillis = Duration.toMillis(config.staleAfter);
+			// Two caches with deliberately different shapes. assetContext is
+			// freshness-keyed: a stale read falls back to a REST fetch. l2Book is
+			// waiter-keyed: a request waits briefly for the first WS frame and
+			// returns null on timeout, with no REST fallback.
+			const cache = yield* createFreshnessCache<string, AssetCtx>();
+			const bookCache = yield* createPriceCache<string, BookSnapshot>({
+				timeout: config.l2BookWaitTimeout,
+			});
+			const ws = yield* createHydromancerWS(config, cache, bookCache);
+			const assetCtxStaleAfterMillis = Duration.toMillis(config.staleAfter);
+
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();
+			const lastRequestToBookCoin = MutableHashMap.empty<string, number>();
 
-			const start = () =>
-				Effect.gen(function* () {
-					yield* Effect.logInfo("Hydromancer module started", {
-						name: config.name,
-					});
+			// One entry per WS channel: the demand map the cleanup pass drains,
+			// the cleanup cadence, and the cache eviction that runs before the
+			// channel is unsubscribed.
+			const subscriptionKinds = [
+				{
+					name: "assetContext",
+					channel: "activeAssetCtx" as HydromancerChannel,
+					lastRequest: lastRequestToCoin,
+					ttl: config.coinsCleanupTtl,
+					interval: config.coinsCleanupInterval,
+					onEvict: (coin: string) => cache.remove(coin),
+				},
+				{
+					name: "l2Book",
+					channel: "l2Book" as HydromancerChannel,
+					lastRequest: lastRequestToBookCoin,
+					ttl: config.l2BookCleanupTtl,
+					interval: config.l2BookCleanupInterval,
+					onEvict: (coin: string) =>
+						Effect.gen(function* () {
+							// Fail an in-flight waiter before dropping the entry so a
+							// concurrent request resolves now instead of hanging until
+							// its own timeout fires.
+							yield* bookCache.setPriceToError(coin, "unsubscribed");
+							yield* bookCache.deletePrice(coin);
+						}),
+				},
+			];
 
-					yield* ws.start();
+			// Seed the configured coins and fork the idle-cleanup daemons at
+			// layer construction so they run exactly once, however often
+			// start() is called. The daemons run for the process lifetime.
+			for (const coin of config.subscriptionCoins) {
+				yield* ws.subscribe("activeAssetCtx", coin);
+			}
+			for (const coin of config.l2BookSubscriptionCoins) {
+				yield* ws.subscribe("l2Book", coin);
+			}
 
-					for (const coin of config.subscriptionCoins) {
-						yield* ws.subscribe(coin);
-					}
+			for (const kind of subscriptionKinds) {
+				yield* forkIdleCleanup({
+					lastRequest: kind.lastRequest,
+					ttl: kind.ttl,
+					interval: kind.interval,
+					onExpire: (coin) =>
+						Effect.gen(function* () {
+							yield* Effect.logInfo(`Cleaning up idle ${kind.name} coin`, {
+								coin,
+							});
+							yield* kind.onEvict(coin);
+							yield* ws.unsubscribe(kind.channel, coin);
+						}),
+				});
+			}
 
-					yield* forkIdleCleanup({
-						lastRequest: lastRequestToCoin,
-						ttl: config.coinsCleanupTtl,
-						interval: config.coinsCleanupInterval,
-						onExpire: (coin) =>
-							Effect.gen(function* () {
-								yield* Effect.logInfo("Cleaning up idle coin", { coin });
-								yield* cache.remove(coin);
-								yield* ws.unsubscribe(coin);
-							}),
-					});
-				}).pipe(Effect.annotateLogs("_name", "hydromancer"));
+			// The WS daemon owns reconnect; ws.start() is cached, so start() is
+			// idempotent and the daemon runs for the process lifetime.
+			const start = () => Effect.asVoid(ws.start());
 
-			const handleRequest = (
-				route: Route,
-				_params: Record<string, string>,
-				_request: Request,
-				body?: string,
+			// Shared prologue for both request flows: bound the batch, stamp the
+			// last-request time, subscribe every coin, and pre-seed the response
+			// so the shape matches Hydromancer's native /info (one key per coin).
+			const prepareRequest = <V>(
+				coins: string[],
+				max: number,
+				channel: HydromancerChannel,
+				lastRequest: MutableHashMap.MutableHashMap<string, number>,
 			) =>
 				Effect.gen(function* () {
-					if (route.type !== "hydromancer") {
-						return yield* Effect.fail(
-							new FailedToHandleRequest({
-								msg: "Route is not a Hydromancer module",
-							}),
-						);
-					}
-
-					const parsedBody = parseAssetContextRequestBody(body ?? "");
-					if (Option.isNone(parsedBody)) {
+					if (coins.length > max) {
 						return yield* Effect.fail(
 							new FailedToHandleHydromancerRequestError({
-								error: "Hydromancer module only handles assetContext bodies",
+								error: `Too many coins, max is ${max} but got ${coins.length}`,
 								status: 400,
 							}),
 						);
 					}
-					const coins = parsedBody.value.coins;
-
-					if (coins.length > config.maxCoinsPerRequest) {
-						return yield* Effect.fail(
-							new FailedToHandleHydromancerRequestError({
-								error: `Too many coins, max is ${config.maxCoinsPerRequest} but got ${coins.length}`,
-								status: 400,
-							}),
-						);
-					}
-
 					const now = yield* Clock.currentTimeMillis;
+					for (const coin of coins) {
+						yield* ws.subscribe(channel, coin);
+						MutableHashMap.set(lastRequest, coin, now);
+					}
+					const resolved: Record<string, V | null> = {};
+					for (const coin of coins) resolved[coin] = null;
+					return { now, resolved };
+				});
+
+			const handleAssetContextRequest = (coins: string[]) =>
+				Effect.gen(function* () {
+					const { now, resolved } = yield* prepareRequest<AssetCtx>(
+						coins,
+						config.maxCoinsPerRequest,
+						"activeAssetCtx",
+						lastRequestToCoin,
+					);
 					const socketHealthy = !(yield* ws.hasError());
 
-					for (const coin of coins) {
-						yield* ws.subscribe(coin);
-						MutableHashMap.set(lastRequestToCoin, coin, now);
-					}
-
-					// Pre-seed every requested coin to null so the response shape matches
-					// Hydromancer's native /info: a key per coin, unresolved ones stay null.
-					const resolved: Record<string, AssetCtx | null> = {};
-					for (const coin of coins) resolved[coin] = null;
-
 					const toFetch: string[] = [];
-
 					for (const coin of coins) {
-						if (
-							socketHealthy &&
-							(yield* cache.isFresh(coin, staleAfterMillis, now))
-						) {
-							const entry = yield* cache.get(coin);
-							if (Option.isSome(entry)) {
-								resolved[coin] = entry.value.ctx;
+						if (socketHealthy) {
+							const fresh = yield* cache.get(
+								coin,
+								assetCtxStaleAfterMillis,
+								now,
+							);
+							if (Option.isSome(fresh)) {
+								resolved[coin] = fresh.value;
 								continue;
 							}
 						}
@@ -136,6 +171,63 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						headers: { "Content-Type": "application/json" },
 					});
 				}).pipe(
+					Effect.withSpan("handleAssetContextRequest", {
+						attributes: { coins },
+					}),
+				);
+
+			const handleL2BookRequest = (coins: string[]) =>
+				Effect.gen(function* () {
+					const { resolved } = yield* prepareRequest<BookSnapshot>(
+						coins,
+						config.l2BookMaxCoinsPerRequest,
+						"l2Book",
+						lastRequestToBookCoin,
+					);
+
+					for (const coin of coins) {
+						resolved[coin] = yield* bookCache.tryGetOrWait(coin);
+					}
+
+					return new Response(JSON.stringify(resolved), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}).pipe(
+					Effect.withSpan("handleL2BookRequest", { attributes: { coins } }),
+				);
+
+			const handleRequest = (
+				route: Route,
+				_params: Record<string, string>,
+				_request: Request,
+				body: string,
+			) =>
+				Effect.gen(function* () {
+					if (route.type !== "hydromancer") {
+						return yield* Effect.fail(
+							new FailedToHandleRequest({
+								msg: "Route is not a Hydromancer module",
+							}),
+						);
+					}
+
+					const parsed = parseHydromancerBody(body);
+					if (Option.isNone(parsed)) {
+						return yield* Effect.fail(
+							new FailedToHandleHydromancerRequestError({
+								error:
+									"Hydromancer module only handles assetContext or l2Book bodies",
+								status: 400,
+							}),
+						);
+					}
+
+					if (parsed.value.type === "l2Book") {
+						return yield* handleL2BookRequest(parsed.value.coins);
+					}
+					return yield* handleAssetContextRequest(parsed.value.coins);
+				}).pipe(
 					Effect.withSpan("handleHydromancerRequest"),
 					Effect.catchAll((error) =>
 						Effect.succeed(createErrorResponse(error, error.status)),
@@ -146,5 +238,5 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				start,
 				handleRequest,
 			};
-		}),
+		}).pipe(Effect.annotateLogs("_name", "hydromancer")),
 	);
