@@ -173,6 +173,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 				route: Route,
 				params: Record<string, string>,
 				request: Request,
+				body: string,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "pm-insights") {
@@ -187,18 +188,6 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						replaceParams(route.upstreamPath, params) +
 						new URL(request.url).search;
 					const upstreamUrl = new URL(signedPath, config.baseUrl);
-
-					let body = "";
-					if (request.method !== "GET" && request.method !== "HEAD") {
-						body = yield* Effect.tryPromise({
-							try: () => request.clone().text(),
-							catch: () =>
-								new FailedToHandlePmInsightsRequestError({
-									error: "Failed to read request body",
-									status: 400,
-								}),
-						});
-					}
 
 					const method = normalizeHttpMethod(request.method);
 

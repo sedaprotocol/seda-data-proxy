@@ -199,14 +199,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						MutableHashMap.set(lastRequestToPriceFeed, symbol, now);
 
 						// Get the price from the cache.
-						const price = yield* priceCache.getOrWaitPrice(symbol).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(symbol);
-									return yield* Effect.fail(error);
-								}),
-							),
-						);
+						const price = yield* priceCache.getOrWaitOrEvict(symbol);
 						prices.push(price);
 					}
 
