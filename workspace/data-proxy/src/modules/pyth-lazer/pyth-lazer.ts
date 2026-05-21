@@ -332,14 +332,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						}
 
 						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
-						const price = yield* priceCache.getOrWaitPrice(priceFeedId).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(priceFeedId);
-									return yield* Effect.fail(error);
-								}),
-							),
-						);
+						const price = yield* priceCache.getOrWaitOrEvict(priceFeedId);
 
 						prices.push({
 							symbol: priceFeedIdsRaw.at(index),
