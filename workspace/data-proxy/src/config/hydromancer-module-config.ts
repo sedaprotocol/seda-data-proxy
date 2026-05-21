@@ -129,28 +129,10 @@ export const AssetCtxSchema = v.object({
 
 export type AssetCtx = v.InferOutput<typeof AssetCtxSchema>;
 
-// Request body the module accepts. Anything else is rejected with 400.
 export const AssetContextRequestBodySchema = v.object({
 	type: v.literal("assetContext"),
 	coins: v.array(v.string()),
 });
-
-export type AssetContextRequestBody = v.InferOutput<
-	typeof AssetContextRequestBodySchema
->;
-
-export const parseAssetContextRequestBody = (
-	raw: string,
-): Option.Option<AssetContextRequestBody> => {
-	let json: unknown;
-	try {
-		json = JSON.parse(raw);
-	} catch {
-		return Option.none();
-	}
-	const parsed = tryParseSync(AssetContextRequestBodySchema, json);
-	return parsed.isErr ? Option.none() : Option.some(parsed.value);
-};
 
 export const BookLevelSchema = v.object({
 	px: v.string(),
@@ -173,11 +155,16 @@ export const L2BookRequestBodySchema = v.object({
 	coins: v.array(v.string()),
 });
 
-export type L2BookRequestBody = v.InferOutput<typeof L2BookRequestBodySchema>;
+// Request body the module accepts, discriminated on `type`. Any shape that
+// matches neither variant is rejected with 400.
+export const HydromancerRequestBodySchema = v.variant("type", [
+	AssetContextRequestBodySchema,
+	L2BookRequestBodySchema,
+]);
 
-export type ParsedHydromancerBody =
-	| { kind: "assetContext"; body: AssetContextRequestBody }
-	| { kind: "l2Book"; body: L2BookRequestBody };
+export type ParsedHydromancerBody = v.InferOutput<
+	typeof HydromancerRequestBodySchema
+>;
 
 export const parseHydromancerBody = (
 	raw: string,
@@ -188,13 +175,6 @@ export const parseHydromancerBody = (
 	} catch {
 		return Option.none();
 	}
-	const assetCtx = tryParseSync(AssetContextRequestBodySchema, json);
-	if (!assetCtx.isErr) {
-		return Option.some({ kind: "assetContext", body: assetCtx.value });
-	}
-	const book = tryParseSync(L2BookRequestBodySchema, json);
-	if (!book.isErr) {
-		return Option.some({ kind: "l2Book", body: book.value });
-	}
-	return Option.none();
+	const parsed = tryParseSync(HydromancerRequestBodySchema, json);
+	return parsed.isErr ? Option.none() : Option.some(parsed.value);
 };

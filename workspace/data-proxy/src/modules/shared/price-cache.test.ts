@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ParsedFeedPayload } from "@pythnetwork/pyth-lazer-sdk";
-import { Effect, Either, Fiber } from "effect";
+import { Duration, Effect, Either, Fiber } from "effect";
 import type { LoTechDataPrice } from "../lo-tech/schema";
 import { createPriceCache } from "./price-cache";
 
@@ -224,5 +224,90 @@ describe("createPriceCache with Pyth Lazer-shaped payloads", () => {
 				expect(got.feedUpdateTimestamp).toBe(1000);
 			}),
 		);
+	});
+});
+
+describe("tryGetOrWait", () => {
+	it("returns the cached value when one is present", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 7, label: "hit" });
+				yield* cache.setPrice("k", entry);
+				expect(yield* cache.tryGetOrWait("k")).toEqual(entry);
+			}),
+		);
+	});
+
+	it("returns null when the wait times out", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>({
+					timeout: Duration.millis(10),
+				});
+				expect(yield* cache.tryGetOrWait("missing")).toBeNull();
+			}),
+		);
+	});
+
+	it("resolves to the value when setPrice arrives during the wait", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 9, label: "late" });
+				const waiter = yield* Effect.fork(cache.tryGetOrWait("k"));
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPrice("k", entry);
+				expect(yield* Fiber.join(waiter)).toEqual(entry);
+			}),
+		);
+	});
+});
+
+describe("getOrWaitOrEvict", () => {
+	it("returns the cached value when one is present", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 3, label: "hit" });
+				yield* cache.setPrice("k", entry);
+				expect(yield* cache.getOrWaitOrEvict("k")).toEqual(entry);
+			}),
+		);
+	});
+
+	it("fails with FailedToGetPriceError when the wait times out", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>({
+					timeout: Duration.millis(10),
+				});
+				return yield* Effect.either(cache.getOrWaitOrEvict("missing"));
+			}),
+		);
+
+		expect(Either.isLeft(result)).toBe(true);
+		if (Either.isLeft(result)) {
+			expect(result.left._tag).toBe("FailedToGetPriceError");
+		}
+	});
+
+	it("fails when setPriceToError arrives during the wait", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const waiter = yield* Effect.fork(
+					cache.getOrWaitOrEvict("k").pipe(Effect.either),
+				);
+				yield* Effect.sleep("1 millis");
+				yield* cache.setPriceToError("k", "feed unstable");
+				return yield* Fiber.join(waiter);
+			}),
+		);
+
+		expect(Either.isLeft(result)).toBe(true);
+		if (Either.isLeft(result)) {
+			expect(result.left._tag).toBe("FailedToGetPriceError");
+		}
 	});
 });

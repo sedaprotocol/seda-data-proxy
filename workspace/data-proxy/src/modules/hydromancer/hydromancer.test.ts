@@ -383,8 +383,6 @@ class FakeWebSocket extends EventTarget {
 	}
 }
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0));
-
 describe("HydromancerModuleService demand-driven subscriptions", () => {
 	const originalWebSocket = globalThis.WebSocket;
 
@@ -408,32 +406,39 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			assetCtxSubscriptionCoins: [],
 		};
 
+		// The WS daemon is tied to the layer scope, so the socket has to be
+		// observed inside the program, before runPromise releases the layer.
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
-			return yield* svc.handleRequest(
+			const response = yield* svc.handleRequest(
 				route,
 				{},
 				buildAssetContextRequest(["BTC"]),
 				assetContextBody(["BTC"]),
 			);
+
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+
+			return {
+				status: response.status,
+				instanceCount: FakeWebSocket.instances.length,
+				sent: [...ws.sent],
+			};
 		});
 
-		const response = await Effect.runPromise(
+		const result = await Effect.runPromise(
 			program.pipe(Effect.provide(HydromancerModuleService(config))),
 		);
-		expect(response.status).toBe(200);
 
-		await flush();
-		await flush();
-		expect(FakeWebSocket.instances.length).toBe(1);
-		const ws = FakeWebSocket.instances[0];
-
-		ws.triggerOpen();
-		await flush();
-
-		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
+		expect(result.status).toBe(200);
+		expect(result.instanceCount).toBe(1);
+		expect(result.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 	});
 
 	it("does not enqueue a coin a second time on a repeat handleRequest", async () => {
@@ -463,20 +468,21 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				buildAssetContextRequest(["BTC"]),
 				assetContextBody(["BTC"]),
 			);
+
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+			return [...ws.sent];
 		});
 
-		await Effect.runPromise(
+		const sent = await Effect.runPromise(
 			program.pipe(Effect.provide(HydromancerModuleService(config))),
 		);
 
-		await flush();
-		await flush();
-		const ws = FakeWebSocket.instances[0];
-		ws.triggerOpen();
-		await flush();
-
 		// Only one subscribe frame, even though handleRequest was called twice.
-		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
+		expect(sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
 	});
 
 	it("unsubscribes a coin once it has been idle past assetCtxCleanupTtl", async () => {
@@ -488,12 +494,13 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
 			assetCtxSubscriptionCoins: [],
-			// TTL must be long enough that the cleanup pass cannot fire before the
-			// WS is opened by the test setup; interval is short to keep the test fast.
 			assetCtxCleanupTtl: Duration.millis(150),
 			assetCtxCleanupInterval: Duration.millis(20),
 		};
 
+		// The cleanup daemon is tied to the layer scope, so the wait that lets
+		// it fire has to run inside the program, before runPromise releases the
+		// layer.
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
@@ -504,24 +511,27 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				buildAssetContextRequest(["BTC"]),
 				assetContextBody(["BTC"]),
 			);
+
+			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.sleep(Duration.millis(0));
+			const ws = FakeWebSocket.instances[0];
+			ws.triggerOpen();
+			yield* Effect.sleep(Duration.millis(0));
+			const afterSubscribe = [...ws.sent];
+
+			// Wait past the TTL plus at least one cleanup tick.
+			yield* Effect.sleep(Duration.millis(250));
+			return { afterSubscribe, afterCleanup: [...ws.sent] };
 		});
 
-		await Effect.runPromise(
+		const { afterSubscribe, afterCleanup } = await Effect.runPromise(
 			program.pipe(Effect.provide(HydromancerModuleService(config))),
 		);
 
-		await flush();
-		await flush();
-		const ws = FakeWebSocket.instances[0];
-		ws.triggerOpen();
-		await flush();
-
-		expect(ws.sent).toEqual([buildSubscribeFrame("activeAssetCtx", "BTC")]);
-
-		// Wait past TTL + at least one cleanup tick.
-		await new Promise<void>((r) => setTimeout(r, 250));
-
-		expect(ws.sent).toEqual([
+		expect(afterSubscribe).toEqual([
+			buildSubscribeFrame("activeAssetCtx", "BTC"),
+		]);
+		expect(afterCleanup).toEqual([
 			buildSubscribeFrame("activeAssetCtx", "BTC"),
 			buildUnsubscribeFrame("activeAssetCtx", "BTC"),
 		]);
@@ -747,5 +757,4 @@ describe("HydromancerModuleService l2Book flow", () => {
 
 		expect(response.status).toBe(400);
 	});
-
 });

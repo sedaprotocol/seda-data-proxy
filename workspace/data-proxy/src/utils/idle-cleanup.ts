@@ -4,8 +4,12 @@ import {
 	Effect,
 	type Fiber,
 	MutableHashMap,
+	Option,
 	Schedule,
 } from "effect";
+
+/** A key whose onExpire fails this many passes in a row is force-removed. */
+const MAX_ON_EXPIRE_FAILURES = 10;
 
 export interface ForkIdleCleanupOptions<K> {
 	/** Map of key to "last requested at" timestamp in milliseconds. */
@@ -27,8 +31,12 @@ export interface ForkIdleCleanupOptions<K> {
  */
 export const forkIdleCleanup = <K>(
 	options: ForkIdleCleanupOptions<K>,
-): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never> =>
-	Effect.forkDaemon(
+): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never> => {
+	// Consecutive onExpire failures per key. A key that keeps failing is
+	// force-removed once it reaches the cap so the map cannot grow forever.
+	const failures = MutableHashMap.empty<K, number>();
+
+	return Effect.forkDaemon(
 		Effect.gen(function* () {
 			const now = yield* Clock.currentTimeMillis;
 			const ttlMs = Duration.toMillis(options.ttl);
@@ -36,14 +44,25 @@ export const forkIdleCleanup = <K>(
 				if (now - lastTs > ttlMs) {
 					const result = yield* Effect.either(options.onExpire(key));
 					if (result._tag === "Left") {
-						yield* Effect.logWarning(
-							"idle-cleanup onExpire failed; will retry next pass",
-							{ error: result.left },
+						const count =
+							Option.getOrElse(MutableHashMap.get(failures, key), () => 0) + 1;
+						if (count < MAX_ON_EXPIRE_FAILURES) {
+							MutableHashMap.set(failures, key, count);
+							yield* Effect.logWarning(
+								"idle-cleanup onExpire failed; will retry next pass",
+								{ error: result.left, failures: count },
+							);
+							continue;
+						}
+						yield* Effect.logError(
+							"idle-cleanup onExpire failed repeatedly; dropping key",
+							{ error: result.left, failures: count },
 						);
-						continue;
 					}
 					MutableHashMap.remove(options.lastRequest, key);
+					MutableHashMap.remove(failures, key);
 				}
 			}
 		}).pipe(Effect.schedule(Schedule.spaced(options.interval))),
 	);
+};

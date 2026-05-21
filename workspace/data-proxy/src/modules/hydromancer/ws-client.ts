@@ -18,7 +18,7 @@ import {
 	BookSnapshotSchema,
 	type HydromancerModuleConfig,
 } from "../../config/hydromancer-module-config";
-import type { AssetCache } from "./asset-cache";
+import type { FreshnessCache } from "../shared/freshness-cache";
 
 export type HydromancerChannel = "activeAssetCtx" | "l2Book";
 
@@ -98,14 +98,16 @@ export const defaultReconnectSchedule = (config: HydromancerModuleConfig) =>
 export interface HydromancerWS {
 	/** Forks the WS daemon. The daemon owns reconnect with backoff and resubscribes on each open. */
 	start(): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never>;
-	/** Adds the coin to the activeAssetCtx desired set and sends a subscribe frame if connected. Idempotent. */
-	subscribeAssetCtx(coin: string): Effect.Effect<void, never, never>;
-	/** Removes the coin from the activeAssetCtx desired set and sends an unsubscribe frame if connected. Idempotent. */
-	unsubscribeAssetCtx(coin: string): Effect.Effect<void, never, never>;
-	/** Adds the coin to the l2Book desired set and sends a subscribe frame if connected. Idempotent. */
-	subscribeBook(coin: string): Effect.Effect<void, never, never>;
-	/** Removes the coin from the l2Book desired set and sends an unsubscribe frame if connected. Idempotent. */
-	unsubscribeBook(coin: string): Effect.Effect<void, never, never>;
+	/** Adds the coin to the channel's desired set and sends a subscribe frame if connected. Idempotent. */
+	subscribe(
+		channel: HydromancerChannel,
+		coin: string,
+	): Effect.Effect<void, never, never>;
+	/** Removes the coin from the channel's desired set and sends an unsubscribe frame if connected. Idempotent. */
+	unsubscribe(
+		channel: HydromancerChannel,
+		coin: string,
+	): Effect.Effect<void, never, never>;
 	/** True while the socket is disconnected, errored, or has a pending send failure. */
 	hasError(): Effect.Effect<boolean, never, never>;
 }
@@ -114,16 +116,31 @@ export interface CreateHydromancerWSOptions {
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 }
 
+/** Per-channel subscription state. One WS connection multiplexes every channel. */
+interface ChannelState {
+	desired: MutableHashMap.MutableHashMap<string, true>;
+	subscribeFrame: (coin: string) => string;
+}
+
 export const createHydromancerWS = (
 	config: HydromancerModuleConfig,
-	assetCache: AssetCache,
+	assetCache: FreshnessCache<string, AssetCtx>,
 	bookCache: BookCacheWriter,
 	options?: CreateHydromancerWSOptions,
 ): Effect.Effect<HydromancerWS, never, never> =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime<never>();
-		const desiredAssetCtx = MutableHashMap.empty<string, true>();
-		const desiredBook = MutableHashMap.empty<string, true>();
+		const channels: Record<HydromancerChannel, ChannelState> = {
+			activeAssetCtx: {
+				desired: MutableHashMap.empty<string, true>(),
+				subscribeFrame: (coin) => buildSubscribeFrame("activeAssetCtx", coin),
+			},
+			l2Book: {
+				desired: MutableHashMap.empty<string, true>(),
+				subscribeFrame: (coin) =>
+					buildSubscribeFrame("l2Book", coin, config.l2BookNSigFigs),
+			},
+		};
 		let currentWS: WebSocket | null = null;
 		let socketError: string | undefined;
 		const schedule =
@@ -148,34 +165,20 @@ export const createHydromancerWS = (
 				}
 			});
 
-		const subscribeAssetCtx = (coin: string) =>
+		const subscribe = (channel: HydromancerChannel, coin: string) =>
 			Effect.gen(function* () {
-				if (Option.isSome(MutableHashMap.get(desiredAssetCtx, coin))) return;
-				MutableHashMap.set(desiredAssetCtx, coin, true);
-				yield* trySend(buildSubscribeFrame("activeAssetCtx", coin));
+				const { desired, subscribeFrame } = channels[channel];
+				if (Option.isSome(MutableHashMap.get(desired, coin))) return;
+				MutableHashMap.set(desired, coin, true);
+				yield* trySend(subscribeFrame(coin));
 			});
 
-		const unsubscribeAssetCtx = (coin: string) =>
+		const unsubscribe = (channel: HydromancerChannel, coin: string) =>
 			Effect.gen(function* () {
-				if (Option.isNone(MutableHashMap.get(desiredAssetCtx, coin))) return;
-				MutableHashMap.remove(desiredAssetCtx, coin);
-				yield* trySend(buildUnsubscribeFrame("activeAssetCtx", coin));
-			});
-
-		const subscribeBook = (coin: string) =>
-			Effect.gen(function* () {
-				if (Option.isSome(MutableHashMap.get(desiredBook, coin))) return;
-				MutableHashMap.set(desiredBook, coin, true);
-				yield* trySend(
-					buildSubscribeFrame("l2Book", coin, config.l2BookNSigFigs),
-				);
-			});
-
-		const unsubscribeBook = (coin: string) =>
-			Effect.gen(function* () {
-				if (Option.isNone(MutableHashMap.get(desiredBook, coin))) return;
-				MutableHashMap.remove(desiredBook, coin);
-				yield* trySend(buildUnsubscribeFrame("l2Book", coin));
+				const { desired } = channels[channel];
+				if (Option.isNone(MutableHashMap.get(desired, coin))) return;
+				MutableHashMap.remove(desired, coin);
+				yield* trySend(buildUnsubscribeFrame(channel, coin));
 			});
 
 		const hasError = () => Effect.sync(() => socketError !== undefined);
@@ -185,13 +188,10 @@ export const createHydromancerWS = (
 				yield* Effect.logInfo("Hydromancer WS open", { name: config.name });
 				socketError = undefined;
 				currentWS = ws;
-				for (const [coin] of desiredAssetCtx) {
-					yield* trySend(buildSubscribeFrame("activeAssetCtx", coin));
-				}
-				for (const [coin] of desiredBook) {
-					yield* trySend(
-						buildSubscribeFrame("l2Book", coin, config.l2BookNSigFigs),
-					);
+				for (const channel of Object.values(channels)) {
+					for (const [coin] of channel.desired) {
+						yield* trySend(channel.subscribeFrame(coin));
+					}
 				}
 			});
 
@@ -200,14 +200,22 @@ export const createHydromancerWS = (
 				const frame = parseInboundFrame(raw);
 				if (!frame) return;
 				if (frame.kind === "activeAssetCtx") {
-					if (Option.isNone(MutableHashMap.get(desiredAssetCtx, frame.coin))) {
+					if (
+						Option.isNone(
+							MutableHashMap.get(channels.activeAssetCtx.desired, frame.coin),
+						)
+					) {
 						return;
 					}
 					const now = yield* Clock.currentTimeMillis;
 					yield* assetCache.set(frame.coin, frame.ctx, now);
 					return;
 				}
-				if (Option.isNone(MutableHashMap.get(desiredBook, frame.snapshot.coin))) {
+				if (
+					Option.isNone(
+						MutableHashMap.get(channels.l2Book.desired, frame.snapshot.coin),
+					)
+				) {
 					return;
 				}
 				yield* bookCache.setPrice(frame.snapshot.coin, frame.snapshot);
@@ -218,6 +226,7 @@ export const createHydromancerWS = (
 			closed: Deferred.Deferred<void, "close" | "error">,
 		) =>
 			Effect.gen(function* () {
+				if (yield* Deferred.isDone(closed)) return;
 				yield* Effect.logWarning("Hydromancer WS disconnected", { reason });
 				socketError = `ws ${reason}`;
 				currentWS = null;
@@ -234,29 +243,38 @@ export const createHydromancerWS = (
 				name: config.name,
 			});
 
-			const ws = yield* Effect.acquireRelease(
-				Effect.sync(() => new WebSocket(wsUrl)),
-				(socket) =>
+			// Acquire pairs the socket with its four listeners so the release can
+			// detach them; otherwise each reconnect strands four closures on the
+			// dead socket until GC reaches it.
+			yield* Effect.acquireRelease(
+				Effect.sync(() => {
+					const socket = new WebSocket(wsUrl);
+					const onOpen = () => Runtime.runSync(runtime, handleOpen(socket));
+					const onMessage = (event: MessageEvent) => {
+						if (typeof event.data !== "string") return;
+						Runtime.runSync(runtime, handleInboundMessage(event.data));
+					};
+					const onClose = () =>
+						Runtime.runSync(runtime, handleDisconnect("close", closed));
+					const onError = () =>
+						Runtime.runSync(runtime, handleDisconnect("error", closed));
+					socket.addEventListener("open", onOpen);
+					socket.addEventListener("message", onMessage);
+					socket.addEventListener("close", onClose);
+					socket.addEventListener("error", onError);
+					return { socket, onOpen, onMessage, onClose, onError };
+				}),
+				({ socket, onOpen, onMessage, onClose, onError }) =>
 					Effect.sync(() => {
+						socket.removeEventListener("open", onOpen);
+						socket.removeEventListener("message", onMessage);
+						socket.removeEventListener("close", onClose);
+						socket.removeEventListener("error", onError);
 						if (socket.readyState !== WebSocket.CLOSED) {
 							socket.close();
 						}
 					}),
 			);
-
-			ws.addEventListener("open", () => {
-				Runtime.runSync(runtime, handleOpen(ws));
-			});
-			ws.addEventListener("message", (event) => {
-				if (typeof event.data !== "string") return;
-				Runtime.runSync(runtime, handleInboundMessage(event.data));
-			});
-			ws.addEventListener("close", () => {
-				Runtime.runSync(runtime, handleDisconnect("close", closed));
-			});
-			ws.addEventListener("error", () => {
-				Runtime.runSync(runtime, handleDisconnect("error", closed));
-			});
 
 			yield* Deferred.await(closed);
 		}).pipe(Effect.scoped);
@@ -275,10 +293,8 @@ export const createHydromancerWS = (
 
 		return {
 			start,
-			subscribeAssetCtx,
-			unsubscribeAssetCtx,
-			subscribeBook,
-			unsubscribeBook,
+			subscribe,
+			unsubscribe,
 			hasError,
 		} satisfies HydromancerWS;
 	});

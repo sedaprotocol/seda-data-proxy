@@ -105,8 +105,28 @@ export const createPriceCache = <K, V>(options?: {
 
 		const size = () => MutableHashMap.size(priceCache);
 
+		// Waits for a value; on timeout or error evicts the waiter entry and
+		// resolves to null. For callers where a missing value is a valid result.
+		const tryGetOrWait = (key: K) =>
+			getOrWaitPrice(key).pipe(
+				Effect.catchTag("FailedToGetPriceError", () =>
+					Effect.as(deletePrice(key), null),
+				),
+			);
+
+		// Waits for a value; on timeout or error deletes the cached entry and
+		// rethrows. For callers where a missing value must fail the request.
+		const getOrWaitOrEvict = (key: K) =>
+			getOrWaitPrice(key).pipe(
+				Effect.catchTag("FailedToGetPriceError", (error) =>
+					Effect.zipRight(deletePrice(key), Effect.fail(error)),
+				),
+			);
+
 		return {
 			getOrWaitPrice,
+			tryGetOrWait,
+			getOrWaitOrEvict,
 			setPrice,
 			deletePrice,
 			setPriceToError,
