@@ -16,7 +16,7 @@
     },
     "workspace/data-proxy": {
       "name": "@seda-protocol/data-proxy",
-      "version": "2.7.1",
+      "version": "2.7.3",
       "dependencies": {
         "@commander-js/extra-typings": "^12.1.0",
         "@cosmjs/crypto": "^0.33.1",

@@ -22,6 +22,8 @@ COPY --from=builder /build/dataproxy.mjs ./dataproxy.mjs
 RUN printf '#!/bin/sh\nexec node /app/dataproxy.mjs "$@"\n' > /usr/local/bin/dataproxy \
     && chmod +x /usr/local/bin/dataproxy
 
+RUN cp /usr/local/bin/dataproxy /app/dataproxy
+
 # Expose the port the app runs on
 EXPOSE 5384
 
