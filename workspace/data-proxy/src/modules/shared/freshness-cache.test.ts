@@ -9,7 +9,7 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				expect(Option.isNone(yield* cache.get("BTC", 1000, 0))).toBe(true);
+				expect(Option.isNone(cache.get("BTC", 1000, 0))).toBe(true);
 			}),
 		));
 
@@ -17,8 +17,8 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
-				const atWindowEdge = yield* cache.get("BTC", 5000, 6000);
+				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				const atWindowEdge = cache.get("BTC", 5000, 6000);
 				expect(Option.isSome(atWindowEdge)).toBe(true);
 				if (Option.isSome(atWindowEdge)) {
 					expect(atWindowEdge.value.n).toBe(1);
@@ -30,8 +30,8 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
-				expect(Option.isNone(yield* cache.get("BTC", 5000, 6001))).toBe(true);
+				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				expect(Option.isNone(cache.get("BTC", 5000, 6001))).toBe(true);
 			}),
 		));
 
@@ -39,11 +39,11 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
-				yield* cache.set("BTC", { id: "BTC", n: 2 }, 4000);
+				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				cache.set("BTC", { id: "BTC", n: 2 }, 4000);
 				// A 2000ms window is stale against the first write (1000) but
 				// fresh against the second (4000); a hit proves lastUpdate moved.
-				const got = yield* cache.get("BTC", 2000, 5000);
+				const got = cache.get("BTC", 2000, 5000);
 				expect(Option.isSome(got)).toBe(true);
 				if (Option.isSome(got)) {
 					expect(got.value.n).toBe(2);
@@ -55,9 +55,9 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
-				yield* cache.remove("BTC");
-				expect(Option.isNone(yield* cache.get("BTC", 100000, 1000))).toBe(true);
+				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				cache.remove("BTC");
+				expect(Option.isNone(cache.get("BTC", 100000, 1000))).toBe(true);
 			}),
 		));
 });

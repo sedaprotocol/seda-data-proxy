@@ -181,6 +181,41 @@ describe("forkIdleCleanup", () => {
 		);
 	});
 
+	it("keeps retrying onExpire on every pass when it keeps failing, never force-removing", async () => {
+		const lastRequest = MutableHashMap.empty<string, number>();
+		let attempts = 0;
+
+		await provideTestClock(
+			Effect.gen(function* () {
+				yield* TestClock.adjust(Duration.seconds(100));
+				const now = yield* Clock.currentTimeMillis;
+				MutableHashMap.set(lastRequest, "BTC", now - 90_000);
+
+				const fiber = yield* forkIdleCleanup({
+					lastRequest,
+					ttl: Duration.seconds(60),
+					interval: Duration.seconds(30),
+					onExpire: () =>
+						Effect.gen(function* () {
+							attempts += 1;
+							return yield* Effect.fail(new Error("downstream unhealthy"));
+						}),
+				});
+
+				// Five passes, every one failing. The key must still be present
+				// (no force-removal) and onExpire must have been invoked each pass.
+				yield* TestClock.adjust(Duration.seconds(151));
+
+				expect(Option.isSome(MutableHashMap.get(lastRequest, "BTC"))).toBe(
+					true,
+				);
+				expect(attempts).toBeGreaterThanOrEqual(5);
+
+				yield* Fiber.interrupt(fiber);
+			}),
+		);
+	});
+
 	it("retains an entry on onExpire failure and removes it on the next pass", async () => {
 		const lastRequest = MutableHashMap.empty<string, number>();
 		const expired: string[] = [];

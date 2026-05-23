@@ -39,9 +39,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();
 			const lastRequestToBookCoin = MutableHashMap.empty<string, number>();
 
-			// One entry per WS channel: the demand map the cleanup pass drains,
-			// the cleanup cadence, and the cache eviction that runs before the
-			// channel is unsubscribed.
+			// Each entry binds one WS channel to the bookkeeping its idle-cleanup
+			// daemon needs: the last-request map it scans, the TTL/interval that
+			// govern cadence, and the cache eviction that runs just before the
+			// daemon unsubscribes the coin. The loop below forks one daemon per
+			// entry.
 			const subscriptionKinds = [
 				{
 					name: "assetContext",
@@ -49,7 +51,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					lastRequest: lastRequestToCoin,
 					ttl: config.coinsCleanupTtl,
 					interval: config.coinsCleanupInterval,
-					onEvict: (coin: string) => cache.remove(coin),
+					onEvict: (coin: string) => Effect.sync(() => cache.remove(coin)),
 				},
 				{
 					name: "l2Book",
@@ -139,11 +141,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					const toFetch: string[] = [];
 					for (const coin of coins) {
 						if (socketHealthy) {
-							const fresh = yield* cache.get(
-								coin,
-								assetCtxStaleAfterMillis,
-								now,
-							);
+							const fresh = cache.get(coin, assetCtxStaleAfterMillis, now);
 							if (Option.isSome(fresh)) {
 								resolved[coin] = fresh.value;
 								continue;
@@ -160,7 +158,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						for (const coin of toFetch) {
 							const ctx = restBatch[coin];
 							if (ctx) {
-								yield* cache.set(coin, ctx, now);
+								cache.set(coin, ctx, now);
 								resolved[coin] = ctx;
 							}
 						}

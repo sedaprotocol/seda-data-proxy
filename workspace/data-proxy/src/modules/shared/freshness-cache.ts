@@ -12,40 +12,33 @@ interface FreshnessEntry<V> {
  * to a pull such as a REST fetch. It has no waiters and no timeouts.
  */
 export interface FreshnessCache<K, V> {
-	set(key: K, value: V, now: number): Effect.Effect<void>;
-	get(
-		key: K,
-		staleAfterMillis: number,
-		now: number,
-	): Effect.Effect<Option.Option<V>>;
-	remove(key: K): Effect.Effect<void>;
+	set(key: K, value: V, now: number): void;
+	get(key: K, staleAfterMillis: number, now: number): Option.Option<V>;
+	remove(key: K): void;
 }
 
 export const createFreshnessCache = <K, V>(): Effect.Effect<
 	FreshnessCache<K, V>
 > =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const entries = MutableHashMap.empty<K, FreshnessEntry<V>>();
 
-		const set = (key: K, value: V, now: number) =>
-			Effect.sync(() => {
-				MutableHashMap.set(entries, key, { value, lastUpdate: now });
-			});
+		const set = (key: K, value: V, now: number) => {
+			MutableHashMap.set(entries, key, { value, lastUpdate: now });
+		};
 
-		const get = (key: K, staleAfterMillis: number, now: number) =>
-			Effect.sync(() => {
-				const entry = MutableHashMap.get(entries, key);
-				if (Option.isNone(entry)) return Option.none<V>();
-				if (now - entry.value.lastUpdate > staleAfterMillis) {
-					return Option.none<V>();
-				}
-				return Option.some(entry.value.value);
-			});
+		const get = (key: K, staleAfterMillis: number, now: number) => {
+			const entry = MutableHashMap.get(entries, key);
+			if (Option.isNone(entry)) return Option.none<V>();
+			if (now - entry.value.lastUpdate > staleAfterMillis) {
+				return Option.none<V>();
+			}
+			return Option.some(entry.value.value);
+		};
 
-		const remove = (key: K) =>
-			Effect.sync(() => {
-				MutableHashMap.remove(entries, key);
-			});
+		const remove = (key: K) => {
+			MutableHashMap.remove(entries, key);
+		};
 
 		return { set, get, remove } satisfies FreshnessCache<K, V>;
 	});

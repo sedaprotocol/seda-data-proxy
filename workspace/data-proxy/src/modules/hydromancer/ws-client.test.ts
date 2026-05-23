@@ -159,9 +159,14 @@ class FakeWebSocket extends EventTarget {
 	constructor(url: string) {
 		super();
 		this.url = url;
-		// Only record sockets this test file opened. A leaked WS daemon from
-		// another test file also constructs FakeWebSockets; filtering by URL
-		// keeps those out of `instances` so the reconnect tests stay reliable.
+		// `createHydromancerWS` forks its connect loop via `Effect.forkDaemon`,
+		// which is intentionally detached from the layer scope so the daemon
+		// survives a single request. That same property leaks across test
+		// files: a daemon spawned by hydromancer.test.ts can outlive its
+		// runPromise, and when it reconnects during this file's run it calls
+		// `new globalThis.WebSocket(...)` against THIS file's FakeWebSocket
+		// class. Filtering by the leaked daemon's config-time wsUrl keeps
+		// those strays out of `instances` so the reconnect counts stay sound.
 		if (url.includes("wsclient.test")) {
 			FakeWebSocket.instances.push(this);
 		}
@@ -308,9 +313,7 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		const entry = await Effect.runPromise(
-			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
-		);
+		const entry = cache.get("BTC", Number.MAX_SAFE_INTEGER, 0);
 		expect(Option.isSome(entry)).toBe(true);
 		if (Option.isSome(entry)) {
 			expect(entry.value).toEqual(validCtx);
@@ -337,11 +340,9 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		expect(
-			Option.isNone(
-				await Effect.runPromise(cache.get("ETH", Number.MAX_SAFE_INTEGER, 0)),
-			),
-		).toBe(true);
+		expect(Option.isNone(cache.get("ETH", Number.MAX_SAFE_INTEGER, 0))).toBe(
+			true,
+		);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -369,12 +370,10 @@ describe("createHydromancerWS", () => {
 		ws.triggerMessage(JSON.stringify({ channel: "l2Book", data: snapshot }));
 		await flush();
 
-		const fromBook = await Effect.runPromise(bookCache.getOrWaitPrice("BTC"));
+		const fromBook = await Effect.runPromise(bookCache.tryGetOrWait("BTC"));
 		expect(fromBook).toEqual(snapshot);
 
-		const fromAsset = await Effect.runPromise(
-			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
-		);
+		const fromAsset = cache.get("BTC", Number.MAX_SAFE_INTEGER, 0);
 		expect(Option.isNone(fromAsset)).toBe(true);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -409,9 +408,7 @@ describe("createHydromancerWS", () => {
 		ws.triggerMessage("not json");
 		await flush();
 
-		const entry = await Effect.runPromise(
-			cache.get("BTC", Number.MAX_SAFE_INTEGER, 0),
-		);
+		const entry = cache.get("BTC", Number.MAX_SAFE_INTEGER, 0);
 		expect(Option.isNone(entry)).toBe(true);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

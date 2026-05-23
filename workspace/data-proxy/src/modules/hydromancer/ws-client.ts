@@ -208,7 +208,7 @@ export const createHydromancerWS = (
 						return;
 					}
 					const now = yield* Clock.currentTimeMillis;
-					yield* assetCache.set(frame.coin, frame.ctx, now);
+					assetCache.set(frame.coin, frame.ctx, now);
 					return;
 				}
 				if (

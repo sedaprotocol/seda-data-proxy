@@ -58,6 +58,10 @@ export const createPriceCache = <K, V>(options?: {
 				}
 			});
 
+		// Internal helper shared by tryGetOrWait and getOrWaitOrEvict. Returns a
+		// hit immediately, otherwise registers a Deferred waiter and awaits it
+		// under waitTimeout. Not exposed: every production caller wants one of
+		// the wrappers' eviction semantics, not the raw error case.
 		const getOrWaitPrice = (key: K) =>
 			Effect.gen(function* () {
 				const price = MutableHashMap.get(priceCache, key);
@@ -126,7 +130,6 @@ export const createPriceCache = <K, V>(options?: {
 			);
 
 		return {
-			getOrWaitPrice,
 			tryGetOrWait,
 			getOrWaitOrEvict,
 			setPrice,

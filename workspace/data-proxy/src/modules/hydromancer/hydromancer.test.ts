@@ -387,6 +387,20 @@ class FakeWebSocket extends EventTarget {
 	}
 }
 
+// The WS daemon runs on its own fiber (forkDaemon), so it has to be scheduled
+// before its first action (constructing `new WebSocket(...)`) is observable.
+// Yields the runtime up to `maxYields` times until the daemon has produced a
+// socket. Replaces the older "sleep(0) and hope" pattern.
+const waitForSocket = (maxYields = 100) =>
+	Effect.gen(function* () {
+		for (let i = 0; i < maxYields; i++) {
+			if (FakeWebSocket.instances.length > 0)
+				return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+			yield* Effect.yieldNow();
+		}
+		throw new Error("Timed out waiting for FakeWebSocket construction");
+	});
+
 describe("HydromancerModuleService demand-driven subscriptions", () => {
 	const originalWebSocket = globalThis.WebSocket;
 
@@ -423,11 +437,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				assetContextBody(["BTC"]),
 			);
 
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			return {
 				status: response.status,
@@ -473,11 +485,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				assetContextBody(["BTC"]),
 			);
 
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 			return [...ws.sent];
 		});
 
@@ -516,11 +526,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 				assetContextBody(["BTC"]),
 			);
 
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 			const afterSubscribe = [...ws.sent];
 
 			// Wait past the TTL plus at least one cleanup tick.
@@ -574,11 +582,9 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			yield* svc.start();
 
 			// Let the WS daemon construct a FakeWebSocket and then bring it up.
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			const route = buildRoute();
 
@@ -592,7 +598,7 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 
 			// Drop the socket: cache.markSocketError fires, currentWS clears.
 			ws.close();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			// Request 2: BTC is fresh in cache but socketError forces another REST.
 			yield* svc.handleRequest(
@@ -623,7 +629,7 @@ describe("HydromancerModuleService l2Book flow", () => {
 		globalThis.WebSocket = originalWebSocket;
 	});
 
-	it("returns the seeded snapshot for a pre-subscribed coin", async () => {
+	it("subscribes the pre-seeded coin on open and returns its snapshot", async () => {
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
 			l2BookSubscriptionCoins: ["BTC"],
@@ -632,30 +638,35 @@ describe("HydromancerModuleService l2Book flow", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
+			const sentOnOpen = [...ws.sent];
 
 			ws.triggerMessage(
 				JSON.stringify({ channel: "l2Book", data: btcSnapshot }),
 			);
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			const route = buildRoute();
-			return yield* svc.handleRequest(
+			const response = yield* svc.handleRequest(
 				route,
 				{},
 				buildL2BookRequest(["BTC"]),
 				l2BookBody(["BTC"]),
 			);
+			return { response, sentOnOpen };
 		});
 
-		const response = await runSilently(
+		const { response, sentOnOpen } = await runSilently(
 			program.pipe(Effect.provide(HydromancerModuleService(config))),
 		);
 
+		// The pre-seeded coin must produce a subscribe frame on open, not just
+		// appear in the response from an inbound frame the test happened to
+		// inject. Without this assertion the test would pass even if the
+		// subscription pipeline were a no-op.
+		expect(sentOnOpen).toEqual([buildSubscribeFrame("l2Book", "BTC")]);
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ BTC: btcSnapshot });
 	});
@@ -670,11 +681,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			const route = buildRoute();
 			return yield* svc.handleRequest(
@@ -703,16 +712,14 @@ describe("HydromancerModuleService l2Book flow", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			ws.triggerMessage(
 				JSON.stringify({ channel: "l2Book", data: btcSnapshot }),
 			);
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			const route = buildRoute();
 			return yield* svc.handleRequest(
@@ -740,11 +747,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
-			yield* Effect.sleep(Duration.millis(0));
-			yield* Effect.sleep(Duration.millis(0));
-			const ws = FakeWebSocket.instances[0];
+			const ws = yield* waitForSocket();
 			ws.triggerOpen();
-			yield* Effect.sleep(Duration.millis(0));
+			yield* Effect.yieldNow();
 
 			const route = buildRoute();
 			return yield* svc.handleRequest(
