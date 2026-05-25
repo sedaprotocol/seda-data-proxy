@@ -11,7 +11,12 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 		}),
 	),
 	channel: v.optional(
-		v.picklist(["fixed_rate@200ms", "fixed_rate@50ms", "fixed_rate@1000ms"]),
+		v.picklist([
+			"real_time",
+			"fixed_rate@50ms",
+			"fixed_rate@1000ms",
+			"fixed_rate@200ms",
+		]),
 		"fixed_rate@200ms",
 	),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
