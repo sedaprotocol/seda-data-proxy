@@ -264,14 +264,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						}
 						MutableHashMap.set(lastRequestByKey, key, now);
 
-						const price = yield* priceCache.getOrWaitPrice(key).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(key);
-									return yield* Effect.fail(error);
-								}),
-							),
-						);
+						const price = yield* priceCache.getOrWaitOrEvict(key);
 						prices.push(price);
 					}
 
