@@ -345,7 +345,6 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						);
 
 						if (Either.isLeft(price)) {
-							yield* priceCache.deletePrice(priceFeedId);
 							prices.push({
 								priceFeedId,
 								symbol: priceFeedIdsRaw.at(index),

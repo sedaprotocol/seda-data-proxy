@@ -3,6 +3,7 @@ import {
 	LO_TECH_DATA_TYPE_PRICE,
 	type LoTechDataType,
 } from "../../config/lo-tech-module-config";
+import { HAS_PRICE_KEY } from "../../constants";
 
 export const LoTechDataPriceSchema = v.strictObject({
 	type: v.literal(LO_TECH_DATA_TYPE_PRICE),
@@ -15,6 +16,15 @@ export const LoTechDataPriceSchema = v.strictObject({
 });
 
 export type LoTechDataPrice = v.InferOutput<typeof LoTechDataPriceSchema>;
+
+export type LoTechResponse =
+	| (LoTechDataPrice & {
+			[HAS_PRICE_KEY]: true;
+	  })
+	| {
+			symbol: string;
+			[HAS_PRICE_KEY]: false;
+	  };
 
 export const LoTechParsedDataSchema = v.variant("type", [
 	LoTechDataPriceSchema,

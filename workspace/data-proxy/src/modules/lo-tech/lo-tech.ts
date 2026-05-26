@@ -2,6 +2,7 @@ import {
 	Clock,
 	Duration,
 	Effect,
+	Either,
 	Layer,
 	Match,
 	MutableHashMap,
@@ -14,12 +15,17 @@ import {
 	LO_TECH_DATA_TYPE_PRICE,
 	type LoTechModuleConfig,
 } from "../../config/lo-tech-module-config";
+import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleLoTechRequestError } from "./errors";
-import type { LoTechDataPrice, LoTechParsedData } from "./schema";
+import type {
+	LoTechDataPrice,
+	LoTechParsedData,
+	LoTechResponse,
+} from "./schema";
 import { makeLoTechWebSocketService } from "./ws-client";
 
 export type PriceFeedSymbol = string;
@@ -184,34 +190,42 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						);
 					}
 
-					const prices: LoTechDataPrice[] = [];
+					const responses: LoTechResponse[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
+					// First subscribe to all the symbols that we have not subscribed to yet
+					// We do this separately from the price fetching to avoid waiting extra time
+					// for each symbol.
 					for (const symbol of symbols) {
-						// Set the last request timestamp.
-						const lastRequestTimestamp = MutableHashMap.get(
-							lastRequestToPriceFeed,
-							symbol,
-						);
-						if (Option.isNone(lastRequestTimestamp)) {
-							yield* newPriceFeedRequests.offer(symbol);
+						if (MutableHashMap.has(lastRequestToPriceFeed, symbol)) {
+							continue;
 						}
+						yield* newPriceFeedRequests.offer(symbol);
+					}
+
+					// Now since the subscriptions are in-flight, we can fetch the prices.
+					for (const symbol of symbols) {
 						MutableHashMap.set(lastRequestToPriceFeed, symbol, now);
 
-						// Get the price from the cache.
-						const price = yield* priceCache.getOrWaitPrice(symbol).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(symbol);
-									return yield* Effect.fail(error);
-								}),
-							),
+						const price = yield* Effect.either(
+							priceCache.getOrWaitPrice(symbol),
 						);
-						prices.push(price);
+
+						if (Either.isLeft(price)) {
+							responses.push({
+								symbol,
+								[HAS_PRICE_KEY]: false,
+							});
+						} else {
+							responses.push({
+								...price.right,
+								[HAS_PRICE_KEY]: true,
+							});
+						}
 					}
 
 					return yield* Effect.succeed(
-						new Response(JSON.stringify(prices), { status: 200 }),
+						new Response(JSON.stringify(responses), { status: 200 }),
 					);
 				}).pipe(
 					Effect.withSpan("handleLoTechRequest"),

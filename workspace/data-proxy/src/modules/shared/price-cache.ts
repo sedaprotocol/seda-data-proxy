@@ -87,6 +87,7 @@ export const createPriceCache = <K, V>() =>
 					}),
 				);
 			}).pipe(
+				Effect.tapError(() => deletePrice(key)),
 				Effect.withSpan("priceCache.getOrWaitPrice", { attributes: { key } }),
 			);
 

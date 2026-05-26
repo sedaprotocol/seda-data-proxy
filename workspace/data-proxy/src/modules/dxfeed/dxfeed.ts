@@ -276,7 +276,6 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						const price = yield* Effect.either(priceCache.getOrWaitPrice(key));
 
 						if (Either.isLeft(price)) {
-							yield* priceCache.deletePrice(key);
 							prices.push({
 								symbol,
 								[HAS_PRICE_KEY]: false,
