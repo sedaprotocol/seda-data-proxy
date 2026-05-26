@@ -9,6 +9,7 @@ import {
 	Clock,
 	Duration,
 	Effect,
+	Either,
 	Layer,
 	MutableHashMap,
 	Option,
@@ -23,6 +24,7 @@ import {
 	type DxFeedModuleConfig,
 	dxfeedKey,
 } from "../../config/dxfeed-module-config";
+import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
@@ -253,26 +255,39 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 					const prices: DxFeedFullEventData[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
+					// First subscribe to all the symbols that we have not subscribed to yet
+					// We do this separately from the price fetching to avoid waiting extra time
+					// for each symbol.
 					for (const symbol of symbols) {
 						const key = dxfeedKey(symbol, eventType);
-						const lastRequestTimestamp = MutableHashMap.get(
-							lastRequestByKey,
-							key,
-						);
-						if (Option.isNone(lastRequestTimestamp)) {
-							yield* newSubscriptionRequests.offer({ symbol, eventType });
+
+						if (MutableHashMap.has(lastRequestByKey, key)) {
+							continue;
 						}
+
+						yield* newSubscriptionRequests.offer({ symbol, eventType });
+					}
+
+					// Now since the subscriptions are in-flight, we can fetch the prices.
+					for (const symbol of symbols) {
+						const key = dxfeedKey(symbol, eventType);
 						MutableHashMap.set(lastRequestByKey, key, now);
 
-						const price = yield* priceCache.getOrWaitPrice(key).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(key);
-									return yield* Effect.fail(error);
-								}),
-							),
-						);
-						prices.push(price);
+						const price = yield* Effect.either(priceCache.getOrWaitPrice(key));
+
+						if (Either.isLeft(price)) {
+							yield* priceCache.deletePrice(key);
+							prices.push({
+								symbol,
+								[HAS_PRICE_KEY]: false,
+								type: eventType,
+							});
+						} else {
+							prices.push({
+								...price.right,
+								[HAS_PRICE_KEY]: true,
+							});
+						}
 					}
 
 					return yield* Effect.succeed(

@@ -40,7 +40,7 @@ export const DxFeedModuleConfigSchema = v.strictObject({
 	subscriptions: v.optional(v.array(DxFeedSubscriptionSchema), []),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
 	subscriptionsCleanupTtl: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.optional(v.union([v.number(), v.string()]), "1 hour"),
 		v.transform((ttl) =>
 			Option.getOrThrowWith(
 				Duration.decodeUnknown(ttl),

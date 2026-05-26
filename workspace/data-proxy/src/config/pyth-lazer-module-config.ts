@@ -22,7 +22,7 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 	maxFeedsPerRequest: v.optional(v.number(), 100),
 	pythLazerApiKeyEnvKey: v.string(),
 	priceFeedsCleanupTtl: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.optional(v.union([v.number(), v.string()]), "1 hour"),
 		v.transform((ttl) =>
 			Option.getOrThrowWith(
 				Duration.decodeUnknown(ttl),

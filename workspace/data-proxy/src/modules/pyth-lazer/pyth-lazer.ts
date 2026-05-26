@@ -7,6 +7,7 @@ import {
 	Clock,
 	Data,
 	Effect,
+	Either,
 	Layer,
 	MutableHashMap,
 	Option,
@@ -15,6 +16,7 @@ import {
 } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { PythLazerModuleConfig } from "../../config/pyth-lazer-module-config";
+import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
@@ -37,6 +39,7 @@ type PriceFeedSymbol = string;
 
 interface PriceFeedWithSymbol extends ParsedFeedPayload {
 	symbol?: string;
+	[HAS_PRICE_KEY]: boolean;
 }
 
 export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
@@ -322,29 +325,39 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					const prices: PriceFeedWithSymbol[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
-					for (const [index, priceFeedId] of priceFeedIds.entries()) {
-						const lastRequestTimestamp = MutableHashMap.get(
-							lastRequestToPriceFeed,
-							priceFeedId,
-						);
-						if (Option.isNone(lastRequestTimestamp)) {
-							yield* newPriceFeedRequests.offer(priceFeedId);
+					// First subscribe to all the symbols that we have not subscribed to yet
+					// We do this separately from the price fetching to avoid waiting extra time
+					// for each symbol.
+					for (const priceFeedId of priceFeedIds) {
+						if (MutableHashMap.has(lastRequestToPriceFeed, priceFeedId)) {
+							continue;
 						}
 
+						yield* newPriceFeedRequests.offer(priceFeedId);
+					}
+
+					// Now since the subscriptions are in-flight, we can fetch the prices.
+					for (const [index, priceFeedId] of priceFeedIds.entries()) {
 						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
-						const price = yield* priceCache.getOrWaitPrice(priceFeedId).pipe(
-							Effect.catchTag("FailedToGetPriceError", (error) =>
-								Effect.gen(function* () {
-									yield* priceCache.deletePrice(priceFeedId);
-									return yield* Effect.fail(error);
-								}),
-							),
+
+						const price = yield* Effect.either(
+							priceCache.getOrWaitPrice(priceFeedId),
 						);
 
-						prices.push({
-							symbol: priceFeedIdsRaw.at(index),
-							...price,
-						});
+						if (Either.isLeft(price)) {
+							yield* priceCache.deletePrice(priceFeedId);
+							prices.push({
+								priceFeedId,
+								symbol: priceFeedIdsRaw.at(index),
+								[HAS_PRICE_KEY]: false,
+							});
+						} else {
+							prices.push({
+								...price.right,
+								symbol: priceFeedIdsRaw.at(index),
+								[HAS_PRICE_KEY]: true,
+							});
+						}
 					}
 
 					return yield* Effect.succeed(

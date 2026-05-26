@@ -19,6 +19,7 @@ export const DEFAULT_VERIFICATION_MAX_RETRIES = 2;
 export const DEFAULT_VERIFICATION_RETRY_DELAY = 1000;
 
 export const PRIVATE_KEY_ENV_KEY = "SEDA_DATA_PROXY_PRIVATE_KEY";
+export const HAS_PRICE_KEY = "__sedaHasPrice";
 
 // Use a getter function instead of a constant to ensure we read the decrypted value at runtime
 export function getPrivateKey(): string | undefined {
