@@ -3,7 +3,6 @@ import * as v from "valibot";
 import { RouteSchema } from "./route-config";
 
 export const LO_TECH_DATA_TYPE_PRICE = "PRICE" as const;
-
 export const LoTechDataTypeSchema = v.picklist([LO_TECH_DATA_TYPE_PRICE]);
 
 export type LoTechDataType = v.InferOutput<typeof LoTechDataTypeSchema>;

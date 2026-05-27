@@ -22,6 +22,7 @@ import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleLoTechRequestError } from "./errors";
 import type {
+	LoTechAck,
 	LoTechDataPrice,
 	LoTechParsedData,
 	LoTechResponse,
@@ -37,9 +38,16 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 			yield* Effect.logInfo("Initializing LO:TECH module");
 
 			const runtime = yield* Effect.runtime();
+
+			// Monotonically increasing counter for price feed IDs.
+			let latestPriceFeedId = 0;
+			// Map from price feed IDs to symbols. (Used to process acks)
+			const priceFeedIds = MutableHashMap.empty<number, PriceFeedSymbol>();
+			// Map from subscribed symbols to price feed IDs.
 			const priceFeeds = MutableHashMap.empty<PriceFeedSymbol, number>();
-			const newPriceFeedRequests = yield* Queue.unbounded<PriceFeedSymbol>();
-			// The timestamp of the last request to the price feed used for cleanup.
+			// Queue of new symbols to subscribe to.
+			const newPriceFeedQueue = yield* Queue.unbounded<PriceFeedSymbol>();
+			// Timestamp of the last request to the price feed. (Used for cleanup)
 			const lastRequestToPriceFeed = MutableHashMap.empty<
 				PriceFeedSymbol,
 				number
@@ -49,11 +57,9 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				LoTechDataPrice
 			>();
 
-			let priceFeedId = 0;
-
 			const updatePrice = (data: LoTechDataPrice) =>
 				Effect.gen(function* () {
-					yield* Effect.logTrace("Received message from LO:TECH client", data);
+					yield* Effect.logDebug("Received message from LO:TECH client", data);
 
 					// Set the price if the symbol is subscribed to.
 					const { symbol } = data;
@@ -70,6 +76,24 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					}),
 				);
 
+			const handleAckMessage = (msg: LoTechAck) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("handling ack", { msg });
+
+					const symbol = MutableHashMap.get(priceFeedIds, msg.ack.id);
+					if (Option.isNone(symbol)) {
+						yield* Effect.logWarning("Received ack for unknown price feed ID", {
+							msg,
+						});
+						return;
+					}
+
+					MutableHashMap.set(priceFeeds, symbol.value, msg.ack.id);
+
+					const now = yield* Clock.currentTimeMillis;
+					MutableHashMap.set(lastRequestToPriceFeed, symbol.value, now);
+				});
+
 			const loTechWs = yield* makeLoTechWebSocketService({
 				config,
 				runtime,
@@ -80,20 +104,18 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 								`Subscribing to price feed ${priceFeed.symbol}`,
 							);
 
-							const newSubscriptionId = priceFeedId++;
+							const newSubscriptionId = latestPriceFeedId++;
 							MutableHashMap.set(
-								priceFeeds,
-								priceFeed.symbol,
+								priceFeedIds,
 								newSubscriptionId,
+								priceFeed.symbol,
 							);
-
-							const now = yield* Clock.currentTimeMillis;
-							MutableHashMap.set(lastRequestToPriceFeed, priceFeed.symbol, now);
 
 							yield* api.subscribePrice(priceFeed.symbol, newSubscriptionId);
 						}
 					}),
 				handleDataMessage,
+				handleAckMessage,
 			});
 
 			const start = () =>
@@ -103,15 +125,12 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					// Background fiber for handling new price feed subscriptions
 					yield* Effect.forkDaemon(
 						Effect.gen(function* () {
-							const newSymbol = yield* newPriceFeedRequests.take;
+							const newSymbol = yield* newPriceFeedQueue.take;
 
 							yield* Effect.logInfo(`Subscribing to price feed ${newSymbol}`);
 
-							const newSubscriptionId = priceFeedId++;
-							MutableHashMap.set(priceFeeds, newSymbol, newSubscriptionId);
-
-							const now = yield* Clock.currentTimeMillis;
-							MutableHashMap.set(lastRequestToPriceFeed, newSymbol, now);
+							const newSubscriptionId = latestPriceFeedId++;
+							MutableHashMap.set(priceFeedIds, newSubscriptionId, newSymbol);
 
 							yield* loTechWs.subscribePrice(newSymbol, newSubscriptionId);
 						}).pipe(Effect.forever),
@@ -148,6 +167,14 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 									if (Option.isSome(priceFeedId)) {
 										yield* loTechWs.unsubscribePrice(symbol);
 										MutableHashMap.remove(priceFeeds, symbol);
+										MutableHashMap.remove(priceFeedIds, priceFeedId.value);
+									} else {
+										yield* Effect.logError(
+											"Failed to find price feed ID for symbol",
+											{
+												symbol,
+											},
+										);
 									}
 								}
 							}
@@ -173,7 +200,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						);
 					}
 
-					yield* Effect.logInfo("Handling LO:TECH request", { route, params });
+					yield* Effect.logDebug("Handling LO:TECH request", { route, params });
 
 					const symbols = replaceParams(route.fetchFromModule, params).split(
 						",",
@@ -197,15 +224,16 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					// We do this separately from the price fetching to avoid waiting extra time
 					// for each symbol.
 					for (const symbol of symbols) {
-						if (MutableHashMap.has(lastRequestToPriceFeed, symbol)) {
-							continue;
+						if (!MutableHashMap.has(priceFeeds, symbol)) {
+							yield* newPriceFeedQueue.offer(symbol);
 						}
-						yield* newPriceFeedRequests.offer(symbol);
 					}
 
 					// Now since the subscriptions are in-flight, we can fetch the prices.
 					for (const symbol of symbols) {
-						MutableHashMap.set(lastRequestToPriceFeed, symbol, now);
+						if (MutableHashMap.has(lastRequestToPriceFeed, symbol)) {
+							MutableHashMap.set(lastRequestToPriceFeed, symbol, now);
+						}
 
 						const price = yield* Effect.either(
 							priceCache.getOrWaitPrice(symbol),

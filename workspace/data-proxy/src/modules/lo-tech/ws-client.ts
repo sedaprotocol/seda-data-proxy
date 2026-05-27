@@ -2,7 +2,12 @@ import { Duration, Effect, Runtime, Schedule } from "effect";
 import * as v from "valibot";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
-import { LoTechDataMessageSchema, type LoTechParsedData } from "./schema";
+import {
+	type LoTechAck,
+	LoTechAckSchema,
+	LoTechDataMessageSchema,
+	type LoTechParsedData,
+} from "./schema";
 
 // LO:TECH expects a ping every ~60 seconds to keep the connection alive.
 const LO_TECH_PING_INTERVAL_MS = 30_000;
@@ -36,13 +41,20 @@ export type LoTechWebSocketServiceDeps = {
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
 	handleDataMessage: (data: LoTechParsedData) => Effect.Effect<void>;
+	handleAckMessage: (data: LoTechAck) => Effect.Effect<void>;
 };
 
 export const makeLoTechWebSocketService = (
 	deps: LoTechWebSocketServiceDeps,
 ): Effect.Effect<LoTechWebSocketServiceApi> =>
 	Effect.gen(function* () {
-		const { config, runtime, onConnected, handleDataMessage } = deps;
+		const {
+			config,
+			runtime,
+			onConnected,
+			handleDataMessage,
+			handleAckMessage,
+		} = deps;
 
 		let activeSocket: WebSocket | null = null;
 		const pendingOutbound: string[] = [];
@@ -182,7 +194,27 @@ export const makeLoTechWebSocketService = (
 										),
 									);
 								} else if ("ack" in parsed) {
-									yield* Effect.logInfo("Received ack from LO:TECH");
+									const ackResult = v.safeParse(LoTechAckSchema, parsed);
+									if (!ackResult.success) {
+										yield* Effect.logError(
+											"Unexpected LO:TECH ack message (schema)",
+											{
+												issues: v.flatten(ackResult.issues),
+												raw: parsed,
+											},
+										);
+										return;
+									}
+									yield* handleAckMessage(ackResult.output).pipe(
+										Effect.catchAll((err) =>
+											Effect.logError(
+												"Failed to handle ack message from LO:TECH",
+												{
+													err,
+												},
+											),
+										),
+									);
 								} else if ("pong" in parsed) {
 									yield* Effect.logInfo("Received pong from LO:TECH");
 								} else if ("error" in parsed) {

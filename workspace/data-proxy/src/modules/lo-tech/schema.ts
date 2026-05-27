@@ -26,6 +26,15 @@ export type LoTechResponse =
 			[HAS_PRICE_KEY]: false;
 	  };
 
+export const LoTechAckSchema = v.strictObject({
+	egress_ts: v.number(),
+	ack: v.object({
+		id: v.number(),
+	}),
+});
+
+export type LoTechAck = v.InferOutput<typeof LoTechAckSchema>;
+
 export const LoTechParsedDataSchema = v.variant("type", [
 	LoTechDataPriceSchema,
 ]);
