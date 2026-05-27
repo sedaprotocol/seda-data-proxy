@@ -326,34 +326,36 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					const now = yield* Clock.currentTimeMillis;
 
 					// First subscribe to all the symbols that we have not subscribed to yet
-					// We do this separately from the price fetching to avoid waiting extra time
-					// for each symbol.
 					for (const priceFeedId of priceFeedIds) {
-						if (MutableHashMap.has(lastRequestToPriceFeed, priceFeedId)) {
-							continue;
+						if (!MutableHashMap.has(lastRequestToPriceFeed, priceFeedId)) {
+							yield* newPriceFeedRequests.offer(priceFeedId);
 						}
 
-						yield* newPriceFeedRequests.offer(priceFeedId);
+						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
 					}
 
-					// Now since the subscriptions are in-flight, we can fetch the prices.
-					for (const [index, priceFeedId] of priceFeedIds.entries()) {
-						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
+					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
+					const results = yield* Effect.forEach(
+						priceFeedIds,
+						(priceFeedId) =>
+							Effect.either(priceCache.getOrWaitPrice(priceFeedId)),
+						{ concurrency: "unbounded" },
+					);
 
-						const price = yield* Effect.either(
-							priceCache.getOrWaitPrice(priceFeedId),
-						);
+					for (let i = 0; i < priceFeedIds.length; i++) {
+						const priceFeedId = priceFeedIds[i];
+						const price = results[i];
 
 						if (Either.isLeft(price)) {
 							prices.push({
 								priceFeedId,
-								symbol: priceFeedIdsRaw.at(index),
+								symbol: priceFeedIdsRaw.at(i),
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
 							prices.push({
 								...price.right,
-								symbol: priceFeedIdsRaw.at(index),
+								symbol: priceFeedIdsRaw.at(i),
 								[HAS_PRICE_KEY]: true,
 							});
 						}

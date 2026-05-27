@@ -220,24 +220,26 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					const responses: LoTechResponse[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
-					// First subscribe to all the symbols that we have not subscribed to yet
-					// We do this separately from the price fetching to avoid waiting extra time
-					// for each symbol.
+					// Subscribe to the symbols that we have not subscribed to yet.
 					for (const symbol of symbols) {
 						if (!MutableHashMap.has(priceFeeds, symbol)) {
 							yield* newPriceFeedQueue.offer(symbol);
 						}
-					}
 
-					// Now since the subscriptions are in-flight, we can fetch the prices.
-					for (const symbol of symbols) {
 						if (MutableHashMap.has(lastRequestToPriceFeed, symbol)) {
 							MutableHashMap.set(lastRequestToPriceFeed, symbol, now);
 						}
+					}
 
-						const price = yield* Effect.either(
-							priceCache.getOrWaitPrice(symbol),
-						);
+					const prices = yield* Effect.forEach(
+						symbols,
+						(symbol) => Effect.either(priceCache.getOrWaitPrice(symbol)),
+						{ concurrency: "unbounded" },
+					);
+
+					for (let i = 0; i < symbols.length; i++) {
+						const symbol = symbols[i];
+						const price = prices[i];
 
 						if (Either.isLeft(price)) {
 							responses.push({

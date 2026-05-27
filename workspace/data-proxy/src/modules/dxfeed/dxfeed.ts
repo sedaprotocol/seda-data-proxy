@@ -256,24 +256,29 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 					const now = yield* Clock.currentTimeMillis;
 
 					// First subscribe to all the symbols that we have not subscribed to yet
-					// We do this separately from the price fetching to avoid waiting extra time
-					// for each symbol.
+					const keys: DxFeedKey[] = [];
 					for (const symbol of symbols) {
 						const key = dxfeedKey(symbol, eventType);
 
-						if (MutableHashMap.has(lastRequestByKey, key)) {
-							continue;
+						if (!MutableHashMap.has(lastRequestByKey, key)) {
+							yield* newSubscriptionRequests.offer({ symbol, eventType });
 						}
 
-						yield* newSubscriptionRequests.offer({ symbol, eventType });
-					}
-
-					// Now since the subscriptions are in-flight, we can fetch the prices.
-					for (const symbol of symbols) {
-						const key = dxfeedKey(symbol, eventType);
 						MutableHashMap.set(lastRequestByKey, key, now);
 
-						const price = yield* Effect.either(priceCache.getOrWaitPrice(key));
+						keys.push(key);
+					}
+
+					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
+					const results = yield* Effect.forEach(
+						keys,
+						(key) => Effect.either(priceCache.getOrWaitPrice(key)),
+						{ concurrency: "unbounded" },
+					);
+
+					for (let i = 0; i < symbols.length; i++) {
+						const symbol = symbols[i];
+						const price = results[i];
 
 						if (Either.isLeft(price)) {
 							prices.push({
