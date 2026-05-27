@@ -1,7 +1,7 @@
 import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Match, Option } from "effect";
 import type { Config } from "../../config/config-parser";
-import { JSON_PATH_HEADER_KEY } from "../../constants";
+import { HAS_PRICE_KEY, JSON_PATH_HEADER_KEY } from "../../constants";
 import {
 	FailedToParseResponseBodyError,
 	NotOkUpstreamResponseError,
@@ -261,6 +261,20 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 		// Now we are going to handle jsonPath filtering if configured
 		let responseData: string = upstreamTextResponse;
+
+		// TEMP: This is added for older ops who may not handle __sedaHasPrice key in the response.
+		// we should remove this once all ops have updated to the new response format.
+		if (!requestSearchParams.has("skipPriceErrors")) {
+			if (upstreamTextResponse.includes(`"${HAS_PRICE_KEY}":false`)) {
+				return yield* Effect.fail(
+					new NotOkUpstreamResponseError({
+						status: 500,
+						body: `Not all symbols have a price: ${upstreamTextResponse}`,
+						routePath: path,
+					}),
+				);
+			}
+		}
 
 		if (route.jsonPath) {
 			yield* Effect.logDebug(`Applying route JSONpath ${route.jsonPath}`);
