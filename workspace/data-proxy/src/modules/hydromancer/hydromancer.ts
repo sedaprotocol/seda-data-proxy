@@ -87,21 +87,31 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						return yield* executeHydromancerRestRequest(config, body);
 					}
 
-					const coins = Match.value(parsedBody.value).pipe(
+					// We need to know if the request is for a single coin or a batch of coins as the response shape is different.
+					const assetRequest = Match.value(parsedBody.value).pipe(
 						Match.when(
 							{ type: "assetContext", coins: Match.any },
-							(body) => body.coins,
+							(body) =>
+								({
+									type: "batch",
+									coins: body.coins,
+								}) as const,
 						),
-						Match.when({ type: "assetContext", coin: Match.any }, (body) => [
-							body.coin,
-						]),
+						Match.when(
+							{ type: "assetContext", coin: Match.any },
+							(body) =>
+								({
+									type: "single",
+									coins: [body.coin],
+								}) as const,
+						),
 						Match.exhaustive,
 					);
 
-					if (coins.length > config.maxCoinsPerRequest) {
+					if (assetRequest.coins.length > config.maxCoinsPerRequest) {
 						return yield* Effect.fail(
 							new FailedToHandleHydromancerRequestError({
-								error: `Too many coins, max is ${config.maxCoinsPerRequest} but got ${coins.length}`,
+								error: `Too many coins, max is ${config.maxCoinsPerRequest} but got ${assetRequest.coins.length}`,
 								status: 400,
 							}),
 						);
@@ -110,7 +120,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					const now = yield* Clock.currentTimeMillis;
 					const socketHealthy = !(yield* ws.hasError());
 
-					for (const coin of coins) {
+					for (const coin of assetRequest.coins) {
 						yield* ws.subscribe(coin);
 						MutableHashMap.set(lastRequestToCoin, coin, now);
 					}
@@ -118,11 +128,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					// Pre-seed every requested coin to null so the response shape matches
 					// Hydromancer's native /info: a key per coin, unresolved ones stay null.
 					const resolved: Record<string, AssetCtx | null> = {};
-					for (const coin of coins) resolved[coin] = null;
+					for (const coin of assetRequest.coins) resolved[coin] = null;
 
 					const toFetch: string[] = [];
 
-					for (const coin of coins) {
+					for (const coin of assetRequest.coins) {
 						if (
 							socketHealthy &&
 							(yield* cache.isFresh(coin, staleAfterMillis, now))
@@ -148,6 +158,16 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 								resolved[coin] = ctx;
 							}
 						}
+					}
+
+					if (assetRequest.type === "single") {
+						return new Response(
+							JSON.stringify(resolved[assetRequest.coins[0]]),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
 					}
 
 					return new Response(JSON.stringify(resolved), {

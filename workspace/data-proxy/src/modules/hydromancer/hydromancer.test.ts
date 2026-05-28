@@ -207,7 +207,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(200);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const body = await response.json();
-		expect(body).toEqual({ BTC: btcCtx });
+		expect(body).toEqual(btcCtx);
 	});
 
 	it("keeps null entries for coins that come back null", async () => {
