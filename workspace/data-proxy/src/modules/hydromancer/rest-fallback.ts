@@ -11,13 +11,16 @@ const BatchResponseSchema = v.record(v.string(), v.nullable(AssetCtxSchema));
 
 export type BatchAssetContexts = v.InferOutput<typeof BatchResponseSchema>;
 
-export const fetchAssetContextsFromRest = (
+export const executeHydromancerRestRequest = (
 	config: HydromancerModuleConfig,
-	coins: string[],
-): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> =>
+	rawBody: unknown,
+): Effect.Effect<Response, FailedToHandleHydromancerRequestError> =>
 	Effect.gen(function* () {
 		const url = new URL("/info", config.restBaseUrl);
 		const timeoutMs = Duration.toMillis(config.restFetchTimeout);
+
+		const body =
+			typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
 		const response = yield* Effect.tryPromise({
 			try: () =>
@@ -27,7 +30,7 @@ export const fetchAssetContextsFromRest = (
 						"Content-Type": "application/json",
 						Authorization: `Bearer ${config.hydromancerApiKey}`,
 					},
-					body: JSON.stringify({ type: "assetContext", coins }),
+					body,
 					signal: AbortSignal.timeout(timeoutMs),
 				}),
 			catch: (error) => {
@@ -40,6 +43,19 @@ export const fetchAssetContextsFromRest = (
 					status: isTimeout ? 504 : 502,
 				});
 			},
+		});
+
+		return response;
+	}).pipe(Effect.withSpan("executeHydromancerRestRequest"));
+
+export const fetchAssetContextsFromRest = (
+	config: HydromancerModuleConfig,
+	coins: string[],
+): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> =>
+	Effect.gen(function* () {
+		const response = yield* executeHydromancerRestRequest(config, {
+			type: "assetContext",
+			coins,
 		});
 
 		const responseText = yield* Effect.tryPromise({

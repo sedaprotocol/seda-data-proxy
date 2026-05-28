@@ -99,11 +99,20 @@ export const AssetCtxSchema = v.object({
 
 export type AssetCtx = v.InferOutput<typeof AssetCtxSchema>;
 
-// Request body the module accepts. Anything else is rejected with 400.
-export const AssetContextRequestBodySchema = v.object({
-	type: v.literal("assetContext"),
+const AssetContextType = v.literal("assetContext");
+const SingleAssetContextType = v.object({
+	type: AssetContextType,
+	coin: v.string(),
+});
+const BatchAssetContextType = v.object({
+	type: AssetContextType,
 	coins: v.array(v.string()),
 });
+// Request body the module accepts. Anything else is forwarded to the upstream
+export const AssetContextRequestBodySchema = v.union([
+	SingleAssetContextType,
+	BatchAssetContextType,
+]);
 
 export type AssetContextRequestBody = v.InferOutput<
 	typeof AssetContextRequestBodySchema

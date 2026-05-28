@@ -50,25 +50,29 @@ const buildRoute = () =>
 		method: ["POST"],
 	});
 
-const buildAssetContextRequest = (coins: string[]) =>
+const buildAssetContextRequest = (body: string) =>
 	new Request("http://proxy.local/info", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ type: "assetContext", coins }),
+		body,
 	});
 
-const assetContextBody = (coins: string[]) =>
+const buildRequestBody = (coins: string[]) =>
 	JSON.stringify({ type: "assetContext", coins });
 
-const callHandle = (config: HydromancerModuleConfig, coins: string[]) => {
+const callHandle = (
+	config: HydromancerModuleConfig,
+	coins: string[],
+	buildBody = buildRequestBody,
+) => {
 	const route = buildRoute();
-	const body = assetContextBody(coins);
+	const body = buildBody(coins);
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
 		return yield* svc.handleRequest(
 			route,
 			{},
-			buildAssetContextRequest(coins),
+			buildAssetContextRequest(body),
 			body,
 		);
 	});
@@ -95,7 +99,10 @@ const callHandleRaw = (config: HydromancerModuleConfig, rawBody: string) => {
 		);
 	});
 	return Effect.runPromise(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		),
 	);
 };
 
@@ -105,17 +112,19 @@ const callHandleSequence = (
 	config: HydromancerModuleConfig,
 	calls: string[][],
 	between?: () => Promise<void>,
+	buildBody = buildRequestBody,
 ) => {
 	const route = buildRoute();
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
 		const responses: Response[] = [];
 		for (const coins of calls) {
+			const body = buildBody(coins);
 			const response = yield* svc.handleRequest(
 				route,
 				{},
-				buildAssetContextRequest(coins),
-				assetContextBody(coins),
+				buildAssetContextRequest(body),
+				body,
 			);
 			responses.push(response);
 			if (between) {
@@ -167,6 +176,38 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const body = await response.json();
 		expect(body).toEqual({ BTC: btcCtx, ETH: ethCtx });
+	});
+
+	it("supports single-coin assetContext requests", async () => {
+		const fetchMock = mock(
+			async (input: URL | RequestInfo, init?: RequestInit) => {
+				const url =
+					input instanceof URL
+						? input.toString()
+						: ((input as Request).url ?? input);
+				expect(String(url)).toContain("/info");
+				expect(init?.method).toBe("POST");
+				expect(JSON.parse(init?.body as string)).toEqual({
+					type: "assetContext",
+					coins: ["BTC"],
+				});
+				expect((init?.headers as Record<string, string>).Authorization).toBe(
+					"Bearer test-api-key",
+				);
+				return new Response(JSON.stringify({ BTC: btcCtx }), {
+					status: 200,
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"], (coins) =>
+			JSON.stringify({ type: "assetContext", coin: coins[0] }),
+		);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const body = await response.json();
+		expect(body).toEqual({ BTC: btcCtx });
 	});
 
 	it("keeps null entries for coins that come back null", async () => {
@@ -250,16 +291,27 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 });
 
 describe("HydromancerModuleService.handleRequest (non-assetContext)", () => {
-	it("returns 400 for a body shape other than assetContext", async () => {
+	it("forwards the body to the upstream REST endpoint", async () => {
 		const fetchMock = mock(async () => new Response("{}", { status: 200 }));
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const response = await callHandleRaw(
 			baseConfig,
-			JSON.stringify({ type: "userState" }),
+			JSON.stringify({ type: "fundingHistory", coin: "BTC" }),
 		);
-		expect(response.status).toBe(400);
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledWith(
+			new URL("/info", baseConfig.restBaseUrl),
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-api-key",
+				},
+				body: JSON.stringify({ type: "fundingHistory", coin: "BTC" }),
+				signal: expect.anything(),
+			},
+		);
 	});
 });
 
@@ -389,11 +441,12 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
+			const body = buildRequestBody(["BTC"]);
 			return yield* svc.handleRequest(
 				route,
 				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
+				buildAssetContextRequest(body),
+				body,
 			);
 		});
 
@@ -431,18 +484,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
-			yield* svc.handleRequest(
-				route,
-				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
-			);
-			yield* svc.handleRequest(
-				route,
-				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
-			);
+			const body = buildRequestBody(["BTC"]);
+			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
+			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
 		});
 
 		await Effect.runPromise(
@@ -481,12 +525,8 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const route = buildRoute();
-			yield* svc.handleRequest(
-				route,
-				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
-			);
+			const body = buildRequestBody(["BTC"]);
+			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
 		});
 
 		await Effect.runPromise(
@@ -555,24 +595,15 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			const route = buildRoute();
 
 			// Request 1: cache miss, REST populates BTC.
-			yield* svc.handleRequest(
-				route,
-				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
-			);
+			const body = buildRequestBody(["BTC"]);
+			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
 
 			// Drop the socket: cache.markSocketError fires, currentWS clears.
 			ws.close();
 			yield* Effect.sleep(Duration.millis(0));
 
 			// Request 2: BTC is fresh in cache but socketError forces another REST.
-			yield* svc.handleRequest(
-				route,
-				{},
-				buildAssetContextRequest(["BTC"]),
-				assetContextBody(["BTC"]),
-			);
+			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
 		});
 
 		await Effect.runPromise(

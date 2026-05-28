@@ -1,4 +1,12 @@
-import { Clock, Duration, Effect, Layer, MutableHashMap, Option } from "effect";
+import {
+	Clock,
+	Duration,
+	Effect,
+	Layer,
+	Match,
+	MutableHashMap,
+	Option,
+} from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	type AssetCtx,
@@ -10,7 +18,10 @@ import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createAssetCache } from "./asset-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
-import { fetchAssetContextsFromRest } from "./rest-fallback";
+import {
+	executeHydromancerRestRequest,
+	fetchAssetContextsFromRest,
+} from "./rest-fallback";
 import { createHydromancerWS } from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
@@ -70,14 +81,22 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 
 					const parsedBody = parseAssetContextRequestBody(body ?? "");
 					if (Option.isNone(parsedBody)) {
-						return yield* Effect.fail(
-							new FailedToHandleHydromancerRequestError({
-								error: "Hydromancer module only handles assetContext bodies",
-								status: 400,
-							}),
+						yield* Effect.logDebug(
+							"Hydromancer module received unsupported body, forwarding to REST",
 						);
+						return yield* executeHydromancerRestRequest(config, body);
 					}
-					const coins = parsedBody.value.coins;
+
+					const coins = Match.value(parsedBody.value).pipe(
+						Match.when(
+							{ type: "assetContext", coins: Match.any },
+							(body) => body.coins,
+						),
+						Match.when({ type: "assetContext", coin: Match.any }, (body) => [
+							body.coin,
+						]),
+						Match.exhaustive,
+					);
 
 					if (coins.length > config.maxCoinsPerRequest) {
 						return yield* Effect.fail(
