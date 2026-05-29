@@ -7,7 +7,8 @@
 		"start": "bun run check-ts && bun run ./workspace/data-proxy",
 		"fmt": "bunx biome check --write .",
 		"check-fmt": "bunx biome check .",
-		"check-ts": "bunx tsc --noEmit"
+		"check-ts": "bunx tsc --noEmit",
+		"gen:dxfeed-token": "bun run ./workspace/data-proxy/src/scripts/generate-dxfeed-token.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
