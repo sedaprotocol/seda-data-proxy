@@ -24,9 +24,11 @@ import { FailedToHandleLoTechRequestError } from "./errors";
 import type {
 	LoTechAck,
 	LoTechDataPrice,
+	LoTechErrorMessage,
 	LoTechParsedData,
 	LoTechResponse,
 } from "./schema";
+import { LoTechSubscriptionFailureCode } from "./schema";
 import { makeLoTechWebSocketService } from "./ws-client";
 
 export type PriceFeedSymbol = string;
@@ -94,6 +96,19 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					MutableHashMap.set(lastRequestToPriceFeed, symbol.value, now);
 				});
 
+			const handleErrorMessage = (msg: LoTechErrorMessage) =>
+				Effect.gen(function* () {
+					if (msg.error.code === LoTechSubscriptionFailureCode) {
+						yield* Effect.logInfo("Subscription request failed", {
+							id: msg.error.id,
+						});
+						MutableHashMap.remove(priceFeedIds, msg.error.id);
+						return;
+					}
+
+					yield* Effect.logWarning("Unexpected LO:TECH error message", { msg });
+				});
+
 			const loTechWs = yield* makeLoTechWebSocketService({
 				config,
 				runtime,
@@ -116,6 +131,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					}),
 				handleDataMessage,
 				handleAckMessage,
+				handleErrorMessage,
 			});
 
 			const start = () =>

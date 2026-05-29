@@ -6,6 +6,8 @@ import {
 	type LoTechAck,
 	LoTechAckSchema,
 	LoTechDataMessageSchema,
+	type LoTechErrorMessage,
+	LoTechErrorMessageSchema,
 	type LoTechParsedData,
 } from "./schema";
 
@@ -42,6 +44,7 @@ export type LoTechWebSocketServiceDeps = {
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
 	handleDataMessage: (data: LoTechParsedData) => Effect.Effect<void>;
 	handleAckMessage: (data: LoTechAck) => Effect.Effect<void>;
+	handleErrorMessage: (data: LoTechErrorMessage) => Effect.Effect<void>;
 };
 
 export const makeLoTechWebSocketService = (
@@ -54,6 +57,7 @@ export const makeLoTechWebSocketService = (
 			onConnected,
 			handleDataMessage,
 			handleAckMessage,
+			handleErrorMessage,
 		} = deps;
 
 		let activeSocket: WebSocket | null = null;
@@ -168,60 +172,28 @@ export const makeLoTechWebSocketService = (
 								}
 
 								if ("data" in parsed) {
-									const msgResult = v.safeParse(
+									yield* parseAndHandle(
 										LoTechDataMessageSchema,
+										"data",
 										parsed,
-									);
-									if (!msgResult.success) {
-										yield* Effect.logError(
-											"Unexpected LO:TECH data message (schema)",
-											{
-												issues: v.flatten(msgResult.issues),
-												raw: parsed,
-											},
-										);
-										return;
-									}
-
-									yield* handleDataMessage(msgResult.output.data).pipe(
-										Effect.catchAll((err) =>
-											Effect.logError(
-												"Failed to handle data message from LO:TECH",
-												{
-													err,
-												},
-											),
-										),
+										(msg) => handleDataMessage(msg.data),
 									);
 								} else if ("ack" in parsed) {
-									const ackResult = v.safeParse(LoTechAckSchema, parsed);
-									if (!ackResult.success) {
-										yield* Effect.logError(
-											"Unexpected LO:TECH ack message (schema)",
-											{
-												issues: v.flatten(ackResult.issues),
-												raw: parsed,
-											},
-										);
-										return;
-									}
-									yield* handleAckMessage(ackResult.output).pipe(
-										Effect.catchAll((err) =>
-											Effect.logError(
-												"Failed to handle ack message from LO:TECH",
-												{
-													err,
-												},
-											),
-										),
+									yield* parseAndHandle(
+										LoTechAckSchema,
+										"ack",
+										parsed,
+										handleAckMessage,
+									);
+								} else if ("error" in parsed) {
+									yield* parseAndHandle(
+										LoTechErrorMessageSchema,
+										"error",
+										parsed,
+										handleErrorMessage,
 									);
 								} else if ("pong" in parsed) {
 									yield* Effect.logInfo("Received pong from LO:TECH");
-								} else if ("error" in parsed) {
-									yield* Effect.logError(
-										"LO:TECH error message received",
-										parsed,
-									);
 								} else {
 									yield* Effect.logWarning(
 										"Unexpected LO:TECH message received",
@@ -288,4 +260,28 @@ export const makeLoTechWebSocketService = (
 		yield* Effect.forkDaemon(Effect.repeat(runSession, reconnectSchedule));
 
 		return api;
+	});
+
+const parseAndHandle = <T>(
+	schema: v.GenericSchema<unknown, T>,
+	label: string,
+	raw: unknown,
+	handler: (value: T) => Effect.Effect<void>,
+) =>
+	Effect.gen(function* () {
+		const result = v.safeParse(schema, raw);
+		if (!result.success) {
+			yield* Effect.logError(`Unexpected LO:TECH ${label} message (schema)`, {
+				issues: v.flatten(result.issues),
+				raw,
+			});
+			return;
+		}
+		yield* handler(result.output).pipe(
+			Effect.catchAll((err) =>
+				Effect.logError(`Failed to handle ${label} message from LO:TECH`, {
+					err,
+				}),
+			),
+		);
 	});
