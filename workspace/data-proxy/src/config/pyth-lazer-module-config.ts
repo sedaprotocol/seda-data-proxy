@@ -50,7 +50,10 @@ export interface PythLazerModuleConfig
 export const PythLazerModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	moduleName: v.string(),
-	fetchFromModule: v.string(),
+	// Present: the symbols/ids come from the path (e.g. GET /price/:symbols),
+	// returning a per-feed array. Absent: use the legacy-compatible
+	// POST /v1/latest_price body surface.
+	fetchFromModule: v.optional(v.string()),
 	type: v.literal("pyth-lazer"),
 });
 

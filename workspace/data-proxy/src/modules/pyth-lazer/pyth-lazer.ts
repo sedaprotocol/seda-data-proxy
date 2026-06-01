@@ -27,15 +27,14 @@ import {
 	extractPriceFeedIdFromErrorMessage,
 } from "./errors";
 import { getPriceIdBySymbol } from "./get-symbol-price-id";
+import { createLegacyLatestPriceHandler } from "./legacy-latest-price/latest-price";
+import type { CachedPriceFeed, PriceFeedId, PriceFeedSymbol } from "./types";
 
 export class FailedToCreateLazerClientError extends Data.TaggedError(
 	"FailedToCreateLazerClientError",
 )<{ error: string | unknown }> {
 	message = `Failed to create Pyth Lazer client: ${this.error}`;
 }
-
-type PriceFeedId = number;
-type PriceFeedSymbol = string;
 
 interface PriceFeedWithSymbol extends ParsedFeedPayload {
 	symbol?: string;
@@ -50,7 +49,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			const runtime = yield* Effect.runtime();
 			const priceCache = yield* createPriceCache<
 				PriceFeedId,
-				ParsedFeedPayload
+				CachedPriceFeed
 			>();
 			// The timestamp of the last request to the price feed
 			const lastRequestToPriceFeed = MutableHashMap.empty<
@@ -169,7 +168,10 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							continue;
 						}
 
-						yield* priceCache.setPrice(priceFeed.priceFeedId, priceFeed);
+						yield* priceCache.setPrice(priceFeed.priceFeedId, {
+							priceFeed,
+							timestampUs: message.timestampUs,
+						});
 					}
 				});
 
@@ -264,42 +266,14 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					});
 				}).pipe(Effect.annotateLogs("_name", "pyth-lazer"));
 
-			const handleRequest = (
-				route: Route,
-				params: Record<string, string>,
-				request: Request,
-			) =>
+			// Resolve a mixed list of numeric ids and symbols to price feed ids,
+			// caching symbol lookups. Shared by both request surfaces.
+			const resolvePriceFeedIds = (rawTokens: string[]) =>
 				Effect.gen(function* () {
-					if (route.type !== "pyth-lazer") {
-						return yield* Effect.fail(
-							new FailedToHandleRequest({
-								msg: "Route is not a Pyth Lazer module",
-							}),
-						);
-					}
-
-					const priceFeedIdsRaw = replaceParams(
-						route.fetchFromModule,
-						params,
-					).split(",");
-
-					if (priceFeedIdsRaw.length > config.maxFeedsPerRequest) {
-						return yield* Effect.succeed(
-							createErrorResponse(
-								new FailedToHandlePythLazerRequestError({
-									error: `Too many price feed IDs, max is ${config.maxFeedsPerRequest} but got ${priceFeedIdsRaw.length}`,
-								}),
-								400,
-							),
-						);
-					}
-
 					const priceFeedIds: number[] = [];
 
-					// Normalize the ids or symbols to price feed ids
-					for (const symbolOrId of priceFeedIdsRaw) {
+					for (const symbolOrId of rawTokens) {
 						if (Number.isNaN(Number(symbolOrId))) {
-							// Let's check if the symbol exists otherwise
 							const cachedSymbolToPriceFeedId = MutableHashMap.get(
 								symbolsToId,
 								symbolOrId,
@@ -322,10 +296,13 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						}
 					}
 
-					const prices: PriceFeedWithSymbol[] = [];
-					const now = yield* Clock.currentTimeMillis;
+					return priceFeedIds;
+				});
 
-					// First subscribe to all the symbols that we have not subscribed to yet
+			// Subscribe to feeds not requested before, then mark each as freshly requested.
+			// Subscribing up front keeps the subscriptions in-flight before we wait on prices.
+			const ensureSubscribedAndTrack = (priceFeedIds: number[], now: number) =>
+				Effect.gen(function* () {
 					for (const priceFeedId of priceFeedIds) {
 						if (!MutableHashMap.has(lastRequestToPriceFeed, priceFeedId)) {
 							yield* newPriceFeedRequests.offer(priceFeedId);
@@ -333,8 +310,33 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 
 						MutableHashMap.set(lastRequestToPriceFeed, priceFeedId, now);
 					}
+				});
 
-					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
+			// Path surface (e.g. GET /price/:symbols): one array entry per requested feed,
+			// each tagged with HAS_PRICE_KEY. A feed without a price keeps its slot (so callers
+			// reading by index stay aligned) and is flagged false rather than failing.
+			const handlePathRequest = (
+				fetchFromModule: string,
+				params: Record<string, string>,
+			) =>
+				Effect.gen(function* () {
+					const priceFeedIdsRaw = replaceParams(fetchFromModule, params).split(
+						",",
+					);
+
+					if (priceFeedIdsRaw.length > config.maxFeedsPerRequest) {
+						return createErrorResponse(
+							new FailedToHandlePythLazerRequestError({
+								error: `Too many price feed IDs, max is ${config.maxFeedsPerRequest} but got ${priceFeedIdsRaw.length}`,
+							}),
+							400,
+						);
+					}
+
+					const priceFeedIds = yield* resolvePriceFeedIds(priceFeedIdsRaw);
+					const now = yield* Clock.currentTimeMillis;
+					yield* ensureSubscribedAndTrack(priceFeedIds, now);
+
 					const results = yield* Effect.forEach(
 						priceFeedIds,
 						(priceFeedId) =>
@@ -342,6 +344,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						{ concurrency: "unbounded" },
 					);
 
+					const prices: PriceFeedWithSymbol[] = [];
 					for (let i = 0; i < priceFeedIds.length; i++) {
 						const priceFeedId = priceFeedIds[i];
 						const price = results[i];
@@ -354,16 +357,43 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							});
 						} else {
 							prices.push({
-								...price.right,
+								...price.right.priceFeed,
 								symbol: priceFeedIdsRaw.at(i),
 								[HAS_PRICE_KEY]: true,
 							});
 						}
 					}
 
-					return yield* Effect.succeed(
-						new Response(JSON.stringify(prices), { status: 200 }),
-					);
+					return new Response(JSON.stringify(prices), { status: 200 });
+				});
+
+			const handleLegacyLatestPriceRequest = createLegacyLatestPriceHandler({
+				config,
+				ensureSubscribedAndTrack,
+				getOrWaitPrice: priceCache.getOrWaitPrice,
+				resolvePriceFeedIds,
+			});
+
+			const handleRequest = (
+				route: Route,
+				params: Record<string, string>,
+				request: Request,
+				body?: string,
+			) =>
+				Effect.gen(function* () {
+					if (route.type !== "pyth-lazer") {
+						return yield* Effect.fail(
+							new FailedToHandleRequest({
+								msg: "Route is not a Pyth Lazer module",
+							}),
+						);
+					}
+
+					if (route.fetchFromModule !== undefined) {
+						return yield* handlePathRequest(route.fetchFromModule, params);
+					}
+
+					return yield* handleLegacyLatestPriceRequest(body);
 				}).pipe(
 					Effect.withSpan("handlePythLazerRequest"),
 					Effect.catchAll((error) => {
