@@ -41,6 +41,37 @@ type LatestPriceRequestBody = v.InferOutput<
 	typeof LatestPriceRequestBodySchema
 >;
 
+const PYTH_PRO_COMPAT_PRICE_FEED_FIELDS = [
+	"bestAskPrice",
+	"bestBidPrice",
+	"confidence",
+	"emaConfidence",
+	"emaPrice",
+	"fundingRate",
+	"fundingRateInterval",
+	"fundingTimestamp",
+	"marketSession",
+	"price",
+	"publisherCount",
+] as const;
+
+const toPythProPriceFeed = ({ priceFeed, timestampUs }: CachedPriceFeed) => {
+	const rawFeed = priceFeed as Record<string, unknown>;
+	const out: Record<string, unknown> = {
+		priceFeedId: priceFeed.priceFeedId,
+		exponent: priceFeed.exponent,
+		feedUpdateTimestamp:
+			priceFeed.feedUpdateTimestamp ?? Number.parseInt(timestampUs, 10),
+	};
+
+	for (const field of PYTH_PRO_COMPAT_PRICE_FEED_FIELDS) {
+		const value = rawFeed[field];
+		out[field] = value ?? null;
+	}
+
+	return out;
+};
+
 const getRequestedFeedIdentifiers = (body: LatestPriceRequestBody) => {
 	if (body.priceFeedIds !== undefined && body.priceFeedIds.length > 0) {
 		return body.priceFeedIds.map(String);
@@ -113,7 +144,7 @@ export const createLegacyLatestPriceHandler =
 						timestampUs: maxTimestampUs(
 							cachedFeeds.map((feed) => feed.timestampUs),
 						),
-						priceFeeds: cachedFeeds.map((feed) => feed.priceFeed),
+						priceFeeds: cachedFeeds.map(toPythProPriceFeed),
 					},
 				}),
 				{ status: 200 },

@@ -89,13 +89,19 @@ const feed = (priceFeedId: number, price = "9650000000000") => ({
 	exponent: -8,
 	bestBidPrice: "9649000000000",
 	bestAskPrice: "9651000000000",
+	confidence: 12345,
 	emaPrice: "9648000000000",
+	emaConfidence: 6789,
 	feedUpdateTimestamp: 1_700_000_000_000_000,
+	fundingRate: 12,
+	fundingRateInterval: 3600,
+	fundingTimestamp: 1_700_000_000,
 	marketSession: "regular",
+	publisherCount: 7,
 });
 
 const driveFrame = (
-	priceFeeds: ReturnType<typeof feed>[],
+	priceFeeds: Record<string, unknown>[],
 	timestampUs = TIMESTAMP_US,
 ) => {
 	if (!messageListener) {
@@ -174,14 +180,87 @@ describe("PythLazerModuleService latest_price surface (POST body)", () => {
 		const body = (await response.json()) as {
 			parsed: {
 				timestampUs: string;
-				priceFeeds: { priceFeedId: number; price: string }[];
+				priceFeeds: {
+					priceFeedId: number;
+					price: string;
+					bestAskPrice: string;
+					bestBidPrice: string;
+					confidence: number;
+					emaConfidence: number;
+					emaPrice: string;
+					exponent: number;
+					feedUpdateTimestamp: number;
+					fundingRate: number;
+					fundingRateInterval: number;
+					fundingTimestamp: number;
+					marketSession: string;
+					publisherCount: number;
+				}[];
 			};
 		};
 		expect(body.parsed.timestampUs).toBe(TIMESTAMP_US);
 		expect(body.parsed.priceFeeds.map((f) => f.priceFeedId)).toEqual([1, 2]);
 		expect(body.parsed.priceFeeds[0].price).toBe("111");
+		expect(body.parsed.priceFeeds[0]).toMatchObject({
+			bestAskPrice: "9651000000000",
+			bestBidPrice: "9649000000000",
+			confidence: 12345,
+			emaConfidence: 6789,
+			emaPrice: "9648000000000",
+			exponent: -8,
+			feedUpdateTimestamp: 1_700_000_000_000_000,
+			fundingRate: 12,
+			fundingRateInterval: 3600,
+			fundingTimestamp: 1_700_000_000,
+			marketSession: "regular",
+			publisherCount: 7,
+		});
 		// The internal partial-response marker must never leak into the parsed shape.
 		expect(JSON.stringify(body)).not.toContain(HAS_PRICE_KEY);
+	});
+
+	it("emits the full Pyth Pro compatibility field set with nulls for unavailable values", async () => {
+		const response = await run(baseConfig, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				yield* waitForSubscribe([1]);
+				driveFrame([
+					{
+						priceFeedId: 1,
+						price: "111",
+						exponent: -8,
+						feedUpdateTimestamp: 1_700_000_000_000_000,
+					},
+				]);
+				return yield* svc.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					latestPriceBody({ priceFeedIds: [1] }),
+				);
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			parsed: { priceFeeds: Record<string, unknown>[] };
+		};
+		expect(body.parsed.priceFeeds[0]).toEqual({
+			priceFeedId: 1,
+			exponent: -8,
+			feedUpdateTimestamp: 1_700_000_000_000_000,
+			bestAskPrice: null,
+			bestBidPrice: null,
+			confidence: null,
+			emaConfidence: null,
+			emaPrice: null,
+			fundingRate: null,
+			fundingRateInterval: null,
+			fundingTimestamp: null,
+			marketSession: null,
+			price: "111",
+			publisherCount: null,
+		});
 	});
 
 	it("preserves request order even when it differs from subscription order", async () => {
