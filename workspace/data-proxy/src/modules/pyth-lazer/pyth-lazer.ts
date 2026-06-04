@@ -78,6 +78,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				try: () =>
 					PythLazerClient.create({
 						token: config.pythLazerApiKey,
+						metadataServiceUrl: "https://pyth.dourolabs.app",
 						webSocketPoolConfig: {
 							urls: [
 								"wss://pyth-lazer-0.dourolabs.app/v1/stream",

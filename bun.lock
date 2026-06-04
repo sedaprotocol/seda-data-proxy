@@ -29,7 +29,7 @@
         "@elysia/opentelemetry": "1.4.12",
         "@elysiajs/node": "1.4.5",
         "@elysiajs/openapi": "^1.4.14",
-        "@pythnetwork/pyth-lazer-sdk": "^6.2.1",
+        "@pythnetwork/pyth-lazer-sdk": "^6.2.2",
         "@seda-protocol/data-proxy-sdk": "workspace:*",
         "@seda-protocol/rotating-file-logger": "2.2.0",
         "@seda-protocol/telemetry": "2.1.0",
