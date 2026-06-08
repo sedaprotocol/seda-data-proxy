@@ -1,18 +1,24 @@
 import { tryParseSync } from "@seda-protocol/utils";
 import { Clock, Effect } from "effect";
 import * as v from "valibot";
-import type { PythLazerModuleConfig } from "../../../config/pyth-lazer-module-config";
+import {
+	type PythLazerChannel,
+	PythLazerChannelSchema,
+	type PythLazerModuleConfig,
+} from "../../../config/pyth-lazer-module-config";
 import { FailedToHandlePythLazerRequestError } from "../errors";
 import type { CachedPriceFeed, PythLazerHandlerError } from "../types";
 
 type LegacyLatestPriceHandlerDeps = {
-	config: Pick<PythLazerModuleConfig, "maxFeedsPerRequest">;
+	config: Pick<PythLazerModuleConfig, "maxFeedsPerRequest" | "channel">;
 	ensureSubscribedAndTrack: (
 		priceFeedIds: number[],
+		channel: PythLazerChannel,
 		now: number,
 	) => Effect.Effect<void, PythLazerHandlerError>;
 	getOrWaitPrice: (
 		priceFeedId: number,
+		channel: PythLazerChannel,
 	) => Effect.Effect<CachedPriceFeed, PythLazerHandlerError>;
 	resolvePriceFeedIds: (
 		rawTokens: string[],
@@ -28,6 +34,7 @@ const LatestPriceRequestBodySchema = v.pipe(
 	v.looseObject({
 		priceFeedIds: v.optional(v.array(v.number())),
 		priceFeedSymbols: v.optional(v.array(v.string())),
+		channel: v.optional(PythLazerChannelSchema),
 	}),
 	v.check(
 		(body) =>
@@ -89,7 +96,7 @@ const parseJsonBody = (body: string | undefined) =>
 			}),
 	});
 
-const parseRequestedFeeds = (body: string | undefined) =>
+const parseRequest = (body: string | undefined) =>
 	Effect.gen(function* () {
 		const parsedBody = yield* parseJsonBody(body);
 		const parsedRequest = tryParseSync(
@@ -105,7 +112,10 @@ const parseRequestedFeeds = (body: string | undefined) =>
 			);
 		}
 
-		return getRequestedFeedIdentifiers(parsedRequest.value);
+		return {
+			requestedFeeds: getRequestedFeedIdentifiers(parsedRequest.value),
+			channel: parsedRequest.value.channel,
+		};
 	});
 
 // Legacy compatibility surface for POST /v1/latest_price. It returns the native
@@ -119,7 +129,9 @@ export const createLegacyLatestPriceHandler =
 	}: LegacyLatestPriceHandlerDeps) =>
 	(body: string | undefined) =>
 		Effect.gen(function* () {
-			const requestedFeeds = yield* parseRequestedFeeds(body);
+			const { requestedFeeds, channel: requestedChannel } =
+				yield* parseRequest(body);
+			const channel = requestedChannel ?? config.channel;
 
 			if (requestedFeeds.length > config.maxFeedsPerRequest) {
 				return yield* Effect.fail(
@@ -131,11 +143,11 @@ export const createLegacyLatestPriceHandler =
 
 			const priceFeedIds = yield* resolvePriceFeedIds(requestedFeeds);
 			const now = yield* Clock.currentTimeMillis;
-			yield* ensureSubscribedAndTrack(priceFeedIds, now);
+			yield* ensureSubscribedAndTrack(priceFeedIds, channel, now);
 
 			const cachedFeeds: CachedPriceFeed[] = [];
 			for (const priceFeedId of priceFeedIds) {
-				cachedFeeds.push(yield* getOrWaitPrice(priceFeedId));
+				cachedFeeds.push(yield* getOrWaitPrice(priceFeedId, channel));
 			}
 
 			return new Response(

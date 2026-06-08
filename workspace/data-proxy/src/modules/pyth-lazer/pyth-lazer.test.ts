@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { Duration, Effect, LogLevel, Logger } from "effect";
+import { Duration, Effect, Fiber, LogLevel, Logger } from "effect";
 import * as v from "valibot";
 import {
 	type PythLazerModuleConfig,
@@ -11,7 +11,13 @@ import { ModuleService } from "../module";
 // Maps the symbols getSymbols is asked about to their numeric feed ids.
 const SYMBOL_IDS: Record<string, number> = { "BTC/USD": 1, "ETH/USD": 2 };
 
-const subscribeMock = mock((_request: { priceFeedIds: number[] }) => {});
+const subscribeMock = mock(
+	(_request: {
+		priceFeedIds: number[];
+		channel: string;
+		subscriptionId: number;
+	}) => {},
+);
 const unsubscribeMock = mock((_subscriptionId: number) => {});
 const getSymbolsMock = mock(async ({ query }: { query: string }) =>
 	query in SYMBOL_IDS
@@ -22,18 +28,28 @@ const getSymbolsMock = mock(async ({ query }: { query: string }) =>
 // The module registers a single message listener at startup; the test captures it
 // to drive stream updates into the price cache.
 let messageListener: ((event: unknown) => void) | undefined;
+// The module passes onWebSocketPoolError into create; captured here to simulate a
+// pool error that names a specific feed.
+let poolErrorHandler: ((error: unknown) => void) | undefined;
 
 mock.module("@pythnetwork/pyth-lazer-sdk", () => ({
 	PythLazerClient: {
-		create: async () => ({
-			addMessageListener: (cb: (event: unknown) => void) => {
-				messageListener = cb;
-			},
-			addAllConnectionsDownListener: () => {},
-			subscribe: subscribeMock,
-			unsubscribe: unsubscribeMock,
-			getSymbols: getSymbolsMock,
-		}),
+		create: async (config: {
+			webSocketPoolConfig?: {
+				onWebSocketPoolError?: (error: unknown) => void;
+			};
+		}) => {
+			poolErrorHandler = config.webSocketPoolConfig?.onWebSocketPoolError;
+			return {
+				addMessageListener: (cb: (event: unknown) => void) => {
+					messageListener = cb;
+				},
+				addAllConnectionsDownListener: () => {},
+				subscribe: subscribeMock,
+				unsubscribe: unsubscribeMock,
+				getSymbols: getSymbolsMock,
+			};
+		},
 	},
 }));
 
@@ -45,6 +61,7 @@ beforeEach(() => {
 	unsubscribeMock.mockClear();
 	getSymbolsMock.mockClear();
 	messageListener = undefined;
+	poolErrorHandler = undefined;
 });
 
 const baseConfig: PythLazerModuleConfig = {
@@ -100,41 +117,72 @@ const feed = (priceFeedId: number, price = "9650000000000") => ({
 	publisherCount: 7,
 });
 
+// Drives one streamUpdated frame per feed, each on the subscriptionId the module
+// assigned for (feed, channel). Mirrors the SDK: a subscription covers one feed and
+// emits its own frame, so the frame's subscriptionId is what routes it to a channel.
 const driveFrame = (
-	priceFeeds: Record<string, unknown>[],
+	priceFeeds: (Record<string, unknown> & { priceFeedId: number })[],
 	timestampUs = TIMESTAMP_US,
+	channel = "real_time",
 ) => {
 	if (!messageListener) {
 		throw new Error("message listener was never registered");
 	}
-	messageListener({
-		type: "json",
-		value: {
-			type: "streamUpdated",
-			parsed: { timestampUs, priceFeeds },
-		},
-	});
+	for (const priceFeed of priceFeeds) {
+		const subscription = subscribeMock.mock.calls.find(
+			([req]) =>
+				req?.channel === channel &&
+				req?.priceFeedIds?.includes(priceFeed.priceFeedId),
+		);
+		if (!subscription) {
+			throw new Error(
+				`no subscription for feed ${priceFeed.priceFeedId} on ${channel}`,
+			);
+		}
+		messageListener({
+			type: "json",
+			value: {
+				type: "streamUpdated",
+				subscriptionId: subscription[0].subscriptionId,
+				parsed: { timestampUs, priceFeeds: [priceFeed] },
+			},
+		});
+	}
 };
 
-// Polls until the subscribe daemon has issued a subscribe frame for each id, proving
-// the module marked them subscribed (so a driven frame will land in the cache).
-const waitForSubscribe = (priceFeedIds: number[]) =>
+// Polls until the subscribe daemon has issued a subscribe frame for each id on the
+// given channel, proving the module marked them subscribed (so a driven frame lands).
+const waitForSubscribe = (priceFeedIds: number[], channel = "real_time") =>
 	Effect.gen(function* () {
 		for (let attempt = 0; attempt < 100; attempt++) {
 			const subscribed = priceFeedIds.every((id) =>
-				subscribeMock.mock.calls.some((call) =>
-					call[0]?.priceFeedIds?.includes(id),
+				subscribeMock.mock.calls.some(
+					([req]) =>
+						req?.channel === channel && req?.priceFeedIds?.includes(id),
 				),
 			);
 			if (subscribed) return;
 			yield* Effect.sleep(Duration.millis(5));
 		}
-		throw new Error(`subscribe never issued for ${priceFeedIds}`);
+		throw new Error(`subscribe never issued for ${priceFeedIds} on ${channel}`);
+	});
+
+// Polls until the fiber has parked (suspended on the price wait), so a pool error
+// fired next has a registered waiter to reject rather than racing waiter creation.
+const waitUntilSuspended = <A, E>(fiber: Fiber.RuntimeFiber<A, E>) =>
+	Effect.gen(function* () {
+		for (let attempt = 0; attempt < 100; attempt++) {
+			const status = yield* Fiber.status(fiber);
+			if (status._tag === "Suspended") return;
+			yield* Effect.sleep(Duration.millis(5));
+		}
+		throw new Error("fiber never suspended");
 	});
 
 const latestPriceBody = (feeds: {
 	priceFeedIds?: number[];
 	priceFeedSymbols?: string[];
+	channel?: string;
 }) =>
 	JSON.stringify({
 		channel: "real_time",
@@ -288,9 +336,11 @@ describe("PythLazerModuleService latest_price surface (POST body)", () => {
 		const response = await run(baseConfig, (svc) =>
 			Effect.gen(function* () {
 				yield* svc.start();
-				yield* waitForSubscribe([1]);
+				yield* waitForSubscribe([1, 2]);
 				driveFrame([feed(1, "111")], "100");
-				driveFrame([feed(999, "999")], "999");
+				// A later, higher-timestamp update on another feed must not bleed into
+				// the requested feed's timestampUs.
+				driveFrame([feed(2, "999")], "999");
 				return yield* svc.handleRequest(
 					latestPriceRoute,
 					{},
@@ -420,4 +470,205 @@ describe("PythLazerModuleService path surface (GET array)", () => {
 		expect(body[0].price).toBe("111");
 		expect(body[0][HAS_PRICE_KEY]).toBe(true);
 	});
+
+	it("uses the configured channel for the path surface", async () => {
+		const config = makeConfig({
+			channel: "fixed_rate@50ms",
+			priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+		});
+		const response = await run(config, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				yield* waitForSubscribe([1], "fixed_rate@50ms");
+				driveFrame([feed(1, "111")], TIMESTAMP_US, "fixed_rate@50ms");
+				return yield* svc.handleRequest(
+					pathRoute,
+					{ symbols: "1" },
+					new Request("http://proxy.local/price/1", { method: "GET" }),
+					"",
+				);
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { price: string }[];
+		expect(body[0].price).toBe("111");
+		// The path surface never subscribes on anything but the configured channel.
+		expect(
+			subscribeMock.mock.calls.every(
+				([req]) => req.channel === "fixed_rate@50ms",
+			),
+		).toBe(true);
+	});
+});
+
+describe("PythLazerModuleService channel differentiation", () => {
+	it("subscribes to and serves the channel named in the request body", async () => {
+		const response = await run(baseConfig, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				// The requested channel is not seeded at startup, so the request itself
+				// drives the subscription: fork it, wait for the subscribe, then feed it.
+				const fiber = yield* Effect.fork(
+					svc.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({
+							priceFeedIds: [1],
+							channel: "fixed_rate@200ms",
+						}),
+					),
+				);
+				yield* waitForSubscribe([1], "fixed_rate@200ms");
+				driveFrame([feed(1, "200ms")], TIMESTAMP_US, "fixed_rate@200ms");
+				return yield* Fiber.join(fiber);
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		// The subscribe for the requested channel actually went out.
+		expect(
+			subscribeMock.mock.calls.find(
+				([req]) =>
+					req.channel === "fixed_rate@200ms" && req.priceFeedIds.includes(1),
+			),
+		).toBeDefined();
+		const body = (await response.json()) as {
+			parsed: { priceFeeds: { price: string }[] };
+		};
+		expect(body.parsed.priceFeeds[0].price).toBe("200ms");
+	});
+
+	it("does not serve a real_time price for a fixed_rate request", async () => {
+		const response = await run(baseConfig, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				// Seed the same feed on the default real_time channel first.
+				yield* waitForSubscribe([1], "real_time");
+				driveFrame([feed(1, "realtime")], TIMESTAMP_US, "real_time");
+
+				// A fixed_rate request must ignore the real_time cache and wait for a
+				// fixed_rate frame instead.
+				const fiber = yield* Effect.fork(
+					svc.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({
+							priceFeedIds: [1],
+							channel: "fixed_rate@200ms",
+						}),
+					),
+				);
+				yield* waitForSubscribe([1], "fixed_rate@200ms");
+				driveFrame([feed(1, "fixedrate")], TIMESTAMP_US, "fixed_rate@200ms");
+				return yield* Fiber.join(fiber);
+			}),
+		);
+
+		const body = (await response.json()) as {
+			parsed: { priceFeeds: { price: string }[] };
+		};
+		expect(body.parsed.priceFeeds[0].price).toBe("fixedrate");
+	});
+
+	it("falls back to the configured channel when the body omits one", async () => {
+		const config = makeConfig({
+			channel: "fixed_rate@1000ms",
+			priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+		});
+		const response = await run(config, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				yield* waitForSubscribe([1], "fixed_rate@1000ms");
+				driveFrame([feed(1, "111")], TIMESTAMP_US, "fixed_rate@1000ms");
+				return yield* svc.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					JSON.stringify({ priceFeedIds: [1] }),
+				);
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		// No subscription leaked onto a different channel than the configured default.
+		expect(
+			subscribeMock.mock.calls.every(
+				([req]) => req.channel === "fixed_rate@1000ms",
+			),
+		).toBe(true);
+	});
+
+	it("rejects a body with an invalid channel", async () => {
+		const response = await run(baseConfig, (svc) =>
+			svc.handleRequest(
+				latestPriceRoute,
+				{},
+				new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+				JSON.stringify({ priceFeedIds: [1], channel: "fixed_rate@9999ms" }),
+			),
+		);
+		expect(response.status).toBe(400);
+	});
+
+	it("fails every channel a feed is subscribed on when a pool error names it", async () => {
+		const responses = await run(baseConfig, (svc) =>
+			Effect.gen(function* () {
+				yield* svc.start();
+				// Feed 1 is pending on two channels at once: real_time (seeded at
+				// startup) and fixed_rate@200ms (driven by the second request). Neither
+				// has a price, so both requests park on the price wait.
+				const realTime = yield* Effect.fork(
+					svc.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({ priceFeedIds: [1], channel: "real_time" }),
+					),
+				);
+				const fixedRate = yield* Effect.fork(
+					svc.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({ priceFeedIds: [1], channel: "fixed_rate@200ms" }),
+					),
+				);
+				// Both (feed, channel) subscriptions exist (so the fan-out finds them)
+				// and both requests have parked (so there is a waiter to reject).
+				yield* waitForSubscribe([1], "real_time");
+				yield* waitForSubscribe([1], "fixed_rate@200ms");
+				yield* waitUntilSuspended(realTime);
+				yield* waitUntilSuspended(fixedRate);
+
+				if (!poolErrorHandler) {
+					throw new Error("pool error handler was never registered");
+				}
+				poolErrorHandler("Feeds are not stable: 1");
+
+				return {
+					realTime: yield* Fiber.join(realTime),
+					fixedRate: yield* Fiber.join(fixedRate),
+				};
+			}),
+		);
+
+		// Both channels' waiters are failed by the pool error, not by the wait timeout.
+		for (const response of [responses.realTime, responses.fixedRate]) {
+			expect(response.status).toBe(500);
+			const body = await response.text();
+			expect(body).toContain("Feeds are not stable: 1");
+			expect(body).not.toContain("Timed out");
+		}
+	}, 10_000);
 });
