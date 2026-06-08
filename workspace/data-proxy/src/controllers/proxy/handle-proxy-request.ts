@@ -127,6 +127,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "binance" }, (binanceModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Binance request");
+					return yield* moduleService.handleRequest(
+						binanceModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");
