@@ -7,6 +7,8 @@ import type { DxFeedModuleConfig } from "./dxfeed-module-config";
 import { DxFeedModuleConfigSchema } from "./dxfeed-module-config";
 import type { HydromancerModuleConfig } from "./hydromancer-module-config";
 import { HydromancerModuleConfigSchema } from "./hydromancer-module-config";
+import type { LighterModuleConfig } from "./lighter-module-config";
+import { LighterModuleConfigSchema } from "./lighter-module-config";
 import type { LoTechModuleConfig } from "./lo-tech-module-config";
 import { LoTechModuleConfigSchema } from "./lo-tech-module-config";
 import type { PmInsightsModuleConfig } from "./pm-insights-module-config";
@@ -24,6 +26,7 @@ export const ModulesSchema = v.optional(
 			LoTechModuleConfigSchema,
 			PmInsightsModuleConfigSchema,
 			BinanceModuleConfigSchema,
+			LighterModuleConfigSchema,
 		]),
 	),
 	[],
@@ -36,4 +39,5 @@ export type Modules =
 	| HydromancerModuleConfig
 	| LoTechModuleConfig
 	| PmInsightsModuleConfig
-	| BinanceModuleConfig;
+	| BinanceModuleConfig
+	| LighterModuleConfig;

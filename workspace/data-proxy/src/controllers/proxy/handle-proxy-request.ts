@@ -137,6 +137,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "lighter" }, (lighterModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Lighter request");
+					return yield* moduleService.handleRequest(
+						lighterModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling upstream request");
