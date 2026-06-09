@@ -210,7 +210,12 @@ export const createHydromancerWS = (
 			});
 
 			yield* Deferred.await(deferred);
-		}).pipe(Effect.scoped);
+		}).pipe(
+			Effect.scoped,
+			Effect.withSpan("connectHydromancerWs", {
+				attributes: { name: config.name },
+			}),
+		);
 
 		const loop = connectOnce.pipe(
 			Effect.tapError(() =>

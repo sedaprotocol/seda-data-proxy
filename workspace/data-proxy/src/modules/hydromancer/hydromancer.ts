@@ -84,7 +84,9 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						yield* Effect.logDebug(
 							"Hydromancer module received unsupported body, forwarding to REST",
 						);
-						return yield* executeHydromancerRestRequest(config, body);
+						return yield* executeHydromancerRestRequest(config, body).pipe(
+							Effect.annotateSpans("restFallbackReason", "unsupported-body"),
+						);
 					}
 
 					// Normalize coins (string or string[]) and expand comma-separated
@@ -159,6 +161,11 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						const restBatch = yield* fetchAssetContextsFromRest(
 							config,
 							toFetch,
+						).pipe(
+							Effect.annotateSpans(
+								"restFallbackReason",
+								socketHealthy ? "stale-cache" : "socket-error",
+							),
 						);
 						for (const coin of toFetch) {
 							const ctx = restBatch[coin];
