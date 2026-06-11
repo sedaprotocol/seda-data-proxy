@@ -17,14 +17,17 @@ export type LoTechResponse =
 /*
  * Data messages
  */
-export const LoTechDataPriceSchema = v.strictObject({
+export const LoTechDataPriceSchema = v.object({
 	type: v.literal(LO_TECH_DATA_TYPE_PRICE),
 	symbol: v.string(),
+	generic_symbol: v.optional(v.string()),
 	ingress_ts: v.number(),
 	publish_ts: v.nullable(v.number()),
-	transaction_ts: v.number(),
+	transaction_ts: v.nullable(v.number()),
 	price: v.number(),
 	spread: v.number(),
+	expiry_date: v.optional(v.string()),
+	roll_date: v.optional(v.string()),
 });
 
 export type LoTechDataPrice = v.InferOutput<typeof LoTechDataPriceSchema>;

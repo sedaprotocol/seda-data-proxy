@@ -38,7 +38,11 @@ export type LoTechWebSocketServiceApi = {
 };
 
 export type LoTechWebSocketServiceDeps = {
-	config: LoTechModuleConfig;
+	config: Pick<
+		LoTechModuleConfig,
+		"baseUrl" | "loTechApiKey" | "reconnectDelayMs"
+	>;
+	exchange: string;
 	runtime: Runtime.Runtime<never>;
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
@@ -53,6 +57,7 @@ export const makeLoTechWebSocketService = (
 	Effect.gen(function* () {
 		const {
 			config,
+			exchange,
 			runtime,
 			onConnected,
 			handleDataMessage,
@@ -111,7 +116,7 @@ export const makeLoTechWebSocketService = (
 
 		const runWebSocketSession = (): Promise<void> =>
 			new Promise((resolve) => {
-				const url = `${config.baseUrl}/${config.exchange}`;
+				const url = `${config.baseUrl}/${exchange}`;
 				let pingTimer: ReturnType<typeof setInterval> | undefined;
 
 				let socket: WebSocket;

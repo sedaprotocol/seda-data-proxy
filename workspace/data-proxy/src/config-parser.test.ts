@@ -341,9 +341,10 @@ describe("parseConfig", () => {
 							type: "lo-tech",
 							name: "lotech",
 							baseUrl: "wss://data.lo.tech/ws/v1",
-							exchange: "binance",
 							loTechApiKeyEnvKey: "LOTECH_API_KEY",
-							priceFeeds: [{ symbol: "BTC-USDT:SPOT", dataType: "PRICE" }],
+							priceFeeds: [
+								{ symbol: "NVDA", exchange: "us_equities", dataType: "PRICE" },
+							],
 						},
 					],
 				}),
@@ -365,9 +366,10 @@ describe("parseConfig", () => {
 							type: "lo-tech",
 							name: "lotech",
 							baseUrl: "wss://data.lo.tech/ws/v1",
-							exchange: "binance",
 							loTechApiKeyEnvKey: "LOTECH_API_KEY",
-							priceFeeds: [{ symbol: "BTC-USDT:SPOT", dataType: "PRICE" }],
+							priceFeeds: [
+								{ symbol: "NVDA", exchange: "us_equities", dataType: "PRICE" },
+							],
 						},
 					],
 				}),
@@ -379,6 +381,103 @@ describe("parseConfig", () => {
 				throw new Error(`expected lo-tech, got ${module.type}`);
 			}
 			expect(module.loTechApiKey).toBe("lo-tech-secret");
+			expect(module.priceFeeds[0]?.exchange).toBe("us_equities");
+			expect(module.supportedExchanges).toEqual(["us_equities", "futures"]);
+			process.env.LOTECH_API_KEY = undefined;
+		});
+
+		it("should reject a lo-tech module with an unsupported exchange", () => {
+			process.env.LOTECH_API_KEY = "lo-tech-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "lo-tech",
+							name: "lotech",
+							baseUrl: "wss://data.lo.tech/ws/v1",
+							loTechApiKeyEnvKey: "LOTECH_API_KEY",
+							priceFeeds: [
+								{
+									symbol: "BTC-USDT:SPOT",
+									exchange: "binance",
+									dataType: "PRICE",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'Unsupported LO:TECH exchange "binance". Supported exchanges: us_equities, futures',
+			);
+			process.env.LOTECH_API_KEY = undefined;
+		});
+
+		it("should resolve per-feed exchanges for a lo-tech module", () => {
+			process.env.LOTECH_API_KEY = "lo-tech-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "lo-tech",
+							name: "lotech",
+							baseUrl: "wss://data.lo.tech/ws/v1",
+							loTechApiKeyEnvKey: "LOTECH_API_KEY",
+							priceFeeds: [
+								{
+									symbol: "NVDA",
+									exchange: "us_equities",
+									dataType: "PRICE",
+								},
+								{
+									symbol: "BTC-USDT:SPOT",
+									exchange: "futures",
+									dataType: "PRICE",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "lo-tech") {
+				throw new Error(`expected lo-tech, got ${module.type}`);
+			}
+			expect(module.priceFeeds).toEqual([
+				{ symbol: "NVDA", exchange: "us_equities", dataType: "PRICE" },
+				{ symbol: "BTC-USDT:SPOT", exchange: "futures", dataType: "PRICE" },
+			]);
+			process.env.LOTECH_API_KEY = undefined;
+		});
+
+		it("should reject a lo-tech module without exchange on each price feed", () => {
+			process.env.LOTECH_API_KEY = "lo-tech-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "lo-tech",
+							name: "lotech",
+							baseUrl: "wss://data.lo.tech/ws/v1",
+							loTechApiKeyEnvKey: "LOTECH_API_KEY",
+							priceFeeds: [{ symbol: "NVDA", dataType: "PRICE" }],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'.modules.0.priceFeeds.0.exchange: Invalid key: Expected "exchange" but received undefined',
+			);
 			process.env.LOTECH_API_KEY = undefined;
 		});
 

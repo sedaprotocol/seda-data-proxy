@@ -30,6 +30,7 @@ import {
 import {
 	type LoTechModuleRoute,
 	LoTechModuleRouteSchema,
+	resolveLoTechModule,
 	validateLoTechModuleRoute,
 } from "./lo-tech-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
@@ -483,16 +484,24 @@ export const parseConfig = (
 							hydromancerApiKey,
 						} satisfies Modules);
 					}),
-					Match.when({ type: "lo-tech" }, (m) => {
-						const loTechApiKey = process.env[m.loTechApiKeyEnvKey];
-						if (!loTechApiKey) {
-							return Effect.fail(
-								`Module ${m.type} requires ${m.loTechApiKeyEnvKey} to be set`,
-							);
-						}
-						envSecrets.add(loTechApiKey);
-						return Effect.succeed({ ...m, loTechApiKey } satisfies Modules);
-					}),
+					Match.when({ type: "lo-tech" }, (m) =>
+						Effect.gen(function* () {
+							const loTechApiKey = process.env[m.loTechApiKeyEnvKey];
+							if (!loTechApiKey) {
+								return yield* Effect.fail(
+									`Module ${m.type} requires ${m.loTechApiKeyEnvKey} to be set`,
+								);
+							}
+
+							const resolvedModule = yield* resolveLoTechModule(m);
+
+							envSecrets.add(loTechApiKey);
+							return {
+								...resolvedModule,
+								loTechApiKey,
+							} satisfies Modules;
+						}),
+					),
 					Match.when({ type: "pm-insights" }, (m) => {
 						const email = process.env[m.emailEnvKey];
 						const password = process.env[m.passwordEnvKey];
