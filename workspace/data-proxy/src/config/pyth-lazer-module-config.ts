@@ -39,6 +39,28 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	// How often the compaction pass folds individual subscriptions into one
+	// bulk subscription.
+	bulkCompactInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "60 seconds"),
+		v.transform((interval) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(interval),
+				() => new Error("Invalid bulk compaction interval"),
+			),
+		),
+	),
+	// Make-before-break overlap: how long the new bulk subscription runs
+	// alongside the subscriptions it replaces before they are dropped.
+	bulkOverlap: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "1 second"),
+		v.transform((overlap) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(overlap),
+				() => new Error("Invalid bulk overlap"),
+			),
+		),
+	),
 	type: v.literal("pyth-lazer"),
 });
 

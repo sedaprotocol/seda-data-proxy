@@ -340,6 +340,56 @@ describe("makePythLazerModule", () => {
 			);
 		});
 
+		it("unsubscribes an individual subscription re-created during the make-before-break overlap", async () => {
+			const fake = makeFakeLazerClient({ autoDeliver: true });
+
+			await runWithTestClock(
+				Effect.gen(function* () {
+					const module = yield* makePythLazerModule(
+						makeConfig({
+							priceFeedIds: [
+								{ name: "FRESH/USD", id: 1 },
+								{ name: "CHURN/USD", id: 2 },
+							],
+							bulkCompactInterval: "60 seconds",
+							bulkOverlap: "20 seconds",
+							priceFeedsCleanupTtl: "62 seconds",
+							priceFeedsCleanupInterval: "5 seconds",
+						}),
+						() => Effect.succeed(fake.client),
+					);
+					yield* module.start();
+					yield* TestClock.adjust(Duration.millis(0));
+					expect(fake.subscribeCalls).toHaveLength(2);
+
+					// Keep feed 1 fresh so only feed 2 churns during the overlap
+					yield* TestClock.adjust(Duration.seconds(55));
+					yield* module.handleRequest(...requestSymbols("1"));
+
+					// Compaction fires at 60s and parks on the 20s overlap with both
+					// feeds folded into the bulk subscription
+					yield* TestClock.adjust(Duration.seconds(5));
+					expect(fake.subscribeCalls).toHaveLength(3);
+					expect([...fake.subscribeCalls[2].priceFeedIds].sort()).toEqual([
+						1, 2,
+					]);
+
+					// Inside the overlap: feed 2 idles out (cleanup unsubscribes its
+					// individual sub), then a new request re-subscribes it fresh
+					yield* TestClock.adjust(Duration.seconds(6));
+					yield* module.handleRequest(...requestSymbols("2"));
+					expect(fake.subscribeCalls).toHaveLength(4);
+					const reCreatedId = fake.subscribeCalls[3].subscriptionId;
+					expect(fake.subscribeCalls[3].priceFeedIds).toEqual([2]);
+
+					// Overlap ends: the bulk now supersedes the re-created individual
+					// sub, which must be unsubscribed rather than orphaned
+					yield* TestClock.adjust(Duration.seconds(14));
+					expect(fake.unsubscribeCalls).toContain(reCreatedId);
+				}),
+			);
+		});
+
 		it("drops an idle feed from the bulk subscription without tearing the bulk down", async () => {
 			const fake = makeFakeLazerClient({ autoDeliver: true });
 

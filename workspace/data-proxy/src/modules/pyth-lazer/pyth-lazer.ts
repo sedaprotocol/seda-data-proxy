@@ -10,7 +10,6 @@ import {
 import {
 	Clock,
 	Data,
-	Duration,
 	Effect,
 	Either,
 	Layer,
@@ -42,10 +41,7 @@ import { getPriceIdBySymbol } from "./get-symbol-price-id";
 // upstream then sends one frame per channel tick carrying all feeds instead of
 // one frame per feed, which keeps the standing WebSocket load (and the price
 // staleness caused by thousands of per-feed frames) flat as feeds grow.
-const BULK_COMPACT_MS = Number(
-	process.env.PYTH_LAZER_BULK_COMPACT_MS ?? 60_000,
-);
-const BULK_OVERLAP_MS = Number(process.env.PYTH_LAZER_BULK_OVERLAP_MS ?? 1_000);
+// Cadence is configured per module via bulkCompactInterval and bulkOverlap.
 
 export class FailedToCreateLazerClientError extends Data.TaggedError(
 	"FailedToCreateLazerClientError",
@@ -55,6 +51,7 @@ export class FailedToCreateLazerClientError extends Data.TaggedError(
 
 type PriceFeedId = number;
 type PriceFeedSymbol = string;
+type SubscriptionId = number;
 
 interface PriceFeedWithSymbol extends ParsedFeedPayload {
 	symbol?: string;
@@ -117,11 +114,11 @@ export const makePythLazerModule = (
 		const lastRequestToPriceFeed = MutableHashMap.empty<PriceFeedId, number>();
 		const newPriceFeedRequests = yield* Queue.unbounded<PriceFeedId>();
 		// price feed id -> subscription id
-		const subscriptions = MutableHashMap.empty<PriceFeedId, number>();
+		const subscriptions = MutableHashMap.empty<PriceFeedId, SubscriptionId>();
 		const symbolsToId = MutableHashMap.empty<PriceFeedSymbol, PriceFeedId>();
 
 		const getSymbolByPriceFeedId = (priceFeedId: PriceFeedId) => {
-			for (const [symbol, id] of MutableHashMap.fromIterable(symbolsToId)) {
+			for (const [symbol, id] of symbolsToId) {
 				if (id === priceFeedId) {
 					return Option.some(symbol);
 				}
@@ -130,15 +127,15 @@ export const makePythLazerModule = (
 			return Option.none();
 		};
 
-		let subscriptionId = 0;
+		let subscriptionId: SubscriptionId = 0;
 
 		// Bulk-subscribe bookkeeping: which subscription ids are individual
-		// (side) subscriptions, which feeds the current bulk subscription
-		// carries, and which feeds have delivered at least one update. Feeds
-		// that never deliver (e.g. entitlement failures) are never absorbed
-		// into the bulk subscription, so one bad feed cannot poison it.
-		const sideSubscriptionIds = new Set<number>();
-		let bulkSubscriptionId: number | undefined;
+		// subscriptions, which feeds the current bulk subscription carries, and
+		// which feeds have delivered at least one update. Feeds that never
+		// deliver (e.g. entitlement failures) are never absorbed into the bulk
+		// subscription, so one bad feed cannot poison it.
+		const individualSubscriptionIds = new Set<SubscriptionId>();
+		let bulkSubscriptionId: SubscriptionId | undefined;
 		let bulkFeedIds = new Set<PriceFeedId>();
 		const deliveredFeedIds = new Set<PriceFeedId>();
 
@@ -229,8 +226,8 @@ export const makePythLazerModule = (
 		});
 
 		const sendSubscribe = (
-			newSubscriptionId: number,
-			priceFeedIds: number[],
+			newSubscriptionId: SubscriptionId,
+			priceFeedIds: PriceFeedId[],
 		) => {
 			lazerClient.subscribe({
 				type: "subscribe",
@@ -258,16 +255,19 @@ export const makePythLazerModule = (
 			});
 		};
 
-		// Unifies side subscriptions that have proven they deliver into a single
-		// bulk subscription, and drops feeds that idled out of the bulk set.
-		// Make-before-break: the replacement subscription overlaps the old ones
-		// before they are unsubscribed, so duplicate frames during the overlap
-		// are the only cost (cache writes are latest-wins). Side subscriptions
-		// created during the overlap are absorbed on the next pass.
+		// Unifies individual subscriptions that have proven they deliver into a
+		// single bulk subscription, and drops feeds that idled out of the bulk
+		// set. Make-before-break: the replacement subscription overlaps the old
+		// ones before they are unsubscribed, so duplicate frames during the
+		// overlap are the only cost (cache writes are latest-wins). Individual
+		// subscriptions created during the overlap are absorbed on the next pass.
 		const compactSubscriptions = Effect.gen(function* () {
-			const absorbable = new Map<PriceFeedId, number>();
+			const absorbable = new Map<PriceFeedId, SubscriptionId>();
 			for (const [feedId, subId] of subscriptions) {
-				if (sideSubscriptionIds.has(subId) && deliveredFeedIds.has(feedId)) {
+				if (
+					individualSubscriptionIds.has(subId) &&
+					deliveredFeedIds.has(feedId)
+				) {
 					absorbable.set(feedId, subId);
 				}
 			}
@@ -300,27 +300,39 @@ export const makePythLazerModule = (
 
 			const newBulkSubscriptionId = subscriptionId++;
 			yield* Effect.logInfo(
-				`Compacting subscriptions: ${absorbable.size} side subscription(s) absorbed, ` +
+				`Compacting subscriptions: ${absorbable.size} individual subscription(s) absorbed, ` +
 					`${droppedFromBulk} idle feed(s) dropped, bulk subscription ${newBulkSubscriptionId} ` +
 					`now carries ${newFeedIds.size} feed(s)`,
 			);
 
 			sendSubscribe(newBulkSubscriptionId, [...newFeedIds]);
-			yield* Effect.sleep(Duration.millis(BULK_OVERLAP_MS));
+			yield* Effect.sleep(config.bulkOverlap);
 
 			if (oldBulkSubscriptionId !== undefined) {
 				lazerClient.unsubscribe(oldBulkSubscriptionId);
 			}
 			for (const subId of absorbable.values()) {
 				lazerClient.unsubscribe(subId);
-				sideSubscriptionIds.delete(subId);
+				individualSubscriptionIds.delete(subId);
 			}
 			for (const feedId of newFeedIds) {
 				// Skip feeds that idled out during the overlap; the next pass
 				// drops them from the bulk subscription.
-				if (MutableHashMap.has(subscriptions, feedId)) {
-					MutableHashMap.set(subscriptions, feedId, newBulkSubscriptionId);
+				const current = MutableHashMap.get(subscriptions, feedId);
+				if (Option.isNone(current)) {
+					continue;
 				}
+				// A feed re-subscribed during the overlap holds a fresh individual
+				// subscription that the bulk now supersedes; drop it so it is not
+				// orphaned (no feed would map to it, so no later pass could).
+				if (
+					current.value !== newBulkSubscriptionId &&
+					individualSubscriptionIds.has(current.value)
+				) {
+					lazerClient.unsubscribe(current.value);
+					individualSubscriptionIds.delete(current.value);
+				}
+				MutableHashMap.set(subscriptions, feedId, newBulkSubscriptionId);
 			}
 
 			bulkSubscriptionId = newBulkSubscriptionId;
@@ -363,7 +375,7 @@ export const makePythLazerModule = (
 							newSubscriptionId,
 						);
 
-						sideSubscriptionIds.add(newSubscriptionId);
+						individualSubscriptionIds.add(newSubscriptionId);
 
 						sendSubscribe(newSubscriptionId, [newPriceFeedId]);
 					}).pipe(Effect.forever),
@@ -376,7 +388,7 @@ export const makePythLazerModule = (
 						),
 						// Effect.schedule waits one full interval before the first pass,
 						// so compaction never races the initial config-seeded subscribes.
-						Effect.schedule(Schedule.spaced(Duration.millis(BULK_COMPACT_MS))),
+						Effect.schedule(Schedule.spaced(config.bulkCompactInterval)),
 					),
 				);
 
@@ -401,7 +413,7 @@ export const makePythLazerModule = (
 								// compaction pass rebuilds the bulk subscription without it.
 								if (subscriptionId.value !== bulkSubscriptionId) {
 									lazerClient.unsubscribe(subscriptionId.value);
-									sideSubscriptionIds.delete(subscriptionId.value);
+									individualSubscriptionIds.delete(subscriptionId.value);
 								}
 								MutableHashMap.remove(subscriptions, priceFeedId);
 
