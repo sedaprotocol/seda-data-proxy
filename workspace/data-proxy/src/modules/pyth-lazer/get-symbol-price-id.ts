@@ -2,7 +2,10 @@ import type { PythLazerClient } from "@pythnetwork/pyth-lazer-sdk";
 import { Effect, Option } from "effect";
 import { FailedToGetSymbolPriceIdError } from "./errors";
 
-export const getPriceIdBySymbol = (symbol: string, client: PythLazerClient) => {
+export const getPriceIdBySymbol = (
+	symbol: string,
+	client: Pick<PythLazerClient, "getSymbols">,
+) => {
 	return Effect.gen(function* () {
 		const symbols = yield* Effect.tryPromise({
 			try: () =>
