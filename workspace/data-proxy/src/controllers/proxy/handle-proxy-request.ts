@@ -73,6 +73,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						pythLazerModuleRoute,
 						params,
 						request,
+						Option.getOrElse(body, () => ""),
 					);
 				}),
 			),
