@@ -766,4 +766,110 @@ describe("parseConfig", () => {
 			);
 		});
 	});
+
+	describe("multi route", () => {
+		const baseModules = [{ name: "bin", type: "binance" }];
+
+		it("accepts a multi route whose fetches reference configured modules", async () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: baseModules,
+					routes: [
+						{
+							type: "multi",
+							path: "/multi/:symbol",
+							fetches: [
+								{
+									name: "binance",
+									moduleName: "bin",
+									type: "binance",
+									fetchFromModule: "{:symbol}USDT",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+		});
+
+		it("rejects a fetch referencing an unknown module", async () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: baseModules,
+					routes: [
+						{
+							type: "multi",
+							path: "/multi/:symbol",
+							fetches: [
+								{
+									name: "ghost",
+									moduleName: "nope",
+									type: "binance",
+									fetchFromModule: "{:symbol}",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'Multi route fetch "ghost" references unknown module "nope"',
+			);
+		});
+
+		it("rejects a fetch whose type does not match the module", async () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: baseModules,
+					routes: [
+						{
+							type: "multi",
+							path: "/multi/:symbol",
+							fetches: [
+								{
+									name: "mismatch",
+									moduleName: "bin",
+									type: "lighter",
+									fetchFromModule: "{:symbol}",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'Multi route fetch "mismatch" has type "lighter" but module "bin" is "binance"',
+			);
+		});
+
+		it("rejects a fetch template var that the path does not provide", async () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: baseModules,
+					routes: [
+						{
+							type: "multi",
+							path: "/multi/:symbol",
+							fetches: [
+								{
+									name: "binance",
+									moduleName: "bin",
+									type: "binance",
+									fetchFromModule: "{:missing}",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'Multi route fetch "binance" requires :missing, but it is not given in route /multi/:symbol',
+			);
+		});
+	});
 });

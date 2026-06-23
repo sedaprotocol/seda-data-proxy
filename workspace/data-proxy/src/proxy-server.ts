@@ -14,7 +14,11 @@ import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
 import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
 import { LighterModuleService } from "./modules/lighter/lighter";
 import { LoTechModuleService } from "./modules/lo-tech/lo-tech";
-import { EmptyModuleService, ModuleService } from "./modules/module";
+import {
+	EmptyModuleService,
+	type ModuleHandlers,
+	ModuleService,
+} from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import type { HttpClientService } from "./services/http-client";
@@ -38,6 +42,9 @@ export const startProxyServer = (
 			string,
 			Layer.Layer<ModuleService, unknown, never>
 		>();
+		// Resolved module handlers keyed by module name, so multi routes can fan
+		// out to several modules within a single request.
+		const moduleHandlers = new Map<string, ModuleHandlers>();
 
 		// Initialize the modules and start them
 		for (const moduleConfig of config.modules) {
@@ -72,6 +79,7 @@ export const startProxyServer = (
 			yield* Effect.gen(function* () {
 				const moduleService = yield* ModuleService;
 				yield* moduleService.start();
+				moduleHandlers.set(moduleConfig.name, moduleService);
 			}).pipe(Effect.provide(moduleLayer));
 
 			MutableHashMap.set(modules, moduleConfig.name, moduleLayer);
@@ -213,6 +221,7 @@ export const startProxyServer = (
 										route,
 										config,
 										dataProxy,
+										moduleHandlers,
 									}).pipe(Effect.provide(moduleLayer));
 								}).pipe(
 									withIncomingTrace,

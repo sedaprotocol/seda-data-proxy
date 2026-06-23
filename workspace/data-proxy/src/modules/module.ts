@@ -8,17 +8,19 @@ export class FailedToHandleRequest extends Data.TaggedError(
 	status = 500;
 }
 
+export interface ModuleHandlers {
+	start: () => Effect.Effect<void>;
+	handleRequest: (
+		route: Route,
+		params: Record<string, string>,
+		request: Request,
+		body?: string,
+	) => Effect.Effect<Response, FailedToHandleRequest>;
+}
+
 export class ModuleService extends Context.Tag("ModuleService")<
 	ModuleService,
-	{
-		start: () => Effect.Effect<void>;
-		handleRequest: (
-			route: Route,
-			params: Record<string, string>,
-			request: Request,
-			body?: string,
-		) => Effect.Effect<Response, FailedToHandleRequest>;
-	}
+	ModuleHandlers
 >() {}
 
 export const EmptyModuleService = Layer.effect(

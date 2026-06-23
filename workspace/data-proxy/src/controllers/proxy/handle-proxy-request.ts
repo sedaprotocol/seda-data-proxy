@@ -8,6 +8,7 @@ import {
 	QueryJsonError,
 	UpstreamRequestFailedError,
 } from "../../errors";
+import type { ModuleHandlers } from "../../modules/module";
 import { ModuleService } from "../../modules/module";
 import type { ProxyServerOptions } from "../../proxy-server";
 import { HttpClientService } from "../../services/http-client";
@@ -18,6 +19,7 @@ import { replaceParams } from "../../utils/replace-params";
 import { createUrlSearchParams } from "../../utils/search-params";
 import { injectSearchParamsInUrl } from "../../utils/url";
 import { createErrorResponse } from "../create-error-response";
+import { handleMultiRequest } from "./handle-multi-request";
 import { verifyProof } from "./verify-proof";
 
 export type HandleProxyRequestParams = {
@@ -31,6 +33,9 @@ export type HandleProxyRequestParams = {
 	config: Config;
 	request: Request;
 	route: Config["routes"][number];
+	// Resolved module handlers keyed by module name, used by multi routes to
+	// fan out to several modules in one request.
+	moduleHandlers: ReadonlyMap<string, ModuleHandlers>;
 };
 
 export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
@@ -48,6 +53,7 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			request,
 			dataProxy,
 			route,
+			moduleHandlers,
 		} = inputParams;
 
 		if (!serverOptions.disableProof) {
@@ -144,6 +150,17 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 						lighterModuleRoute,
 						params,
 						request,
+					);
+				}),
+			),
+			Match.when({ type: "multi" }, (multiModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling multi request");
+					return yield* handleMultiRequest(
+						multiModuleRoute,
+						params,
+						request,
+						moduleHandlers,
 					);
 				}),
 			),
@@ -284,7 +301,9 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 
 		// TEMP: This is added for older ops who may not handle __sedaHasPrice key in the response.
 		// we should remove this once all ops have updated to the new response format.
-		if (!requestSearchParams.has("skipPriceErrors")) {
+		// Multi routes return arbitrary per-source payloads where a per-source miss
+		// is expected, so the price gate does not apply.
+		if (route.type !== "multi" && !requestSearchParams.has("skipPriceErrors")) {
 			if (upstreamTextResponse.includes(`"${HAS_PRICE_KEY}":false`)) {
 				return yield* Effect.fail(
 					new NotOkUpstreamResponseError({
