@@ -201,6 +201,45 @@ describe("BinanceModuleService.handleRequest", () => {
 		expect(subscribeFrames(ws).length).toBe(1);
 	});
 
+	it("stops vouching for cached prices once the socket has errored", async () => {
+		const route = buildRoute();
+		const params = { symbols: "BTCUSDT" };
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const fresh = yield* svc.handleRequest(route, params, dummyRequest);
+			// Socket drops; the ws-client flags hasError until it reconnects.
+			FakeWebSocket.instances[0].close();
+			const afterError = yield* svc.handleRequest(route, params, dummyRequest);
+			return [fresh, afterError] as const;
+		}).pipe(
+			Effect.provide(BinanceModuleService(baseConfig)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		);
+
+		const resultPromise = Effect.runPromise(program);
+
+		await waitFor(
+			() => FakeWebSocket.instances.length >= 1,
+			"WebSocket instance",
+		);
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
+		ws.triggerMessage(
+			JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook }),
+		);
+
+		const [fresh, afterError] = await resultPromise;
+		const freshBody = await fresh.json();
+		expect(freshBody[0].__sedaHasPrice).toBe(true);
+		// Same symbol is still cached, but the unhealthy socket means it is no
+		// longer presented as a live price.
+		const afterBody = await afterError.json();
+		expect(afterBody).toEqual([{ symbol: "BTCUSDT", __sedaHasPrice: false }]);
+	}, 10_000);
+
 	it("rejects when more symbols than maxSymbolsPerRequest are requested", async () => {
 		const route = buildRoute();
 		const config: BinanceModuleConfig = {

@@ -90,6 +90,9 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 					}
 
 					const now = yield* Clock.currentTimeMillis;
+					// When the socket has errored its cached prices may be stale, so
+					// do not vouch for them (mirrors the hydromancer module).
+					const socketHealthy = !(yield* ws.hasError());
 					const newSymbols: string[] = [];
 					for (const requested of requestedSymbols) {
 						const symbol = requested.toUpperCase();
@@ -116,7 +119,7 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 						const requested = requestedSymbols[i];
 						const result = results[i];
 
-						if (Either.isLeft(result)) {
+						if (Either.isLeft(result) || !socketHealthy) {
 							prices.push({ symbol: requested, [HAS_PRICE_KEY]: false });
 						} else {
 							prices.push({
