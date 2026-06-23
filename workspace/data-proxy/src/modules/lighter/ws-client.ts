@@ -85,6 +85,8 @@ export interface LighterWS {
 	subscribe(marketIds: number[]): Effect.Effect<void, never, never>;
 	/** Removes the market ids from the desired set and sends an unsubscribe frame for each removed one if connected. Idempotent. */
 	unsubscribe(marketIds: number[]): Effect.Effect<void, never, never>;
+	/** True while there is no open connection, so cached prices may be stale. */
+	hasError(): Effect.Effect<boolean, never, never>;
 }
 
 export interface CreateLighterWSOptions {
@@ -234,5 +236,9 @@ export const createLighterWS = (
 		);
 		const start = () => cachedStart;
 
-		return { start, subscribe, unsubscribe } satisfies LighterWS;
+		// The socket is healthy only while a connection is open; currentWS is
+		// nulled on every disconnect and reset on open.
+		const hasError = () => Effect.sync(() => currentWS === null);
+
+		return { start, subscribe, unsubscribe, hasError } satisfies LighterWS;
 	});

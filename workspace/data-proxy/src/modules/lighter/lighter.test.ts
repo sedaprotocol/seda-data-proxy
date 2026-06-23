@@ -154,6 +154,38 @@ describe("LighterModuleService", () => {
 		]);
 	});
 
+	it("stops vouching for cached prices once the socket has errored", async () => {
+		const service = await buildService({
+			...baseConfig,
+			subscriptionMarketIds: [1],
+		});
+		await Effect.runPromise(quiet(service.start()));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+		ws.triggerMessage(tickerMessage(1, "BTC"));
+		await flush();
+
+		const fresh = await Effect.runPromise(
+			service.handleRequest(routeFor("1"), {}, new Request("http://x")),
+		);
+		expect((await fresh.json())[0][HAS_PRICE_KEY]).toBe(true);
+
+		// Socket drops; the ws-client reports hasError until it reconnects.
+		ws.close();
+		await flush();
+
+		const afterError = await Effect.runPromise(
+			service.handleRequest(routeFor("1"), {}, new Request("http://x")),
+		);
+		// Market 1 is still cached, but the unhealthy socket means it is no longer
+		// presented as a live price.
+		expect(await afterError.json()).toEqual([
+			{ marketId: "1", [HAS_PRICE_KEY]: false },
+		]);
+	});
+
 	it("rejects a request over maxMarketsPerRequest with 400", async () => {
 		const service = await buildService({
 			...baseConfig,
