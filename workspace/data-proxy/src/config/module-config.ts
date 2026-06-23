@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import type { BinanceModuleConfig } from "./binance-module-config";
+import { BinanceModuleConfigSchema } from "./binance-module-config";
 import type { ChainlinkStreamsModuleConfig } from "./chainlink-streams-module-config";
 import { ChainlinkStreamsModuleConfigSchema } from "./chainlink-streams-module-config";
 import type { DxFeedModuleConfig } from "./dxfeed-module-config";
@@ -21,6 +23,7 @@ export const ModulesSchema = v.optional(
 			HydromancerModuleConfigSchema,
 			LoTechModuleConfigSchema,
 			PmInsightsModuleConfigSchema,
+			BinanceModuleConfigSchema,
 		]),
 	),
 	[],
@@ -32,4 +35,5 @@ export type Modules =
 	| DxFeedModuleConfig
 	| HydromancerModuleConfig
 	| LoTechModuleConfig
-	| PmInsightsModuleConfig;
+	| PmInsightsModuleConfig
+	| BinanceModuleConfig;

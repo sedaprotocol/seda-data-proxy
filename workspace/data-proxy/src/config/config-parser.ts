@@ -13,6 +13,11 @@ import {
 } from "../constants";
 import { replaceParams } from "../utils/replace-params";
 import {
+	type BinanceModuleRoute,
+	BinanceModuleRouteSchema,
+	validateBinanceModuleRoute,
+} from "./binance-module-config";
+import {
 	type ChainlinkStreamsModuleRoute,
 	ChainlinkStreamsModuleRouteSchema,
 	validateChainlinkStreamsModuleRoute,
@@ -130,6 +135,7 @@ const ConfigSchema = v.strictObject(
 				HydromancerModuleRouteSchema,
 				LoTechModuleRouteSchema,
 				PmInsightsModuleRouteSchema,
+				BinanceModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -165,7 +171,8 @@ export type Route =
 	| DxFeedModuleRoute
 	| HydromancerModuleRoute
 	| LoTechModuleRoute
-	| PmInsightsModuleRoute;
+	| PmInsightsModuleRoute
+	| BinanceModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -279,6 +286,11 @@ export const parseConfig = (
 
 			if (route.type === "pm-insights") {
 				yield* validatePmInsightsModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "binance") {
+				yield* validateBinanceModuleRoute(route);
 				continue;
 			}
 
@@ -519,6 +531,10 @@ export const parseConfig = (
 						envSecrets.add(password);
 						return Effect.succeed({ ...m, email, password } satisfies Modules);
 					}),
+					Match.when({ type: "binance" }, (m) =>
+						// Public market-data streams need no credentials.
+						Effect.succeed({ ...m } satisfies Modules),
+					),
 					Match.exhaustive,
 				),
 			);

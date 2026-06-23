@@ -8,6 +8,7 @@ import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
 import { DATA_PROXY_ID, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
+import { BinanceModuleService } from "./modules/binance/binance";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
 import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
 import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
@@ -58,6 +59,9 @@ export const startProxyServer = (
 				Match.when({ type: "pm-insights" }, (m) =>
 					Layer.memoize(PmInsightsModuleService(m)),
 				),
+				Match.when({ type: "binance" }, (m) =>
+					Layer.memoize(BinanceModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -77,7 +81,8 @@ export const startProxyServer = (
 				route.type === "dxfeed" ||
 				route.type === "hydromancer" ||
 				route.type === "lo-tech" ||
-				route.type === "pm-insights"
+				route.type === "pm-insights" ||
+				route.type === "binance"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {
