@@ -12,6 +12,7 @@ import { BinanceModuleService } from "./modules/binance/binance";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
 import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
 import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
+import { LighterModuleService } from "./modules/lighter/lighter";
 import { LoTechModuleService } from "./modules/lo-tech/lo-tech";
 import { EmptyModuleService, ModuleService } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
@@ -62,6 +63,9 @@ export const startProxyServer = (
 				Match.when({ type: "binance" }, (m) =>
 					Layer.memoize(BinanceModuleService(m)),
 				),
+				Match.when({ type: "lighter" }, (m) =>
+					Layer.memoize(LighterModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -82,7 +86,8 @@ export const startProxyServer = (
 				route.type === "hydromancer" ||
 				route.type === "lo-tech" ||
 				route.type === "pm-insights" ||
-				route.type === "binance"
+				route.type === "binance" ||
+				route.type === "lighter"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {

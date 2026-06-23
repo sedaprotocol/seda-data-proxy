@@ -33,6 +33,11 @@ import {
 	validateHydromancerModuleRoute,
 } from "./hydromancer-module-config";
 import {
+	type LighterModuleRoute,
+	LighterModuleRouteSchema,
+	validateLighterModuleRoute,
+} from "./lighter-module-config";
+import {
 	type LoTechModuleRoute,
 	LoTechModuleRouteSchema,
 	resolveLoTechModule,
@@ -136,6 +141,7 @@ const ConfigSchema = v.strictObject(
 				LoTechModuleRouteSchema,
 				PmInsightsModuleRouteSchema,
 				BinanceModuleRouteSchema,
+				LighterModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -172,7 +178,8 @@ export type Route =
 	| HydromancerModuleRoute
 	| LoTechModuleRoute
 	| PmInsightsModuleRoute
-	| BinanceModuleRoute;
+	| BinanceModuleRoute
+	| LighterModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -291,6 +298,11 @@ export const parseConfig = (
 
 			if (route.type === "binance") {
 				yield* validateBinanceModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "lighter") {
+				yield* validateLighterModuleRoute(route);
 				continue;
 			}
 
@@ -532,6 +544,10 @@ export const parseConfig = (
 						return Effect.succeed({ ...m, email, password } satisfies Modules);
 					}),
 					Match.when({ type: "binance" }, (m) =>
+						// Public market-data streams need no credentials.
+						Effect.succeed({ ...m } satisfies Modules),
+					),
+					Match.when({ type: "lighter" }, (m) =>
 						// Public market-data streams need no credentials.
 						Effect.succeed({ ...m } satisfies Modules),
 					),
