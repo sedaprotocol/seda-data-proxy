@@ -45,7 +45,7 @@ export const handleMultiRequest = (
 						headers: {},
 						useLegacyJsonPath: true,
 						forwardResponseHeaders: new Set<string>(),
-					} as unknown as Route;
+					} as Route;
 
 					const result = yield* Effect.either(
 						handlers.handleRequest(syntheticRoute, params, request, body),
