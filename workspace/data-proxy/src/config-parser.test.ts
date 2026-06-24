@@ -871,5 +871,37 @@ describe("parseConfig", () => {
 				'Multi route fetch "binance" requires :missing, but it is not given in route /multi/:symbol',
 			);
 		});
+
+		it("rejects duplicate fetch names", async () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: baseModules,
+					routes: [
+						{
+							type: "multi",
+							path: "/multi/:symbol",
+							fetches: [
+								{
+									name: "dup",
+									moduleName: "bin",
+									type: "binance",
+									fetchFromModule: "{:symbol}USDT",
+								},
+								{
+									name: "dup",
+									moduleName: "bin",
+									type: "binance",
+									fetchFromModule: "{:symbol}USD",
+								},
+							],
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				'Multi route /multi/:symbol has a duplicate fetch name "dup"; fetch names must be unique',
+			);
+		});
 	});
 });

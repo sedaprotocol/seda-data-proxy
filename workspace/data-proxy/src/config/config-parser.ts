@@ -313,7 +313,19 @@ export const parseConfig = (
 			}
 
 			if (route.type === "multi") {
+				const seenFetchNames = new Set<string>();
 				for (const fetch of route.fetches) {
+					// Fetch names key the combined response, so a duplicate silently overwrites an earlier fetch.
+					if (seenFetchNames.has(fetch.name)) {
+						return [
+							Result.err(
+								`Multi route ${route.path} has a duplicate fetch name "${fetch.name}"; fetch names must be unique`,
+							),
+							hasWarnings,
+						];
+					}
+					seenFetchNames.add(fetch.name);
+
 					const target = config.modules.find(
 						(m) => m.name === fetch.moduleName,
 					);
