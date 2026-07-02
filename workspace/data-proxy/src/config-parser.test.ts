@@ -904,4 +904,48 @@ describe("parseConfig", () => {
 			);
 		});
 	});
+
+	describe("fastOnly", () => {
+		it("rejects fastOnly when sedaFast is not enabled", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					fastOnly: true,
+					routes: [
+						{
+							path: "/test",
+							upstreamUrl: "https://example.com/test",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"fastOnly requires sedaFast.enable to be true",
+			);
+		});
+
+		it("accepts fastOnly when sedaFast is enabled", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					fastOnly: true,
+					sedaFast: {
+						enable: true,
+						allowedClients: [
+							"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+						],
+					},
+					routes: [
+						{
+							path: "/test",
+							upstreamUrl: "https://example.com/test",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+			assertIsOkResult(result);
+			expect(result.value.config.fastOnly).toBe(true);
+		});
+	});
 });

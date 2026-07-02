@@ -9,7 +9,7 @@ import { FailedToDecodeSedaFastProofError } from "../errors";
 // "{unixTimestampMs}:{signatureAsHexString}" — signed over keccak256(timestamp)
 // or:
 // "{unixTimestampMs}:{signatureAsHexString}:{clientChainId}" — signed over keccak256(timestamp || chainId)
-export const decodeSedaFastProof = (proof: string, chainId: string) => {
+export const decodeSedaFastProof = (proof: string, chainId?: string) => {
 	return Effect.gen(function* () {
 		try {
 			const decoded = Buffer.from(proof, "base64");
@@ -24,22 +24,35 @@ export const decodeSedaFastProof = (proof: string, chainId: string) => {
 			}
 
 			const [unixTimestampMs, signature, clientChainId] = parts;
+			const hasProofChainId = parts.length === 3;
+			const hasConfiguredChainId = chainId !== undefined;
 
-			if (clientChainId !== undefined && clientChainId !== chainId) {
-				return yield* Effect.fail(
-					new FailedToDecodeSedaFastProofError({
-						error: `Invalid client chain id: ${clientChainId}, wanted: ${chainId}`,
-					}),
-				);
+			if (hasConfiguredChainId) {
+				if (!hasProofChainId) {
+					return yield* Effect.fail(
+						new FailedToDecodeSedaFastProofError({
+							error: "Proof missing chain id",
+						}),
+					);
+				}
+
+				if (clientChainId !== chainId) {
+					return yield* Effect.fail(
+						new FailedToDecodeSedaFastProofError({
+							error: `Invalid client chain id: ${clientChainId}, wanted: ${chainId}`,
+						}),
+					);
+				}
 			}
 
 			const timestampBuffer = Buffer.alloc(8); // 64-bit = 8 bytes
 			timestampBuffer.writeBigUInt64BE(BigInt(unixTimestampMs));
 
-			const messageHash =
-				parts.length === 2
-					? keccak256(timestampBuffer)
-					: keccak256(Buffer.concat([timestampBuffer, Buffer.from(chainId)]));
+			const messageHash = hasProofChainId
+				? keccak256(
+						Buffer.concat([timestampBuffer, Buffer.from(clientChainId)]),
+					)
+				: keccak256(timestampBuffer);
 
 			const extendSignatures = ExtendedSecp256k1Signature.fromFixedLength(
 				Buffer.from(signature, "hex"),
