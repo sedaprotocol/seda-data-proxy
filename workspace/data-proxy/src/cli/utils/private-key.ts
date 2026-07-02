@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { Environment } from "@seda-protocol/data-proxy-sdk";
 import { tryParseSync } from "@seda-protocol/utils";
 import { Data, Effect } from "effect";
 import {
@@ -32,9 +31,8 @@ export class FailedToParsePrivateKeyFileError extends Data.TaggedError(
 
 export const loadNetworkFromKeyFile = (privateKeyFilePath?: string) =>
 	Effect.gen(function* () {
-		// If no private key file path is provided and private key env var is set, use default network Testnet
 		if (!privateKeyFilePath && getPrivateKey()) {
-			return yield* Effect.succeed(Environment.Testnet);
+			return yield* Effect.succeed(null);
 		}
 
 		const filePath = privateKeyFilePath ?? DEFAULT_PRIVATE_KEY_JSON_FILE_NAME;
@@ -67,7 +65,7 @@ export const loadNetworkFromKeyFile = (privateKeyFilePath?: string) =>
 			);
 		}
 
-		return yield* Effect.succeed(parsedPrivateKeyFile.value.network);
+		return yield* Effect.succeed(parsedPrivateKeyFile.value.network ?? null);
 	});
 
 export const loadPrivateKey = (privateKeyFilePath?: string) =>

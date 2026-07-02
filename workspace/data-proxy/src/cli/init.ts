@@ -38,14 +38,13 @@ export const initCmd = new Command("init")
 		DEFAULT_PRIVATE_KEY_JSON_FILE_NAME,
 	)
 	.option("-c, --config <string>", "Path to config.json", "./config.json")
-	.option(
-		"-n, --network <string>",
-		"The SEDA network to chose",
-		Environment.Testnet,
-	)
+	.option("-n, --network <string>", "The SEDA network to chose")
 	.option("--print", "Print the content instead of writing it")
 	.action(async (args) => {
-		if (!Object.values(Environment).includes(args.network as Environment)) {
+		if (
+			args.network &&
+			!Object.values(Environment).includes(args.network as Environment)
+		) {
 			const networkList = Object.values(Environment).join(", ");
 			console.error(
 				`Invalid network '${args.network}'. Valid options: ${networkList}`,
@@ -57,7 +56,7 @@ export const initCmd = new Command("init")
 			const privateKeyBuff = randomBytes(32);
 			const keyPair = await Secp256k1.makeKeypair(privateKeyBuff);
 			const keyPairJson: FileKeyPair = {
-				network: args.network as Environment,
+				...(args.network ? { network: args.network as Environment } : {}),
 				pubkey: Buffer.from(Secp256k1.compressPubkey(keyPair.pubkey)).toString(
 					"hex",
 				),

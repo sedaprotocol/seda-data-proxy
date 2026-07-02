@@ -629,6 +629,13 @@ export const parseConfig = (
 			}
 		}
 
+		if (config.fastOnly && !config.sedaFast?.enable) {
+			return [
+				Result.err("fastOnly requires sedaFast.enable to be true"),
+				hasWarnings,
+			];
+		}
+
 		return [
 			Result.ok({ config: { ...config, modules }, envSecrets }),
 			hasWarnings,

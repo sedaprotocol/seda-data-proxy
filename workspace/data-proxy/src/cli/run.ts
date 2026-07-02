@@ -158,7 +158,7 @@ const configure = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem;
 
-		let networkEnv: Environment;
+		let networkEnv: Environment | null;
 		if (options.network) {
 			// Validate network option
 			const validNetworks = Object.values(Environment);
@@ -171,11 +171,9 @@ const configure = (
 			}
 			networkEnv = options.network as Environment;
 		} else {
-			// Load network from private key file (defaults to Testnet if not provided)
 			networkEnv = yield* loadNetworkFromKeyFile(options.privateKeyFile);
 		}
 
-		const network = defaultConfig[networkEnv];
 		const privateKey = yield* Effect.either(
 			loadPrivateKey(options.privateKeyFile),
 		);
@@ -236,7 +234,7 @@ const configure = (
 			process.exit(1);
 		}
 
-		yield* Effect.logInfo(`🌐 Network: ${networkEnv}\n`);
+		yield* Effect.logInfo(`🌐 Network: ${networkEnv ?? "agnostic"}\n`);
 
 		const dataProxy = new DataProxy(networkEnv, {
 			privateKey: privateKey.right,
@@ -248,9 +246,21 @@ const configure = (
 
 		const publicKey = dataProxy.publicKey.toString("hex");
 		yield* Effect.logInfo(`🔐 Using public key: ${publicKey}`);
+
 		if (options.skipRegistrationCheck) {
-			yield* Effect.logWarning("⚠️  Registration check was skipped\n");
+			yield* Effect.logWarning("⚠️ Registration check was skipped\n");
+		} else if (config.value.config.fastOnly) {
+			yield* Effect.logWarning(
+				"⚠️ Registration check was skipped because fastOnly mode is enabled\n",
+			);
 		} else {
+			if (networkEnv === null) {
+				yield* Effect.logError(
+					"Network is required unless fastOnly mode is enabled in config.json",
+				);
+				process.exit(1);
+			}
+
 			const dataProxyRegistration = yield* Effect.either(
 				dataProxy.getDataProxyRegistration(),
 			);
@@ -261,6 +271,7 @@ const configure = (
 				process.exit(1);
 			}
 
+			const network = defaultConfig[networkEnv];
 			const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
 			yield* Effect.logInfo(
 				`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,

@@ -7,7 +7,7 @@ import { trySync } from "@seda-protocol/utils";
 import { Effect, Either, LogLevel, Logger } from "effect";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe } from "true-myth";
-import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
+import { PRIVATE_KEY_ENV_KEY } from "../constants";
 import { sedaToAseda } from "./utils/big";
 import { createHash } from "./utils/create-hash";
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
@@ -34,9 +34,9 @@ export const registerCmd = new Command("register")
 	)
 	.action(async (adminAddress, fee, options) => {
 		const program = Effect.gen(function* () {
-			let networkEnv: Environment;
+			let networkEnv: Environment | null;
 			if (options.network) {
-				// Validate network option
+				// Load network from command line option.
 				const validNetworks = Object.values(Environment);
 				if (!validNetworks.includes(options.network as Environment)) {
 					const networkList = validNetworks.join(", ");
@@ -47,7 +47,7 @@ export const registerCmd = new Command("register")
 				}
 				networkEnv = options.network as Environment;
 			} else {
-				// Load network from private key file (defaults to Testnet if not provided)
+				// Load network from private key file.
 				const networkResult = yield* Effect.either(
 					loadNetworkFromKeyFile(options.privateKeyFile),
 				);
@@ -59,7 +59,21 @@ export const registerCmd = new Command("register")
 				}
 				networkEnv = networkResult.right;
 			}
+
+			if (networkEnv === null) {
+				yield* Effect.logError(
+					"Network is required for registration. Pass --network or set network in the private key file.",
+				);
+				process.exit(1);
+			}
+
 			const network = defaultConfig[networkEnv];
+			if (network?.chainId === undefined) {
+				yield* Effect.logError(
+					`Network '${networkEnv}' is not supported for registration: chain ID is missing from the default configuration.`,
+				);
+				process.exit(1);
+			}
 
 			const privateKey = yield* Effect.either(
 				loadPrivateKey(options.privateKeyFile),
