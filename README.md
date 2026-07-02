@@ -35,6 +35,8 @@ This will generate two files:
 - `config.json`: Configure where routes are going to and what to inject (ex: headers)
 - `data-proxy-private-key.json`: Private key that signs the HTTP response. This key is registered on the SEDA chain (see below). If required you can also use the `SEDA_DATA_PROXY_PRIVATE_KEY` environment variable to expose the private key to the node.
 
+The private key file may optionally include a `network` field (`devnet`, `testnet`, or `mainnet`). If omitted, no network is configured until you pass `--network` on the CLI. On-chain commands such as `register` and the startup registration check in `run` require a network to be set via `--network` or in the private key file.
+
 Before running the node, the data proxy needs to be registered on-chain:
 
 ```sh
@@ -54,7 +56,7 @@ The registration will output a URL where you can submit your transaction to regi
 Now you can run the node:
 
 ```sh
-# Disables the proofing mechanism so it's easier to debug the proxy
+# Disables the proving mechanism so it's easier to debug the proxy
 bun start run --disable-proof
 
 # The console will output something similiar:

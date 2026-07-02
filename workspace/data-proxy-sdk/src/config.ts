@@ -5,7 +5,7 @@ export enum Environment {
 }
 
 export interface DataProxyOptions {
-	chainId: string;
+	chainId?: string;
 	rpcUrl: string;
 
 	fastAllowedClients: string[];

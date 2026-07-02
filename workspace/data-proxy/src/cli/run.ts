@@ -158,7 +158,7 @@ const configure = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem;
 
-		let networkEnv: Environment;
+		let networkEnv: Environment | null;
 		if (options.network) {
 			// Validate network option
 			const validNetworks = Object.values(Environment);
@@ -171,11 +171,9 @@ const configure = (
 			}
 			networkEnv = options.network as Environment;
 		} else {
-			// Load network from private key file (defaults to Testnet if not provided)
 			networkEnv = yield* loadNetworkFromKeyFile(options.privateKeyFile);
 		}
 
-		const network = defaultConfig[networkEnv];
 		const privateKey = yield* Effect.either(
 			loadPrivateKey(options.privateKeyFile),
 		);
@@ -236,7 +234,15 @@ const configure = (
 			process.exit(1);
 		}
 
-		yield* Effect.logInfo(`🌐 Network: ${networkEnv}\n`);
+		const fastOnly = config.value.config.fastOnly;
+		if (networkEnv === null && !fastOnly) {
+			yield* Effect.logError(
+				"Network is required unless fastOnly mode is enabled in config.json",
+			);
+			process.exit(1);
+		}
+
+		yield* Effect.logInfo(`🌐 Network: ${networkEnv ?? "agnostic"}\n`);
 
 		const dataProxy = new DataProxy(networkEnv, {
 			privateKey: privateKey.right,
@@ -261,6 +267,14 @@ const configure = (
 				process.exit(1);
 			}
 
+			if (networkEnv === null) {
+				yield* Effect.logError(
+					"Network is required for registration check. Pass --network, set network in the private key file, or use --skip-registration-check.",
+				);
+				process.exit(1);
+			}
+
+			const network = defaultConfig[networkEnv];
 			const url = new URL(`/data-proxies/${publicKey}`, network.explorerUrl);
 			yield* Effect.logInfo(
 				`✅ Registration has been verified. Link to explorer page: ${url.toString()}\n`,

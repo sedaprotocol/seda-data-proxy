@@ -1,9 +1,5 @@
 import { CosmWasmClient } from "@cosmjs/cosmwasm-stargate";
-import {
-	ExtendedSecp256k1Signature,
-	Secp256k1,
-	keccak256,
-} from "@cosmjs/crypto";
+import { keccak256 } from "@cosmjs/crypto";
 import {
 	type ProtobufRpcClient,
 	QueryClient,
@@ -58,7 +54,7 @@ export class DataProxy {
 	private coreContractAddress: Option.Option<string> = Option.none();
 
 	constructor(
-		public environment: Environment,
+		public environment: Environment | null,
 		optionsOverride: Partial<DataProxyOptions> = {},
 	) {
 		// Remove undefined variables, so that the default config can override them
@@ -70,8 +66,19 @@ export class DataProxy {
 			}
 		}
 
+		const baseConfig =
+			environment !== null
+				? defaultConfig[environment]
+				: {
+						rpcUrl: "",
+						explorerUrl: "",
+						privateKey: Buffer.from([]),
+						fastMaxProofAgeMs: 1000 * 60 * 5,
+						fastAllowedClients: [],
+					};
+
 		this.options = {
-			...defaultConfig[environment],
+			...baseConfig,
 			...optionsOverride,
 		};
 
@@ -82,9 +89,11 @@ export class DataProxy {
 			this.coreContractAddress = Option.some(this.options.coreContract);
 		}
 
-		// Trigger fetching of clients and address
-		this.getCosmWasmClient();
-		this.getCoreContractAddress();
+		if (this.options.rpcUrl) {
+			// Trigger fetching of clients and address
+			this.getCosmWasmClient();
+			this.getCoreContractAddress();
+		}
 	}
 
 	private getCometClient = () =>
@@ -277,7 +286,7 @@ export class DataProxy {
 	};
 
 	/**
-	 * Decodes a seda fast proof string into a public key, drId and signature
+	 * Decodes a seda fast proof string into a public key, unix timestamp and signature.
 	 * This is usually in the header x-seda-fast-proof
 	 *
 	 * @param proof
@@ -295,7 +304,7 @@ export class DataProxy {
 	 * @returns
 	 */
 	verifyFastProof(proof: {
-		unixTimestamp: bigint;
+		unixTimestampMs: bigint;
 		signature: Buffer;
 		publicKey: Buffer;
 	}) {

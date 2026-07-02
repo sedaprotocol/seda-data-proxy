@@ -7,7 +7,7 @@ import { trySync } from "@seda-protocol/utils";
 import { Effect, Either, LogLevel, Logger } from "effect";
 import { ecdsaSign, publicKeyCreate } from "secp256k1";
 import { Maybe } from "true-myth";
-import { DEFAULT_ENVIRONMENT, PRIVATE_KEY_ENV_KEY } from "../constants";
+import { PRIVATE_KEY_ENV_KEY } from "../constants";
 import { sedaToAseda } from "./utils/big";
 import { createHash } from "./utils/create-hash";
 import { loadNetworkFromKeyFile, loadPrivateKey } from "./utils/private-key";
@@ -34,7 +34,7 @@ export const registerCmd = new Command("register")
 	)
 	.action(async (adminAddress, fee, options) => {
 		const program = Effect.gen(function* () {
-			let networkEnv: Environment;
+			let networkEnv: Environment | null;
 			if (options.network) {
 				// Validate network option
 				const validNetworks = Object.values(Environment);
@@ -47,7 +47,6 @@ export const registerCmd = new Command("register")
 				}
 				networkEnv = options.network as Environment;
 			} else {
-				// Load network from private key file (defaults to Testnet if not provided)
 				const networkResult = yield* Effect.either(
 					loadNetworkFromKeyFile(options.privateKeyFile),
 				);
@@ -59,7 +58,21 @@ export const registerCmd = new Command("register")
 				}
 				networkEnv = networkResult.right;
 			}
+
+			if (networkEnv === null) {
+				yield* Effect.logError(
+					"Network is required for registration. Pass --network or set network in the private key file.",
+				);
+				process.exit(1);
+			}
+
 			const network = defaultConfig[networkEnv];
+			if (network.chainId === undefined) {
+				yield* Effect.logError(
+					"Chain ID is required for registration. Pass --network or set network in the private key file.",
+				);
+				process.exit(1);
+			}
 
 			const privateKey = yield* Effect.either(
 				loadPrivateKey(options.privateKeyFile),

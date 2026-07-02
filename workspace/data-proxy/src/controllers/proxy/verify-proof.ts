@@ -128,6 +128,14 @@ export const verifyProof = (params: VerifyProofParams) =>
 			);
 		}
 
+		if (config.fastOnly && Option.isSome(proofHeader)) {
+			return yield* Effect.fail(
+				new VerifyProofError({
+					error: `Header "${constants.PROOF_HEADER_KEY}" is not allowed in fastOnly mode`,
+				}),
+			);
+		}
+
 		if (Option.isSome(sedaFastProofHeader)) {
 			return yield* handleSedaFastProof(sedaFastProofHeader.value, dataProxy);
 		}

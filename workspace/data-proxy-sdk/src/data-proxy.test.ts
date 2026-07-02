@@ -4,11 +4,31 @@ import { Effect, Either } from "effect";
 import { Environment } from "./config";
 import { DataProxy } from "./data-proxy";
 
+type SedaFastProofTestVector = {
+	unixTimestampMs: bigint;
+	signature: string;
+	publicKey?: string;
+	chainId?: string;
+};
+
+function createSedaFastProof(testVector: SedaFastProofTestVector): string {
+	const payload = testVector.chainId
+		? `${testVector.unixTimestampMs}:${testVector.signature}:${testVector.chainId}`
+		: `${testVector.unixTimestampMs}:${testVector.signature}`;
+
+	return Buffer.from(payload, "utf-8").toString("base64");
+}
+
 describe("DataProxy", async () => {
 	const privateKeyBuff = Buffer.from(new Array(32).fill(1));
 	const keyPair = await Secp256k1.makeKeypair(privateKeyBuff);
 
 	const dataProxy = new DataProxy(Environment.Devnet, {
+		privateKey: Buffer.from(keyPair.privkey),
+	});
+
+	// Data proxy without chain ID configured
+	const dataProxyWithoutChainId = new DataProxy(null, {
 		privateKey: Buffer.from(keyPair.privkey),
 	});
 
@@ -80,36 +100,119 @@ describe("DataProxy", async () => {
 	});
 
 	describe("decodeFastProof", () => {
-		it("should decode a valid SEDA Fast proof", async () => {
-			const proof = Buffer.from(
-				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
-				"utf-8",
-			);
+		it("should decode a valid SEDA Fast proof with chain id", async () => {
+			const testVector = {
+				unixTimestampMs: 0n,
+				publicKey:
+					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				signature:
+					"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+				chainId: "seda-1-devnet",
+			};
+
 			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
+				Effect.either(
+					dataProxy.decodeSedaFastProof(createSedaFastProof(testVector)),
+				),
 			);
 
 			if (Either.isLeft(decodedProof)) {
 				expect.unreachable("Failed to decode proof");
 			}
 
-			const { publicKey, unixTimestamp, signature } = decodedProof.right;
-			expect(unixTimestamp).toBe(0n);
-			expect(publicKey.toString("hex")).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			const { publicKey, unixTimestampMs, signature } = decodedProof.right;
+			expect(unixTimestampMs).toBe(testVector.unixTimestampMs);
+			expect(publicKey.toString("hex")).toBe(testVector.publicKey);
+			expect(signature.toString("hex")).toBe(testVector.signature);
+		});
+
+		it("should reject a SEDA Fast proof without chain id when chain id is configured", async () => {
+			const testVector = {
+				unixTimestampMs: 1782929240000n,
+				signature:
+					"dee3c4fa3bd7a3f88d32f5671cbeb8b7af3ddad6ed102f223859633fb1cf437201fbfbf4f47df7d53d842f9457299e4fbe595dc3791fb43a8331d2ca2c7e9de000",
+			};
+
+			const decodedProof = await Effect.runPromise(
+				Effect.either(
+					dataProxy.decodeSedaFastProof(createSedaFastProof(testVector)),
+				),
 			);
-			expect(signature.toString("hex")).toBe(
-				"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+
+			if (Either.isRight(decodedProof)) {
+				expect.unreachable("Should not be able to decode proof");
+			}
+
+			expect(decodedProof.left.error).toContain("Proof missing chain id");
+		});
+
+		it("should decode a valid SEDA Fast proof without chain id when chain id is not configured", async () => {
+			const testVector = {
+				unixTimestampMs: 1782929240000n,
+				publicKey:
+					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				signature:
+					"dee3c4fa3bd7a3f88d32f5671cbeb8b7af3ddad6ed102f223859633fb1cf437201fbfbf4f47df7d53d842f9457299e4fbe595dc3791fb43a8331d2ca2c7e9de000",
+			};
+
+			const decodedProof = await Effect.runPromise(
+				Effect.either(
+					dataProxyWithoutChainId.decodeSedaFastProof(
+						createSedaFastProof(testVector),
+					),
+				),
 			);
+
+			if (Either.isLeft(decodedProof)) {
+				expect.unreachable("Failed to decode proof");
+			}
+
+			const { publicKey, unixTimestampMs, signature } = decodedProof.right;
+			expect(unixTimestampMs).toBe(testVector.unixTimestampMs);
+			expect(publicKey.toString("hex")).toBe(testVector.publicKey);
+			expect(signature.toString("hex")).toBe(testVector.signature);
+		});
+
+		it("should decode a valid SEDA Fast proof with chain id when chain id is not configured", async () => {
+			const testVector = {
+				unixTimestampMs: 0n,
+				publicKey:
+					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				signature:
+					"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+				chainId: "seda-1-devnet",
+			};
+
+			const decodedProof = await Effect.runPromise(
+				Effect.either(
+					dataProxyWithoutChainId.decodeSedaFastProof(
+						createSedaFastProof(testVector),
+					),
+				),
+			);
+
+			if (Either.isLeft(decodedProof)) {
+				expect.unreachable("Failed to decode proof");
+			}
+
+			const { publicKey, unixTimestampMs, signature } = decodedProof.right;
+			expect(unixTimestampMs).toBe(testVector.unixTimestampMs);
+			expect(publicKey.toString("hex")).toBe(testVector.publicKey);
+			expect(signature.toString("hex")).toBe(testVector.signature);
 		});
 
 		it("should not recover the expected public key from the proof if it was tampered with", async () => {
-			const proof = Buffer.from(
-				"1000:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
-				"utf-8",
-			);
 			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
+				Effect.either(
+					dataProxy.decodeSedaFastProof(
+						createSedaFastProof({
+							unixTimestampMs: 1000n,
+							signature:
+								"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+							chainId: "seda-1-devnet",
+						}),
+					),
+				),
 			);
 
 			if (Either.isLeft(decodedProof)) {
@@ -123,12 +226,17 @@ describe("DataProxy", async () => {
 		});
 
 		it("should return an error if the chain id is invalid", async () => {
-			const proof = Buffer.from(
-				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-testnet",
-				"utf-8",
-			);
 			const decodedProof = await Effect.runPromise(
-				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
+				Effect.either(
+					dataProxy.decodeSedaFastProof(
+						createSedaFastProof({
+							unixTimestampMs: 0n,
+							signature:
+								"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+							chainId: "seda-1-testnet",
+						}),
+					),
+				),
 			);
 
 			if (Either.isRight(decodedProof)) {

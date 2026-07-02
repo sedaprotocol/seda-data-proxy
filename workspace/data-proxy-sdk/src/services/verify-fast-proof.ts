@@ -2,7 +2,7 @@ import { Effect } from "effect";
 
 export const verifyFastProof = (
 	proof: {
-		unixTimestamp: bigint;
+		unixTimestampMs: bigint;
 		signature: Buffer;
 		publicKey: Buffer;
 	},
@@ -11,7 +11,7 @@ export const verifyFastProof = (
 ) => {
 	return Effect.gen(function* () {
 		const now = BigInt(Date.now());
-		const delta = now - proof.unixTimestamp;
+		const delta = now - proof.unixTimestampMs;
 
 		if (delta > fastMaxProofAgeMs) {
 			return yield* Effect.succeed({
