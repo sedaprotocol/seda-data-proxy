@@ -277,7 +277,7 @@ export class DataProxy {
 	};
 
 	/**
-	 * Decodes a seda fast proof string into a public key, drId and signature
+	 * Decodes a seda fast proof string into a public key, unix timestamp and signature.
 	 * This is usually in the header x-seda-fast-proof
 	 *
 	 * @param proof
@@ -295,7 +295,7 @@ export class DataProxy {
 	 * @returns
 	 */
 	verifyFastProof(proof: {
-		unixTimestamp: bigint;
+		unixTimestampMs: bigint;
 		signature: Buffer;
 		publicKey: Buffer;
 	}) {

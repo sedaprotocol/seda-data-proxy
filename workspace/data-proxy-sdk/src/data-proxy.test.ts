@@ -80,9 +80,18 @@ describe("DataProxy", async () => {
 	});
 
 	describe("decodeFastProof", () => {
-		it("should decode a valid SEDA Fast proof", async () => {
+		it("should decode a valid SEDA Fast proof with chain id", async () => {
+			const testVector = {
+				unixTimestampMs: 0n,
+				publicKey:
+					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				signature:
+					"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+				chainId: "seda-1-devnet",
+			};
+
 			const proof = Buffer.from(
-				"0:3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100:seda-1-devnet",
+				`${testVector.unixTimestampMs}:${testVector.signature}:${testVector.chainId}`,
 				"utf-8",
 			);
 			const decodedProof = await Effect.runPromise(
@@ -93,14 +102,38 @@ describe("DataProxy", async () => {
 				expect.unreachable("Failed to decode proof");
 			}
 
-			const { publicKey, unixTimestamp, signature } = decodedProof.right;
-			expect(unixTimestamp).toBe(0n);
-			expect(publicKey.toString("hex")).toBe(
-				"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+			const { publicKey, unixTimestampMs, signature } = decodedProof.right;
+			expect(unixTimestampMs).toBe(testVector.unixTimestampMs);
+			expect(publicKey.toString("hex")).toBe(testVector.publicKey);
+			expect(signature.toString("hex")).toBe(testVector.signature);
+		});
+
+		it("should decode a valid SEDA Fast proof without chain id", async () => {
+			const testVector = {
+				unixTimestampMs: 1782929240000n,
+				publicKey:
+					"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+				signature:
+					"dee3c4fa3bd7a3f88d32f5671cbeb8b7af3ddad6ed102f223859633fb1cf437201fbfbf4f47df7d53d842f9457299e4fbe595dc3791fb43a8331d2ca2c7e9de000",
+			};
+
+			const proof = Buffer.from(
+				`${testVector.unixTimestampMs}:${testVector.signature}`,
+				"utf-8",
 			);
-			expect(signature.toString("hex")).toBe(
-				"3078599bcc106c0671fd5dbe1c6d1974c66e3efb83cd39e0dd3ab7ffe578777e3a865ef42bd9e9ac3659624ea47def412f2727a45857cca6902190b5afe2c73100",
+
+			const decodedProof = await Effect.runPromise(
+				Effect.either(dataProxy.decodeSedaFastProof(proof.toString("base64"))),
 			);
+
+			if (Either.isLeft(decodedProof)) {
+				expect.unreachable("Failed to decode proof");
+			}
+
+			const { publicKey, unixTimestampMs, signature } = decodedProof.right;
+			expect(unixTimestampMs).toBe(testVector.unixTimestampMs);
+			expect(publicKey.toString("hex")).toBe(testVector.publicKey);
+			expect(signature.toString("hex")).toBe(testVector.signature);
 		});
 
 		it("should not recover the expected public key from the proof if it was tampered with", async () => {
