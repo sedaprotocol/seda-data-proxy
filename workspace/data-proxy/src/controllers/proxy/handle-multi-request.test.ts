@@ -37,15 +37,25 @@ const makeRoute = (fetches: MultiModuleRoute["fetches"]): MultiModuleRoute =>
 		forwardResponseHeaders: new Set<string>(),
 	}) as unknown as MultiModuleRoute;
 
-const run = (route: MultiModuleRoute, map: Map<string, ModuleHandlers>) =>
+const runRaw = (
+	route: MultiModuleRoute,
+	map: Map<string, ModuleHandlers>,
+	url = "http://localhost/multi/BTC/1",
+) =>
 	Effect.runPromise(
 		handleMultiRequest(
 			route,
 			{ symbol: "BTC", index: "1" },
-			new Request("http://localhost/multi/BTC/1"),
+			new Request(url),
 			map,
-		).pipe(Effect.flatMap((res) => Effect.promise(() => res.json()))),
+		),
 	);
+
+const run = (
+	route: MultiModuleRoute,
+	map: Map<string, ModuleHandlers>,
+	url?: string,
+) => runRaw(route, map, url).then((res) => res.json());
 
 describe("handleMultiRequest", () => {
 	it("fills each fetch template from the request params and keys results by name", async () => {
@@ -172,6 +182,108 @@ describe("handleMultiRequest", () => {
 			error: "Sub-fetch returned a non-ok response",
 			status: 502,
 			body: { reason: "bad" },
+		});
+	});
+
+	describe("sources query param", () => {
+		const twoVenueRoute = () =>
+			makeRoute([
+				{
+					name: "binance",
+					moduleName: "bin",
+					type: "binance",
+					fetchFromModule: "{:symbol}USDT",
+				},
+				{
+					name: "binance-futures",
+					moduleName: "fut",
+					type: "binance",
+					fetchFromModule: "{:symbol}USDT",
+				},
+			]);
+
+		const countingHandlers = () => {
+			let calls = 0;
+			return {
+				handlers: handlers((route) => {
+					calls++;
+					return Effect.succeed(
+						new Response(
+							JSON.stringify({ fetchFromModule: route.fetchFromModule }),
+							{ status: 200 },
+						),
+					);
+				}),
+				calls: () => calls,
+			};
+		};
+
+		it("runs only the fetches named in sources and skips the rest entirely", async () => {
+			const bin = countingHandlers();
+			const fut = countingHandlers();
+			const map = new Map<string, ModuleHandlers>([
+				["bin", bin.handlers],
+				["fut", fut.handlers],
+			]);
+
+			const body = (await run(
+				twoVenueRoute(),
+				map,
+				"http://localhost/multi/NVDA/110?sources=binance-futures",
+			)) as Record<string, unknown>;
+
+			expect(Object.keys(body)).toEqual(["binance-futures"]);
+			expect(fut.calls()).toBe(1);
+			expect(bin.calls()).toBe(0);
+		});
+
+		it("runs every fetch when the param is absent", async () => {
+			const bin = countingHandlers();
+			const fut = countingHandlers();
+			const map = new Map<string, ModuleHandlers>([
+				["bin", bin.handlers],
+				["fut", fut.handlers],
+			]);
+
+			const body = (await run(twoVenueRoute(), map)) as Record<string, unknown>;
+
+			expect(Object.keys(body).sort()).toEqual(["binance", "binance-futures"]);
+			expect(bin.calls()).toBe(1);
+			expect(fut.calls()).toBe(1);
+		});
+
+		it("rejects an unknown source name with 400", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["fut", echoHandlers],
+			]);
+
+			const response = await runRaw(
+				twoVenueRoute(),
+				map,
+				"http://localhost/multi/BTC/1?sources=binance,kraken",
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toContain("unknown source(s): kraken");
+		});
+
+		it("rejects an empty sources param with 400", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["fut", echoHandlers],
+			]);
+
+			const response = await runRaw(
+				twoVenueRoute(),
+				map,
+				"http://localhost/multi/BTC/1?sources=",
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toContain("no sources selected");
 		});
 	});
 });

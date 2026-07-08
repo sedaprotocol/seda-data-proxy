@@ -9,6 +9,12 @@ import { replaceParams } from "../../utils/replace-params";
 // keyed by fetch name. Sub-fetch failures are non-fatal: the failing entry
 // carries an error and the rest still resolve. The combined object is returned
 // as one response for the proxy to sign.
+//
+// A `sources` query param (comma-separated fetch names) restricts the fan-out
+// to the named sub-fetches, so a caller that only wants some venues does not
+// pay for the rest (an unlisted symbol otherwise blocks on the price-wait
+// timeout). The param is part of the signed request URL, so selection needs no
+// signing changes. Without the param every configured fetch runs.
 export const handleMultiRequest = (
 	route: MultiModuleRoute,
 	params: Record<string, string>,
@@ -16,8 +22,40 @@ export const handleMultiRequest = (
 	moduleHandlers: ReadonlyMap<string, ModuleHandlers>,
 ) =>
 	Effect.gen(function* () {
+		const sourcesParam = new URL(request.url).searchParams.get("sources");
+		let selectedFetches = route.fetches;
+
+		if (sourcesParam !== null) {
+			const requested = sourcesParam
+				.split(",")
+				.map((name) => name.trim())
+				.filter((name) => name.length > 0);
+
+			const knownNames = route.fetches.map((fetch) => fetch.name);
+			const unknown = requested.filter((name) => !knownNames.includes(name));
+
+			// A typo in the selection should fail loudly here instead of
+			// surfacing downstream as a confusing "not enough sources" error.
+			if (requested.length === 0 || unknown.length > 0) {
+				const detail =
+					unknown.length > 0
+						? `unknown source(s): ${unknown.join(", ")}`
+						: "no sources selected";
+				return new Response(
+					JSON.stringify({
+						error: `Invalid 'sources' query param: ${detail}. Configured sources: ${knownNames.join(", ")}`,
+					}),
+					{ status: 400, headers: { "Content-Type": "application/json" } },
+				);
+			}
+
+			selectedFetches = route.fetches.filter((fetch) =>
+				requested.includes(fetch.name),
+			);
+		}
+
 		const entries = yield* Effect.forEach(
-			route.fetches,
+			selectedFetches,
 			(fetch) =>
 				Effect.gen(function* () {
 					const handlers = moduleHandlers.get(fetch.moduleName);
