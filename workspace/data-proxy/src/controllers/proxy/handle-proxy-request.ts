@@ -123,6 +123,16 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 					);
 				}),
 			),
+			Match.when({ type: "volmex" }, (volmexModuleRoute) =>
+				Effect.gen(function* () {
+					yield* Effect.logDebug("Handling Volmex request");
+					return yield* moduleService.handleRequest(
+						volmexModuleRoute,
+						params,
+						request,
+					);
+				}),
+			),
 			Match.when({ type: "pm-insights" }, (pmInsightsModuleRoute) =>
 				Effect.gen(function* () {
 					yield* Effect.logDebug("Handling PM Insights request");

@@ -178,15 +178,21 @@ export const createBinanceWS = (
 				}
 			});
 
-		const handleInboundMessage = (raw: string) =>
-			Effect.gen(function* () {
-				const parsed = parseInboundFrame(raw);
-				if (!parsed) return;
-				if (Option.isNone(MutableHashMap.get(desiredSymbols, parsed.symbol))) {
-					return;
-				}
+		const handleInboundMessage = (raw: string) => {
+			const parsed = parseInboundFrame(raw);
+			if (!parsed) return Effect.void;
+			if (Option.isNone(MutableHashMap.get(desiredSymbols, parsed.symbol))) {
+				return Effect.void;
+			}
+
+			return Effect.gen(function* () {
 				yield* cache.setPrice(parsed.symbol, parsed.frame);
-			});
+			}).pipe(
+				Effect.withSpan("binance.ws.handleInboundMessage", {
+					attributes: { symbol: parsed.symbol },
+				}),
+			);
+		};
 
 		const handleDisconnect = (
 			reason: "close" | "error",

@@ -21,6 +21,7 @@ import {
 } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
+import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
 import { withIncomingTrace } from "./utils/with-incoming-trace";
@@ -64,6 +65,9 @@ export const startProxyServer = (
 				Match.when({ type: "lo-tech" }, (m) =>
 					Layer.memoize(LoTechModuleService(m)),
 				),
+				Match.when({ type: "volmex" }, (m) =>
+					Layer.memoize(VolmexModuleService(m)),
+				),
 				Match.when({ type: "pm-insights" }, (m) =>
 					Layer.memoize(PmInsightsModuleService(m)),
 				),
@@ -93,6 +97,7 @@ export const startProxyServer = (
 				route.type === "dxfeed" ||
 				route.type === "hydromancer" ||
 				route.type === "lo-tech" ||
+				route.type === "volmex" ||
 				route.type === "pm-insights" ||
 				route.type === "binance" ||
 				route.type === "lighter"

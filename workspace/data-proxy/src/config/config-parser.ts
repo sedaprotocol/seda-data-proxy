@@ -1,7 +1,7 @@
 import { Secp256k1 } from "@cosmjs/crypto";
 import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
-import { Effect, Either, Match } from "effect";
+import { Effect, Either, Match, Redacted } from "effect";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
@@ -62,6 +62,11 @@ import {
 	type UpstreamModuleRoute,
 	UpstreamModuleRouteSchema,
 } from "./upstream-module-config";
+import {
+	type VolmexModuleRoute,
+	VolmexModuleRouteSchema,
+	validateVolmexModuleRoute,
+} from "./volmex-module-config";
 
 const UNKNOWN_ATTRIBUTE_ERROR = "Unknown attribute";
 
@@ -143,6 +148,7 @@ const ConfigSchema = v.strictObject(
 				DxFeedModuleRouteSchema,
 				HydromancerModuleRouteSchema,
 				LoTechModuleRouteSchema,
+				VolmexModuleRouteSchema,
 				PmInsightsModuleRouteSchema,
 				BinanceModuleRouteSchema,
 				LighterModuleRouteSchema,
@@ -182,6 +188,7 @@ export type Route =
 	| DxFeedModuleRoute
 	| HydromancerModuleRoute
 	| LoTechModuleRoute
+	| VolmexModuleRoute
 	| PmInsightsModuleRoute
 	| BinanceModuleRoute
 	| LighterModuleRoute
@@ -294,6 +301,11 @@ export const parseConfig = (
 
 			if (route.type === "lo-tech") {
 				yield* validateLoTechModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "volmex") {
+				yield* validateVolmexModuleRoute(route);
 				continue;
 			}
 
@@ -583,6 +595,20 @@ export const parseConfig = (
 							} satisfies Modules;
 						}),
 					),
+					Match.when({ type: "volmex" }, (m) => {
+						const volmexApiKey = process.env[m.volmexApiKeyEnvKey];
+						if (!volmexApiKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.volmexApiKeyEnvKey} to be set`,
+							);
+						}
+
+						envSecrets.add(volmexApiKey);
+						return Effect.succeed({
+							...m,
+							volmexApiKey: Redacted.make(volmexApiKey),
+						} satisfies Modules);
+					}),
 					Match.when({ type: "pm-insights" }, (m) => {
 						const email = process.env[m.emailEnvKey];
 						const password = process.env[m.passwordEnvKey];

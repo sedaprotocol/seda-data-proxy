@@ -10,6 +10,7 @@ export const MULTI_FETCH_TYPES = [
 	"dxfeed",
 	"hydromancer",
 	"lo-tech",
+	"volmex",
 	"pm-insights",
 	"binance",
 	"lighter",

@@ -3,7 +3,7 @@ import {
 	assertIsErrorResult,
 	assertIsOkResult,
 } from "@seda-protocol/utils/testing";
-import { Effect, LogLevel, Logger } from "effect";
+import { Effect, LogLevel, Logger, Redacted } from "effect";
 import { parseConfig } from "./config/config-parser";
 
 describe("parseConfig", () => {
@@ -479,6 +479,52 @@ describe("parseConfig", () => {
 				'.modules.0.priceFeeds.0.exchange: Invalid key: Expected "exchange" but received undefined',
 			);
 			process.env.LOTECH_API_KEY = undefined;
+		});
+
+		it("should reject a volmex module whose API key env var is unset", () => {
+			process.env.VOLMEX_API_KEY = undefined;
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "volmex",
+							name: "volmex",
+							volmexApiKeyEnvKey: "VOLMEX_API_KEY",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Module volmex requires VOLMEX_API_KEY to be set",
+			);
+		});
+
+		it("should resolve a volmex module when its API key env var is set", () => {
+			process.env.VOLMEX_API_KEY = "volmex-api-key";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "volmex",
+							name: "volmex",
+							volmexApiKeyEnvKey: "VOLMEX_API_KEY",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "volmex") {
+				throw new Error(`expected volmex, got ${module.type}`);
+			}
+			expect(Redacted.value(module.volmexApiKey)).toBe("volmex-api-key");
+			process.env.VOLMEX_API_KEY = undefined;
 		});
 
 		it("should reject a pm-insights module when the email env var is unset", () => {

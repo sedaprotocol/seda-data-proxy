@@ -16,6 +16,9 @@ import { PmInsightsModuleConfigSchema } from "./pm-insights-module-config";
 import type { PythLazerModuleConfig } from "./pyth-lazer-module-config";
 import { PythLazerModuleConfigSchema } from "./pyth-lazer-module-config";
 
+import type { VolmexModuleConfig } from "./volmex-module-config";
+import { VolmexModuleConfigSchema } from "./volmex-module-config";
+
 export const ModulesSchema = v.optional(
 	v.array(
 		v.variant("type", [
@@ -24,6 +27,7 @@ export const ModulesSchema = v.optional(
 			DxFeedModuleConfigSchema,
 			HydromancerModuleConfigSchema,
 			LoTechModuleConfigSchema,
+			VolmexModuleConfigSchema,
 			PmInsightsModuleConfigSchema,
 			BinanceModuleConfigSchema,
 			LighterModuleConfigSchema,
@@ -38,6 +42,7 @@ export type Modules =
 	| DxFeedModuleConfig
 	| HydromancerModuleConfig
 	| LoTechModuleConfig
+	| VolmexModuleConfig
 	| PmInsightsModuleConfig
 	| BinanceModuleConfig
 	| LighterModuleConfig;
