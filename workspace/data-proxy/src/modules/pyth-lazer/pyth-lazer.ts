@@ -211,7 +211,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							lazerClient.subscribe({
 								type: "subscribe",
 								channel: config.channel,
-								formats: ["solana"],
+								formats: [],
 								properties: [
 									"bestAskPrice",
 									"bestBidPrice",
