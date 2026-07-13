@@ -165,7 +165,19 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			lazerClient.addAllConnectionsDownListener(() =>
 				Runtime.runSync(
 					runtime,
-					Effect.logFatal("All connections are down for Pyth Lazer client"),
+					Effect.logError("All connections are down for Pyth Lazer client"),
+				),
+			);
+
+			lazerClient.addConnectionTimeoutListener((connectionIndex, endpoint) =>
+				Runtime.runSync(
+					runtime,
+					Effect.logWarning("Connection timeout for Pyth Lazer client").pipe(
+						Effect.annotateLogs({
+							connectionIndex,
+							endpoint,
+						}),
+					),
 				),
 			);
 
