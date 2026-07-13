@@ -9,6 +9,8 @@ import {
 	Effect,
 	Either,
 	Layer,
+	Metric,
+	MetricBoundaries,
 	MutableHashMap,
 	Option,
 	Queue,
@@ -41,6 +43,41 @@ interface PriceFeedWithSymbol extends ParsedFeedPayload {
 	symbol?: string;
 	[HAS_PRICE_KEY]: boolean;
 }
+
+/** Pyth Lazer timestamps are Unix microseconds; returns lag in ms, or undefined if missing/invalid. */
+export const lagMsFromTimestampUs = (
+	nowMs: number,
+	timestampUs: number | string | undefined,
+): number | undefined => {
+	if (timestampUs === undefined) {
+		return undefined;
+	}
+	const us =
+		typeof timestampUs === "string" ? Number(timestampUs) : timestampUs;
+	if (!Number.isFinite(us)) {
+		return undefined;
+	}
+	return nowMs - us / 1000;
+};
+
+/** Metrics for the Pyth Lazer module. */
+const messageLagMs = Metric.histogram(
+	"pyth_lazer_message_lag_ms",
+	MetricBoundaries.fromIterable([
+		1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000,
+	]),
+	"Lag in ms between Pyth Lazer update timestampUs and local receive time",
+);
+
+const messageHandleDurationMs = Metric.timerWithBoundaries(
+	"pyth_lazer_message_handle_duration_ms",
+	[0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000],
+	"Duration in ms of the Pyth Lazer addMessageListener callback",
+);
+
+const activeSubscriptions = Metric.gauge("pyth_lazer_active_subscriptions", {
+	description: "Number of active Pyth Lazer price feed subscriptions",
+});
 
 export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 	Layer.effect(
@@ -152,16 +189,18 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 								yield* handleStreamUpdatedMessage(message.value.parsed);
 							}
 						}
-					}),
+					}).pipe(Metric.trackDuration(messageHandleDurationMs)),
 				);
 			});
 
 			const handleStreamUpdatedMessage = (message: ParsedPayload) =>
 				Effect.gen(function* () {
-					yield* Effect.logTrace(
-						"Received stream updated message from Pyth Lazer client",
-						message,
-					);
+					const nowMs = yield* Clock.currentTimeMillis;
+					const lagMs = lagMsFromTimestampUs(nowMs, message.timestampUs);
+
+					if (lagMs !== undefined) {
+						yield* Metric.update(messageLagMs, lagMs);
+					}
 
 					for (const priceFeed of message.priceFeeds) {
 						// To make sure that we don't set the price for a price feed that we are not subscribed to
@@ -208,6 +247,11 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 								newSubscriptionId,
 							);
 
+							yield* Metric.set(
+								activeSubscriptions,
+								MutableHashMap.size(subscriptions),
+							);
+
 							lazerClient.subscribe({
 								type: "subscribe",
 								channel: config.channel,
@@ -251,6 +295,11 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 								if (Option.isSome(subscriptionId)) {
 									lazerClient.unsubscribe(subscriptionId.value);
 									MutableHashMap.remove(subscriptions, priceFeedId);
+
+									yield* Metric.set(
+										activeSubscriptions,
+										MutableHashMap.size(subscriptions),
+									);
 
 									const symbol = getSymbolByPriceFeedId(priceFeedId);
 									if (Option.isSome(symbol)) {
