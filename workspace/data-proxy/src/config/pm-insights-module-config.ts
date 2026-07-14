@@ -29,7 +29,8 @@ export const PmInsightsModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	type: v.literal("pm-insights"),
 	moduleName: v.string(),
-	upstreamPath: v.string(),
+	/** Template for the issuer symbol, e.g. `{:symbol}` for path `/:symbol`. */
+	fetchFromModule: v.string(),
 });
 
 export type PmInsightsModuleRoute = v.InferOutput<

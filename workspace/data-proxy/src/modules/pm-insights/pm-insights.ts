@@ -1,18 +1,44 @@
-import { layer as fetchHttpClientLayer } from "@effect/platform/FetchHttpClient";
-import * as Headers from "@effect/platform/Headers";
-import { text as httpBodyText } from "@effect/platform/HttpBody";
-import { HttpClient } from "@effect/platform/HttpClient";
-import * as HttpClientRequest from "@effect/platform/HttpClientRequest";
-import { type HttpMethod, hasBody } from "@effect/platform/HttpMethod";
 import { Duration, Effect, Either, Layer, Option, Ref, Schedule } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { PmInsightsModuleConfig } from "../../config/pm-insights-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import {
+	FailedToParseResponseBodyError,
+	HttpClientRequestFailedError,
+} from "../../errors";
+import { HttpClientService } from "../../services/http-client";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { FailedToHandlePmInsightsRequestError } from "./errors";
 
 const FETCH_TIMEOUT_MS = 15_000;
+
+function mapHttpClientError(
+	error: unknown,
+	context: string,
+): FailedToHandlePmInsightsRequestError {
+	if (error instanceof FailedToHandlePmInsightsRequestError) {
+		return error;
+	}
+
+	const cause =
+		error instanceof HttpClientRequestFailedError ||
+		error instanceof FailedToParseResponseBodyError
+			? error.error
+			: error;
+
+	if (cause instanceof Error && cause.name === "TimeoutError") {
+		return new FailedToHandlePmInsightsRequestError({
+			error: `${context} timed out after ${FETCH_TIMEOUT_MS}ms`,
+			status: 504,
+		});
+	}
+
+	return new FailedToHandlePmInsightsRequestError({
+		error: `${context}: ${cause}`,
+		status: 502,
+	});
+}
 
 function parseTokenFromLoginBody(text: string): string | undefined {
 	const trimmed = text.trim();
@@ -34,20 +60,49 @@ function parseTokenFromLoginBody(text: string): string | undefined {
 	return undefined;
 }
 
-function normalizeHttpMethod(method: string): HttpMethod {
-	const u = method.toUpperCase();
-	switch (u) {
-		case "GET":
-		case "POST":
-		case "PUT":
-		case "DELETE":
-		case "PATCH":
-		case "HEAD":
-		case "OPTIONS":
-			return u;
-		default:
-			return "GET";
+/**
+ * Extracts the numeric issuer price from a PM Insights `/issuer/{symbol}` response body.
+ */
+export function parseIssuerPrice(
+	responseBody: string,
+): Either.Either<number, FailedToHandlePmInsightsRequestError> {
+	const jsonEither = Either.try(
+		() => JSON.parse(responseBody) as Record<string, unknown>,
+	);
+	if (Either.isLeft(jsonEither)) {
+		return Either.left(
+			new FailedToHandlePmInsightsRequestError({
+				error: `Failed to parse issuer response as JSON: ${jsonEither.left}`,
+				status: 502,
+			}),
+		);
 	}
+
+	const priceSection = jsonEither.right.price;
+	if (
+		typeof priceSection !== "object" ||
+		priceSection === null ||
+		Array.isArray(priceSection)
+	) {
+		return Either.left(
+			new FailedToHandlePmInsightsRequestError({
+				error: "Issuer response missing price object",
+				status: 502,
+			}),
+		);
+	}
+
+	const price = (priceSection as Record<string, unknown>).price;
+	if (typeof price !== "number" || !Number.isFinite(price)) {
+		return Either.left(
+			new FailedToHandlePmInsightsRequestError({
+				error: "Issuer response missing a numeric price.price field",
+				status: 502,
+			}),
+		);
+	}
+
+	return Either.right(price);
 }
 
 export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
@@ -59,6 +114,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 				baseUrl: config.baseUrl,
 			});
 
+			const httpClient = yield* HttpClientService;
 			const tokenRef = yield* Ref.make<Option.Option<string>>(Option.none());
 
 			const loginUrl = new URL("login", config.baseUrl).toString();
@@ -69,36 +125,26 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 					password: config.password,
 				}).toString();
 
-				const client = yield* HttpClient;
-				const response = yield* client
-					.post(loginUrl, {
-						body: httpBodyText(body, "application/x-www-form-urlencoded"),
+				const response = yield* httpClient
+					.request(loginUrl, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/x-www-form-urlencoded",
+						},
+						body,
+						signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 					})
 					.pipe(
-						Effect.timeoutFail({
-							duration: Duration.millis(FETCH_TIMEOUT_MS),
-							onTimeout: () =>
-								new FailedToHandlePmInsightsRequestError({
-									error: `Login timed out after ${FETCH_TIMEOUT_MS}ms`,
-									status: 504,
-								}),
-						}),
-						Effect.mapError((error): FailedToHandlePmInsightsRequestError => {
-							if (error instanceof FailedToHandlePmInsightsRequestError) {
-								return error;
-							}
-							return new FailedToHandlePmInsightsRequestError({
-								error: `Login request failed: ${error}`,
-								status: 502,
-							});
-						}),
+						Effect.mapError((error) =>
+							mapHttpClientError(error, "Login request failed"),
+						),
 					);
 
-				const responseBody = yield* response.text.pipe(
+				const responseBody = yield* httpClient.parseBodyAsText(response).pipe(
 					Effect.mapError(
 						(error) =>
 							new FailedToHandlePmInsightsRequestError({
-								error: `Failed to read login response: ${error}`,
+								error: `Failed to read login response: ${error.error}`,
 								status: 500,
 							}),
 					),
@@ -126,7 +172,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 
 				yield* Ref.set(tokenRef, Option.some(token));
 				yield* Effect.logInfo("PM Insights bearer token refreshed");
-			}).pipe(Effect.provide(fetchHttpClientLayer));
+			});
 
 			yield* performLogin.pipe(Effect.orDie);
 
@@ -172,7 +218,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 			const handleRequest = (
 				route: Route,
 				params: Record<string, string>,
-				request: Request,
+				_request: Request,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "pm-insights") {
@@ -183,24 +229,20 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						);
 					}
 
-					const signedPath =
-						replaceParams(route.upstreamPath, params) +
-						new URL(request.url).search;
-					const upstreamUrl = new URL(signedPath, config.baseUrl);
-
-					let body = "";
-					if (request.method !== "GET" && request.method !== "HEAD") {
-						body = yield* Effect.tryPromise({
-							try: () => request.clone().text(),
-							catch: () =>
-								new FailedToHandlePmInsightsRequestError({
-									error: "Failed to read request body",
-									status: 400,
-								}),
-						});
+					const symbol = replaceParams(route.fetchFromModule, params).trim();
+					if (!symbol) {
+						return yield* Effect.fail(
+							new FailedToHandlePmInsightsRequestError({
+								error: "Missing issuer symbol",
+								status: 400,
+							}),
+						);
 					}
 
-					const method = normalizeHttpMethod(request.method);
+					const upstreamUrl = new URL(
+						`issuer/${encodeURIComponent(symbol)}`,
+						config.baseUrl,
+					).toString();
 
 					const tokenOpt = yield* Ref.get(tokenRef);
 					if (Option.isNone(tokenOpt)) {
@@ -212,61 +254,37 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						);
 					}
 
-					const headers: Record<string, string> = {
-						Authorization: `Bearer ${tokenOpt.value}`,
-						Accept: request.headers.get("accept") ?? "application/json",
-						"Content-Type":
-							request.headers.get("content-type") ?? "application/json",
-					};
-
-					const upstreamRequest = !hasBody(method)
-						? HttpClientRequest.make(method)(upstreamUrl, { headers })
-						: HttpClientRequest.make(method)(upstreamUrl, {
-								headers,
-								body: body ? httpBodyText(body) : undefined,
-							});
-
-					yield* Effect.logDebug("Making PM Insights request", {
-						url: upstreamUrl.toString(),
-						method: request.method,
-						path: signedPath,
+					yield* Effect.logDebug("Making PM Insights issuer request", {
+						url: upstreamUrl,
+						symbol,
 					});
 
-					const response = yield* Effect.gen(function* () {
-						const client = yield* HttpClient;
-						return yield* client.execute(upstreamRequest);
-					}).pipe(
-						Effect.provide(fetchHttpClientLayer),
-						Effect.timeoutFail({
-							duration: Duration.millis(FETCH_TIMEOUT_MS),
-							onTimeout: () =>
-								new FailedToHandlePmInsightsRequestError({
-									error: `PM Insights request timed out after ${FETCH_TIMEOUT_MS}ms`,
-									status: 504,
-								}),
-						}),
-						Effect.mapError((error): FailedToHandlePmInsightsRequestError => {
-							if (error instanceof FailedToHandlePmInsightsRequestError) {
-								return error;
-							}
-							return new FailedToHandlePmInsightsRequestError({
-								error: `Failed to fetch from PM Insights: ${error}`,
-								status: 502,
-							});
-						}),
-					);
+					const response = yield* httpClient
+						.request(upstreamUrl, {
+							method: "GET",
+							headers: {
+								Authorization: `Bearer ${tokenOpt.value}`,
+								Accept: "application/json",
+							},
+							signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+						})
+						.pipe(
+							Effect.mapError((error) =>
+								mapHttpClientError(error, "Failed to fetch from PM Insights"),
+							),
+						);
 
-					const responseBody = yield* response.text.pipe(
+					const responseBody = yield* httpClient.parseBodyAsText(response).pipe(
 						Effect.mapError(
 							(error) =>
 								new FailedToHandlePmInsightsRequestError({
-									error: `Failed to read response: ${error}`,
+									error: `Failed to read response: ${error.error}`,
 									status: 500,
 								}),
 						),
 					);
 
-					// PM Insights returns 400 for invalid credentials
+					// PM Insights returns 400 for invalid credentials.
 					if (response.status === 400) {
 						yield* Effect.logWarning(
 							"PM Insights upstream rejected credentials; refreshing login",
@@ -279,29 +297,40 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						);
 					}
 
-					const upstreamOk = response.status >= 200 && response.status < 300;
-					if (!upstreamOk) {
+					if (response.status < 200 || response.status >= 300) {
 						yield* Effect.logError("PM Insights request failed", {
 							status: response.status,
 							body: responseBody,
+							symbol,
 						});
+						return yield* Effect.fail(
+							new FailedToHandlePmInsightsRequestError({
+								error: `PM Insights issuer request failed with status ${response.status}`,
+								status:
+									response.status >= 400 && response.status < 600
+										? response.status
+										: 502,
+							}),
+						);
 					}
 
-					const upstreamContentType = Option.getOrElse(
-						Headers.get(response.headers, "content-type"),
-						() => "application/json",
-					);
+					const priceEither = parseIssuerPrice(responseBody);
+					if (Either.isLeft(priceEither)) {
+						return yield* Effect.fail(priceEither.left);
+					}
 
 					return yield* Effect.succeed(
-						new Response(responseBody, {
-							status: response.status,
-							headers: { "Content-Type": upstreamContentType },
+						new Response(JSON.stringify(priceEither.right), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
 						}),
 					);
 				}).pipe(
 					Effect.withSpan("handlePmInsightsRequest"),
 					Effect.catchAll((error) => {
-						return Effect.succeed(createErrorResponse(error, error.status));
+						const status =
+							typeof error.status === "number" ? error.status : 500;
+						return Effect.succeed(createErrorResponse(error, status));
 					}),
 				);
 
@@ -309,5 +338,5 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 				start,
 				handleRequest,
 			};
-		}),
+		}).pipe(Effect.provide(HttpClientService.Default())),
 	);
