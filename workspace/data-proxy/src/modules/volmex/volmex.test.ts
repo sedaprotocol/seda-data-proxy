@@ -8,16 +8,26 @@ import {
 import { HAS_PRICE_KEY } from "../../constants";
 import { ModuleService } from "../module";
 
-class FakeWebSocket {
-	static instances: FakeWebSocket[] = [];
+type FakeSocketOptions = {
+	path?: string;
+	transports?: string[];
+	query?: Record<string, string>;
+	reconnection?: boolean;
+	reconnectionDelay?: number;
+};
+
+class FakeSocket {
+	static instances: FakeSocket[] = [];
 
 	url: string;
-	sent: string[] = [];
+	opts: FakeSocketOptions;
+	emitted: Array<[string, unknown]> = [];
 	private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
-	constructor(url: string) {
+	constructor(url: string, opts: FakeSocketOptions = {}) {
 		this.url = url;
-		FakeWebSocket.instances.push(this);
+		this.opts = opts;
+		FakeSocket.instances.push(this);
 	}
 
 	on(event: string, handler: (...args: unknown[]) => void): this {
@@ -27,31 +37,29 @@ class FakeWebSocket {
 		return this;
 	}
 
-	send(data: string): void {
-		this.sent.push(data);
+	emit(event: string, payload?: unknown): this {
+		this.emitted.push([event, payload]);
+		return this;
 	}
 
 	close(): void {
-		this.emit("close");
+		this.trigger("disconnect");
 	}
 
-	triggerOpen(): void {
-		this.emit("open");
+	removeAllListeners(): void {
+		this.listeners.clear();
 	}
 
-	triggerMessage(data: string): void {
-		this.emit("message", data);
-	}
-
-	private emit(event: string, ...args: unknown[]): void {
+	trigger(event: string, ...args: unknown[]): void {
 		for (const handler of this.listeners.get(event) ?? []) {
 			handler(...args);
 		}
 	}
 }
 
-mock.module("ws", () => ({
-	default: FakeWebSocket,
+mock.module("socket.io-client", () => ({
+	io: (url: string, opts?: FakeSocketOptions) =>
+		new FakeSocket(url, opts ?? {}),
 }));
 
 const { VolmexModuleService } = await import("./volmex");
@@ -91,12 +99,6 @@ const dummyRequest = new Request("http://proxy.local/price/x", {
 	method: "GET",
 });
 
-const indicesMessage = (payload: {
-	symbol: string;
-	price: number;
-	timestamp: number;
-}) => `42["indices-messages-stream-private",${JSON.stringify(payload)}]`;
-
 const waitFor = async (
 	predicate: () => boolean,
 	label: string,
@@ -109,15 +111,15 @@ const waitFor = async (
 	throw new Error(`Timed out waiting for ${label}`);
 };
 
-const completeHandshake = async (ws: FakeWebSocket) => {
-	ws.triggerOpen();
-	ws.triggerMessage(
-		'0{"sid":"test","upgrades":[],"pingInterval":25000,"pingTimeout":20000}',
-	);
-	await waitFor(() => ws.sent.includes("40"), "namespace join");
-	ws.triggerMessage("40");
+const completeHandshake = async (socket: FakeSocket) => {
+	socket.trigger("connect");
 	await waitFor(
-		() => ws.sent.includes('42["fetch-indices-messages-private",{}]'),
+		() =>
+			socket.emitted.some(
+				([event, payload]) =>
+					event === "fetch-indices-messages-private" &&
+					JSON.stringify(payload) === "{}",
+			),
 		"indices subscribe",
 	);
 };
@@ -126,12 +128,12 @@ const quiet = <A, E>(effect: Effect.Effect<A, E>) =>
 	effect.pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
 beforeEach(() => {
-	FakeWebSocket.instances = [];
+	FakeSocket.instances = [];
 });
 
 afterEach(() => {
-	for (const ws of FakeWebSocket.instances) {
-		ws.close();
+	for (const socket of FakeSocket.instances) {
+		socket.close();
 	}
 });
 
@@ -148,16 +150,17 @@ describe("VolmexModuleService.handleRequest", () => {
 
 		const resultPromise = Effect.runPromise(program);
 
-		await waitFor(
-			() => FakeWebSocket.instances.length >= 1,
-			"WebSocket instance",
-		);
-		const ws = FakeWebSocket.instances[0];
-		expect(ws.url).toContain("jwtToken=test.jwt.token");
+		await waitFor(() => FakeSocket.instances.length >= 1, "Socket.IO instance");
+		const socket = FakeSocket.instances[0];
+		expect(socket.url).toBe("wss://volmex.test");
+		expect(socket.opts.query?.jwtToken).toBe("test.jwt.token");
+		expect(socket.opts.transports).toEqual(["websocket"]);
+		expect(socket.opts.reconnection).toBe(true);
+		expect(socket.opts.reconnectionDelay).toBe(60_000);
 
-		await completeHandshake(ws);
-		ws.triggerMessage(indicesMessage(evivPrice));
-		ws.triggerMessage(indicesMessage(bvivPrice));
+		await completeHandshake(socket);
+		socket.trigger("indices-messages-stream-private", evivPrice);
+		socket.trigger("indices-messages-stream-private", bvivPrice);
 
 		const response = await resultPromise;
 		expect(response.status).toBe(200);
@@ -182,13 +185,10 @@ describe("VolmexModuleService.handleRequest", () => {
 
 		const resultPromise = Effect.runPromise(program);
 
-		await waitFor(
-			() => FakeWebSocket.instances.length >= 1,
-			"WebSocket instance",
-		);
-		const ws = FakeWebSocket.instances[0];
-		await completeHandshake(ws);
-		ws.triggerMessage(indicesMessage(bvivPrice));
+		await waitFor(() => FakeSocket.instances.length >= 1, "Socket.IO instance");
+		const socket = FakeSocket.instances[0];
+		await completeHandshake(socket);
+		socket.trigger("indices-messages-stream-private", bvivPrice);
 
 		const [first, second] = await resultPromise;
 		expect(first.status).toBe(200);

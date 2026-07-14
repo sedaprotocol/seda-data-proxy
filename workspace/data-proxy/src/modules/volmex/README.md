@@ -6,11 +6,11 @@ Streams Volmex volatility index prices over a Socket.IO WebSocket and serves the
 
 On startup the module:
 
-1. Connects to the Volmex WebSocket (`Engine.IO` v4, WebSocket transport).
+1. Connects with `socket.io-client`.
 2. Authenticates with a JWT passed as the `jwtToken` query parameter.
-3. Joins the default Socket.IO namespace (`40`).
-4. Subscribes to private index updates with `fetch-indices-messages-private`.
-5. Caches every `indices-messages-stream-private` message by `symbol`.
+3. On `connect` (including after auto-reconnect), subscribes via `fetch-indices-messages-private`.
+4. Caches every `indices-messages-stream-private` message by `symbol`.
+5. Relies on Socket.IO client reconnection (`reconnection: true`, delay from `reconnectDelayMs`).
 
 HTTP requests resolve symbols from the route’s `fetchFromModule` template (comma-separated) and return the latest cached price for each symbol. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
 
@@ -27,13 +27,8 @@ Unlike subscription-based modules, Volmex keeps the latest price for **all** sym
 | `volmexApiKeyEnvKey` | yes | — | Env var that holds the Volmex JWT. |
 | `baseUrl` | no | `wss://ws-8jh89.volmex.finance` | WebSocket base URL (no trailing slash required). |
 | `maxSymbolsPerRequest` | no | `100` | Max symbols allowed in a single request. |
-| `reconnectDelayMs` | no | `1000` | Delay between WebSocket reconnect attempts. |
+| `reconnectDelayMs` | no | `1000` | Passed to Socket.IO as `reconnectionDelay` (ms between reconnect attempts). |
 
-The JWT env var value is used as-is in the connection URL:
-
-```text
-{baseUrl}/socket.io/?EIO=4&transport=websocket&jwtToken={jwt}
-```
 
 ### Route
 

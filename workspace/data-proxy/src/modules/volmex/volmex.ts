@@ -25,7 +25,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 					yield* priceCache.setPrice(data.symbol, data);
 				});
 
-			yield* makeVolmexWebSocketService({
+			const ws = yield* makeVolmexWebSocketService({
 				config,
 				runtime,
 				onPrice: updatePrice,
@@ -34,6 +34,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 			const start = () =>
 				Effect.gen(function* () {
 					yield* Effect.logInfo("Starting Volmex module");
+					yield* ws.start();
 				}).pipe(Effect.annotateLogs("_name", "volmex"));
 
 			const handleRequest = (
