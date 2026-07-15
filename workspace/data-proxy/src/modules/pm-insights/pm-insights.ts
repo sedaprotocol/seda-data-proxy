@@ -60,51 +60,6 @@ function parseTokenFromLoginBody(text: string): string | undefined {
 	return undefined;
 }
 
-/**
- * Extracts the numeric issuer price from a PM Insights `/issuer/{symbol}` response body.
- */
-export function parseIssuerPrice(
-	responseBody: string,
-): Either.Either<number, FailedToHandlePmInsightsRequestError> {
-	const jsonEither = Either.try(
-		() => JSON.parse(responseBody) as Record<string, unknown>,
-	);
-	if (Either.isLeft(jsonEither)) {
-		return Either.left(
-			new FailedToHandlePmInsightsRequestError({
-				error: `Failed to parse issuer response as JSON: ${jsonEither.left}`,
-				status: 502,
-			}),
-		);
-	}
-
-	const priceSection = jsonEither.right.price;
-	if (
-		typeof priceSection !== "object" ||
-		priceSection === null ||
-		Array.isArray(priceSection)
-	) {
-		return Either.left(
-			new FailedToHandlePmInsightsRequestError({
-				error: "Issuer response missing price object",
-				status: 502,
-			}),
-		);
-	}
-
-	const price = (priceSection as Record<string, unknown>).price;
-	if (typeof price !== "number" || !Number.isFinite(price)) {
-		return Either.left(
-			new FailedToHandlePmInsightsRequestError({
-				error: "Issuer response missing a numeric price.price field",
-				status: 502,
-			}),
-		);
-	}
-
-	return Either.right(price);
-}
-
 export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 	Layer.effect(
 		ModuleService,
@@ -218,7 +173,7 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 			const handleRequest = (
 				route: Route,
 				params: Record<string, string>,
-				_request: Request,
+				request: Request,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "pm-insights") {
@@ -229,20 +184,18 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						);
 					}
 
-					const symbol = replaceParams(route.fetchFromModule, params).trim();
-					if (!symbol) {
+					const path = replaceParams(route.fetchFromModule, params).trim();
+					if (!path) {
 						return yield* Effect.fail(
 							new FailedToHandlePmInsightsRequestError({
-								error: "Missing issuer symbol",
+								error: "Missing upstream path",
 								status: 400,
 							}),
 						);
 					}
 
-					const upstreamUrl = new URL(
-						`issuer/${encodeURIComponent(symbol)}`,
-						config.baseUrl,
-					).toString();
+					const upstreamPath = path + new URL(request.url).search;
+					const upstreamUrl = new URL(upstreamPath, config.baseUrl).toString();
 
 					const tokenOpt = yield* Ref.get(tokenRef);
 					if (Option.isNone(tokenOpt)) {
@@ -254,9 +207,9 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						);
 					}
 
-					yield* Effect.logDebug("Making PM Insights issuer request", {
+					yield* Effect.logDebug("Making PM Insights request", {
 						url: upstreamUrl,
-						symbol,
+						path: upstreamPath,
 					});
 
 					const response = yield* httpClient
@@ -301,28 +254,17 @@ export const PmInsightsModuleService = (config: PmInsightsModuleConfig) =>
 						yield* Effect.logError("PM Insights request failed", {
 							status: response.status,
 							body: responseBody,
-							symbol,
+							path: upstreamPath,
 						});
-						return yield* Effect.fail(
-							new FailedToHandlePmInsightsRequestError({
-								error: `PM Insights issuer request failed with status ${response.status}`,
-								status:
-									response.status >= 400 && response.status < 600
-										? response.status
-										: 502,
-							}),
-						);
-					}
-
-					const priceEither = parseIssuerPrice(responseBody);
-					if (Either.isLeft(priceEither)) {
-						return yield* Effect.fail(priceEither.left);
 					}
 
 					return yield* Effect.succeed(
-						new Response(JSON.stringify(priceEither.right), {
-							status: 200,
-							headers: { "Content-Type": "application/json" },
+						new Response(responseBody, {
+							status: response.status,
+							headers: {
+								"Content-Type":
+									response.headers.get("content-type") ?? "application/json",
+							},
 						}),
 					);
 				}).pipe(

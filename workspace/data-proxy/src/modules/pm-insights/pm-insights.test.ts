@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import { Effect, Either, LogLevel, Logger } from "effect";
+import { Effect, LogLevel, Logger } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { PmInsightsModuleConfig } from "../../config/pm-insights-module-config";
 import { ModuleService } from "../module";
-import { PmInsightsModuleService, parseIssuerPrice } from "./pm-insights";
+import { PmInsightsModuleService } from "./pm-insights";
 
 const sampleIssuerResponse = {
 	updated_at: "2026-07-13 11:18:46",
@@ -54,14 +54,15 @@ const quiet = <A, E>(effect: Effect.Effect<A, E>) =>
 const callHandle = (
 	config: PmInsightsModuleConfig,
 	params: Record<string, string>,
-	fetchFromModule = "{:symbol}",
+	fetchFromModule = "issuer/{:symbol}",
+	requestUrl = "http://proxy.local/AVAN08",
 ) => {
 	const program = Effect.gen(function* () {
 		const svc = yield* ModuleService;
 		return yield* svc.handleRequest(
 			routeFor(fetchFromModule),
 			params,
-			new Request("http://proxy.local/AVAN08"),
+			new Request(requestUrl),
 		);
 	});
 	return Effect.runPromise(
@@ -76,9 +77,10 @@ const urlOf = (input: URL | RequestInfo): string =>
 			? input.url
 			: String(input);
 
+// TODO: Use dependency injection to mock the HTTP client instead of mutating the global fetch.
 const mockPmInsightsFetch = (handlers?: {
 	login?: (init?: RequestInit) => Response | Promise<Response>;
-	issuer?: (url: string, init?: RequestInit) => Response | Promise<Response>;
+	upstream?: (url: string, init?: RequestInit) => Response | Promise<Response>;
 }) =>
 	mock(async (input: URL | RequestInfo, init?: RequestInit) => {
 		const url = urlOf(input);
@@ -90,11 +92,14 @@ const mockPmInsightsFetch = (handlers?: {
 				})
 			);
 		}
+		if (handlers?.upstream) {
+			return handlers.upstream(url, init);
+		}
 		if (url.includes("/issuer/")) {
-			return (
-				handlers?.issuer?.(url, init) ??
-				new Response(JSON.stringify(sampleIssuerResponse), { status: 200 })
-			);
+			return new Response(JSON.stringify(sampleIssuerResponse), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
 		}
 		throw new Error(`Unexpected fetch: ${url}`);
 	});
@@ -105,45 +110,8 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
-describe("parseIssuerPrice", () => {
-	it("extracts price.price from an issuer response", () => {
-		const result = parseIssuerPrice(JSON.stringify(sampleIssuerResponse));
-		expect(Either.isRight(result)).toBe(true);
-		if (Either.isRight(result)) {
-			expect(result.right).toBe(721.35);
-		}
-	});
-
-	it("fails when the body is not JSON", () => {
-		const result = parseIssuerPrice("not-json");
-		expect(Either.isLeft(result)).toBe(true);
-		if (Either.isLeft(result)) {
-			expect(result.left.status).toBe(502);
-			expect(result.left.error).toContain("Failed to parse issuer response");
-		}
-	});
-
-	it("fails when price object is missing", () => {
-		const result = parseIssuerPrice(JSON.stringify({ info: { id: "AVAN08" } }));
-		expect(Either.isLeft(result)).toBe(true);
-		if (Either.isLeft(result)) {
-			expect(result.left.error).toContain("missing price object");
-		}
-	});
-
-	it("fails when price.price is not a finite number", () => {
-		const result = parseIssuerPrice(
-			JSON.stringify({ price: { price: "721.35" } }),
-		);
-		expect(Either.isLeft(result)).toBe(true);
-		if (Either.isLeft(result)) {
-			expect(result.left.error).toContain("numeric price.price");
-		}
-	});
-});
-
 describe("PmInsightsModuleService.handleRequest", () => {
-	it("logs in, fetches the issuer, and returns price.price", async () => {
+	it("logs in, fetches upstream, and proxies the response body", async () => {
 		const fetchMock = mockPmInsightsFetch({
 			login: (init) => {
 				expect(init?.method).toBe("POST");
@@ -157,7 +125,7 @@ describe("PmInsightsModuleService.handleRequest", () => {
 					status: 200,
 				});
 			},
-			issuer: (url, init) => {
+			upstream: (url, init) => {
 				expect(url).toBe("https://api.pminsights.test/issuer/AVAN08");
 				expect(init?.method).toBe("GET");
 				expect((init?.headers as Record<string, string>).Authorization).toBe(
@@ -165,6 +133,7 @@ describe("PmInsightsModuleService.handleRequest", () => {
 				);
 				return new Response(JSON.stringify(sampleIssuerResponse), {
 					status: 200,
+					headers: { "Content-Type": "application/json" },
 				});
 			},
 		});
@@ -172,41 +141,67 @@ describe("PmInsightsModuleService.handleRequest", () => {
 
 		const response = await callHandle(baseConfig, { symbol: "AVAN08" });
 		expect(response.status).toBe(200);
-		expect(await response.json()).toBe(721.35);
+		expect(await response.json()).toEqual(sampleIssuerResponse);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
-	it("returns 400 when the issuer symbol is missing", async () => {
+	it("forwards request query string to upstream", async () => {
+		const fetchMock = mockPmInsightsFetch({
+			upstream: (url) => {
+				expect(url).toBe("https://api.pminsights.test/issuer/AVAN08?verbose=1");
+				return new Response(JSON.stringify(sampleIssuerResponse), {
+					status: 200,
+				});
+			},
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(
+			baseConfig,
+			{ symbol: "AVAN08" },
+			"issuer/{:symbol}",
+			"http://proxy.local/AVAN08?verbose=1",
+		);
+		expect(response.status).toBe(200);
+	});
+
+	it("returns 400 when the upstream path is missing", async () => {
 		const fetchMock = mockPmInsightsFetch();
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const response = await callHandle(baseConfig, {}, "   ");
 		expect(response.status).toBe(400);
-		// Login still runs during module init; issuer is never fetched.
+		// Login still runs during module init; upstream is never fetched.
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(urlOf(fetchMock.mock.calls[0][0] as URL | RequestInfo)).toContain(
 			"/login",
 		);
 	});
 
-	it("passes through upstream 4xx status", async () => {
+	it("passes through upstream 4xx status and body", async () => {
 		globalThis.fetch = mockPmInsightsFetch({
-			issuer: () => new Response("not found", { status: 404 }),
+			upstream: () =>
+				new Response("not found", {
+					status: 404,
+					headers: { "Content-Type": "text/plain" },
+				}),
 		}) as unknown as typeof fetch;
 
 		const response = await callHandle(baseConfig, { symbol: "AVAN08" });
 		expect(response.status).toBe(404);
+		expect(await response.text()).toBe("not found");
+		expect(response.headers.get("Content-Type")).toBe("text/plain");
 	});
 
-	it("reauthenticates when the issuer responds 400", async () => {
+	it("reauthenticates when the upstream responds 400", async () => {
 		const fetchMock = mockPmInsightsFetch({
-			issuer: () => new Response("invalid credentials", { status: 400 }),
+			upstream: () => new Response("invalid credentials", { status: 400 }),
 		});
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const response = await callHandle(baseConfig, { symbol: "AVAN08" });
 		expect(response.status).toBe(400);
-		// init login + issuer + reauth login
+		// init login + upstream + reauth login
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(urlOf(fetchMock.mock.calls[0][0] as URL | RequestInfo)).toContain(
 			"/login",
@@ -219,9 +214,9 @@ describe("PmInsightsModuleService.handleRequest", () => {
 		);
 	});
 
-	it("returns 504 when the issuer fetch times out", async () => {
+	it("returns 504 when the upstream fetch times out", async () => {
 		globalThis.fetch = mockPmInsightsFetch({
-			issuer: () => {
+			upstream: () => {
 				const error = new Error("aborted");
 				error.name = "TimeoutError";
 				throw error;
@@ -230,18 +225,6 @@ describe("PmInsightsModuleService.handleRequest", () => {
 
 		const response = await callHandle(baseConfig, { symbol: "AVAN08" });
 		expect(response.status).toBe(504);
-	});
-
-	it("returns 502 when the issuer response shape is invalid", async () => {
-		globalThis.fetch = mockPmInsightsFetch({
-			issuer: () =>
-				new Response(JSON.stringify({ info: { id: "AVAN08" } }), {
-					status: 200,
-				}),
-		}) as unknown as typeof fetch;
-
-		const response = await callHandle(baseConfig, { symbol: "AVAN08" });
-		expect(response.status).toBe(502);
 	});
 
 	it("dies during module init when login fails", async () => {

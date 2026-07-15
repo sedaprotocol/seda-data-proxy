@@ -1,6 +1,6 @@
 # PM Insights module
 
-Proxies issuer prices from the [PM Insights](https://pminsights.com/) API. On startup the module logs in, caches a bearer token, and refreshes it on a schedule. Each proxied request fetches `GET /issuer/{symbol}` and returns only the numeric `price.price` field.
+Proxies requests to the [PM Insights](https://pminsights.com/) API. On startup the module logs in, caches a bearer token, and refreshes it on a schedule. Each proxied request calls the upstream path from `fetchFromModule` with the bearer token and returns the upstream response as-is (status, body, and content type).
 
 ## Environment variables
 
@@ -50,9 +50,16 @@ Both are required; config parsing fails if either is unset. Values are treated a
       "type": "pm-insights",
       "moduleName": "pminsights",
       "path": "/:symbol",
-      "fetchFromModule": "{:symbol}",
+      "fetchFromModule": "issuer/{:symbol}",
       "method": ["GET"]
-    }
+    },
+		{
+			"type": "pm-insights",
+			"moduleName": "pminsights",
+			"path": "/constituents/:sector",
+			"fetchFromModule": "feed/sectors/constituents/{:sector}",
+			"method": ["GET"]
+		}
   ]
 }
 ```
@@ -62,12 +69,11 @@ Both are required; config parsing fails if either is unset. Values are treated a
 | `type` | Must be `"pm-insights"` |
 | `moduleName` | Must match a configured PM Insights module `name` |
 | `path` | Proxy path; use path params as needed |
-| `fetchFromModule` | Issuer symbol template (e.g. `{:symbol}`); substituted from path params |
+| `fetchFromModule` | Upstream path template relative to `baseUrl` (e.g. `issuer/{:symbol}`); substituted from path params. Request query string is forwarded. |
 | `method` | Allowed HTTP methods (typically `["GET"]`) |
 
 Example request after starting the proxy:
 
 ```bash
 curl "http://127.0.0.1:5384/proxy/AVAN08"
-# => 721.35
 ```
