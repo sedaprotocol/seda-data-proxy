@@ -1,5 +1,5 @@
 import { Effect, type Fiber, Redacted, Runtime } from "effect";
-import { type Socket, io } from "socket.io-client";
+import { io } from "socket.io-client";
 import * as v from "valibot";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
 import { type VolmexDataPrice, VolmexDataPriceSchema } from "./schema";
@@ -28,26 +28,27 @@ export const makeVolmexWebSocketService = (
 		const { config, runtime, onPrice } = deps;
 		const reconnectDelayMs = config.reconnectDelayMs ?? 1000;
 
-		const connect = Effect.async<void>((resume) => {
-			let socket: Socket;
-			try {
-				socket = io(config.baseUrl.replace(/\/$/, ""), {
-					path: "/socket.io",
-					transports: ["websocket"],
-					query: {
-						jwtToken: Redacted.value(config.volmexApiKey),
-					},
-					reconnection: true,
-					reconnectionDelay: reconnectDelayMs,
-				});
-			} catch (error) {
-				Runtime.runSync(
-					runtime,
-					Effect.logError("Volmex Socket.IO constructor failed", { error }),
-				);
-				resume(Effect.void); // No cleanup needed.
-				return;
-			}
+		const connect = Effect.gen(function* () {
+			const socket = yield* Effect.acquireRelease(
+				Effect.try({
+					try: () =>
+						io(config.baseUrl.replace(/\/$/, ""), {
+							path: "/socket.io",
+							transports: ["websocket"],
+							query: {
+								jwtToken: Redacted.value(config.volmexApiKey),
+							},
+							reconnection: true,
+							reconnectionDelay: reconnectDelayMs,
+						}),
+					catch: (error) => error,
+				}),
+				(socket) =>
+					Effect.sync(() => {
+						socket.removeAllListeners();
+						socket.close();
+					}),
+			);
 
 			socket.on("connect", () => {
 				Runtime.runSync(
@@ -100,13 +101,13 @@ export const makeVolmexWebSocketService = (
 				);
 			});
 
-			// Return a cleanup Effect that will be executed if the fiber
-			// running this effect is interrupted.
-			return Effect.sync(() => {
-				socket.removeAllListeners();
-				socket.close();
-			});
-		});
+			yield* Effect.never;
+		}).pipe(
+			Effect.scoped,
+			Effect.catchAll((error) =>
+				Effect.logError("Volmex Socket.IO constructor failed", { error }),
+			),
+		);
 
 		const cachedStart = yield* Effect.cached(Effect.forkDaemon(connect));
 		const start = () => cachedStart;
