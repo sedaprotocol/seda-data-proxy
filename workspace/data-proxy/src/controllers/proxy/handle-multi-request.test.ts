@@ -15,11 +15,16 @@ const handlers = (
 });
 
 // Echoes back what the synthetic route/body carried so tests can assert the
-// templates were filled and forwarded.
+// templates were filled and forwarded. `fetchFromModule` is not on every Route
+// variant (e.g. upstream, hydromancer), so narrow before reading it.
 const echoHandlers = handlers((route, _params, _request, body) =>
 	Effect.succeed(
 		new Response(
-			JSON.stringify({ fetchFromModule: route.fetchFromModule, body }),
+			JSON.stringify({
+				fetchFromModule:
+					"fetchFromModule" in route ? route.fetchFromModule : undefined,
+				body,
+			}),
 			{ status: 200 },
 		),
 	),
@@ -102,6 +107,46 @@ describe("handleMultiRequest", () => {
 				fetchFromModule: "",
 				body: '{"type":"assetContext","coins":["BTC"]}',
 			},
+		});
+	});
+
+	it("forwards Pyth channels and defaults them to fixed 200ms", async () => {
+		const route = makeRoute([
+			{
+				name: "default",
+				moduleName: "pyth",
+				type: "pyth-lazer",
+				fetchFromModule: "1",
+			},
+			{
+				name: "realtime",
+				moduleName: "pyth",
+				type: "pyth-lazer",
+				fetchFromModule: "1",
+				channel: "real_time",
+			},
+		]);
+		const pythHandlers = handlers((syntheticRoute) =>
+			Effect.succeed(
+				new Response(
+					JSON.stringify({
+						channel:
+							syntheticRoute.type === "pyth-lazer"
+								? syntheticRoute.channel
+								: undefined,
+					}),
+					{ status: 200 },
+				),
+			),
+		);
+
+		const body = await run(
+			route,
+			new Map<string, ModuleHandlers>([["pyth", pythHandlers]]),
+		);
+		expect(body).toEqual({
+			default: { channel: "fixed_rate@200ms" },
+			realtime: { channel: "real_time" },
 		});
 	});
 
@@ -209,7 +254,12 @@ describe("handleMultiRequest", () => {
 					calls++;
 					return Effect.succeed(
 						new Response(
-							JSON.stringify({ fetchFromModule: route.fetchFromModule }),
+							JSON.stringify({
+								fetchFromModule:
+									"fetchFromModule" in route
+										? route.fetchFromModule
+										: undefined,
+							}),
 							{ status: 200 },
 						),
 					);

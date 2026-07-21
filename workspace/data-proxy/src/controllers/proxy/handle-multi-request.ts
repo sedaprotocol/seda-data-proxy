@@ -1,6 +1,7 @@
 import { Effect, Either } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { MultiModuleRoute } from "../../config/multi-module-config";
+import { PYTH_LAZER_DEFAULT_CHANNEL } from "../../config/pyth-lazer-module-config";
 import type { ModuleHandlers } from "../../modules/module";
 import { replaceParams } from "../../utils/replace-params";
 
@@ -83,6 +84,11 @@ export const handleMultiRequest = (
 						headers: {},
 						useLegacyJsonPath: true,
 						forwardResponseHeaders: new Set<string>(),
+						...(fetch.type === "pyth-lazer"
+							? {
+									channel: fetch.channel ?? PYTH_LAZER_DEFAULT_CHANNEL,
+								}
+							: {}),
 					} as Route;
 
 					const result = yield* Effect.either(

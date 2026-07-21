@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { PythLazerChannelSchema } from "./pyth-lazer-module-config";
 import { RouteSchema } from "./route-config";
 
 // Module types a multi fetch can target. These are the modules backed by a
@@ -26,6 +27,8 @@ export const MultiFetchSchema = v.strictObject({
 	fetchFromModule: v.optional(v.string()),
 	body: v.optional(v.string()),
 	allowedQueryParams: v.optional(v.array(v.string())),
+	// Used only when type is pyth-lazer.
+	channel: v.optional(PythLazerChannelSchema),
 });
 
 export type MultiFetch = v.InferOutput<typeof MultiFetchSchema>;
