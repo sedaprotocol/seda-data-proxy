@@ -39,3 +39,27 @@ export function extractPriceFeedIdFromErrorMessage(
 
 	return Option.none();
 }
+
+/** Extracts a loggable message from WS Error / ErrorEvent-like values. */
+export const pythLazerErrorMessage = (error: unknown): string => {
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"message" in error &&
+		typeof error.message === "string"
+	) {
+		return error.message;
+	}
+	return String(error);
+};
+
+/**
+ * Keeps the WebSocket URL for debugging but strips credentials from the text.
+ * Pyth Lazer puts the API key in `?ACCESS_TOKEN=` (browser) or Bearer headers.
+ */
+export const redactPythLazerSecrets = (text: string): string => {
+	const output = text
+		.replaceAll(/([?&]ACCESS_TOKEN=)[^&\s'"]+/gi, "$1<redacted>")
+		.replaceAll(/(Bearer\s+)\S+/gi, "$1<redacted>");
+	return output;
+};

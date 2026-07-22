@@ -28,6 +28,8 @@ import { createPriceCache } from "../shared/price-cache";
 import {
 	FailedToHandlePythLazerRequestError,
 	extractPriceFeedIdFromErrorMessage,
+	pythLazerErrorMessage,
+	redactPythLazerSecrets,
 } from "./errors";
 import { getPriceIdBySymbol } from "./get-symbol-price-id";
 
@@ -152,14 +154,20 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 								"wss://pyth-lazer-2.dourolabs.app/v1/stream",
 							],
 							onWebSocketPoolError: (error) => {
-								Runtime.runSync(
-									runtime,
-									Effect.logError("Error in Pyth Lazer client web socket pool"),
+								const safeMessage = redactPythLazerSecrets(
+									pythLazerErrorMessage(error),
 								);
 
-								const priceFeedId = extractPriceFeedIdFromErrorMessage(
-									`${error}`,
+								Runtime.runSync(
+									runtime,
+									Effect.logError(
+										"Error in Pyth Lazer client web socket pool",
+										{ message: safeMessage },
+									),
 								);
+
+								const priceFeedId =
+									extractPriceFeedIdFromErrorMessage(safeMessage);
 
 								// If price feed id is given, then set the cache to error
 								// for all subscriptions to this price feed id.
@@ -172,25 +180,24 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 											priceFeedIdFromSubscriptionKey(key) === priceFeedId.value
 												? priceCache.setPriceToError(
 														key,
-														`(${Option.getOrElse(symbol, () => "Unknown/Symbol")}) ${error}`,
+														`(${Option.getOrElse(symbol, () => "Unknown/Symbol")}) ${safeMessage}`,
 													)
 												: Effect.void,
 										),
 									);
 								}
-
-								// For some reason the error is encoded to an empty object, the regular console.error does show the actual error
-								console.error(error);
 							},
 							onWebSocketError: (error) => {
+								const safeMessage = redactPythLazerSecrets(
+									pythLazerErrorMessage(error),
+								);
+
 								Runtime.runSync(
 									runtime,
 									Effect.logError("Error in Pyth Lazer client web socket", {
-										error,
+										message: safeMessage,
 									}),
 								);
-
-								console.error(error);
 							},
 						},
 					}),
