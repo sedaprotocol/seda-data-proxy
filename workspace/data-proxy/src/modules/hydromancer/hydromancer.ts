@@ -87,14 +87,23 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						return yield* executeHydromancerRestRequest(config, body);
 					}
 
-					// We need to know if the request is for a single coin or a batch of coins as the response shape is different.
+					// Normalize coins (string or string[]) and expand comma-separated
+					// values (e.g. "BTC,ETH" or ["BTC,ETH"] from multi-route path params).
+					const expandCoins = (tokens: string | string[]) =>
+						(typeof tokens === "string" ? [tokens] : tokens).flatMap((token) =>
+							token
+								.split(",")
+								.map((coin) => coin.trim())
+								.filter((coin) => coin.length > 0),
+						);
+
 					const assetRequest = Match.value(parsedBody.value).pipe(
 						Match.when(
 							{ type: "assetContext", coins: Match.any },
 							(body) =>
 								({
 									type: "batch",
-									coins: body.coins,
+									coins: expandCoins(body.coins),
 								}) as const,
 						),
 						Match.when(

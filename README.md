@@ -389,7 +389,7 @@ A **multi** route fans out to several module handlers in one request. Each entry
 - Sub-fetch failures are **non-fatal**: the failing source appears as an `{ "error": "...", "status": ... }` entry; other sources still resolve. The multi route itself returns HTTP `200`.
 - Fetch `name` values must be **unique** within a route (validated at startup).
 
-Example — Binance spot, Lighter perp ticker, and Hydromancer asset context in one call (see also `configs/config-multi-fetcher.jsonc`):
+Example — Binance spot, Lighter perp ticker, and Hydromancer asset context in one call:
 
 ```jsonc
 {

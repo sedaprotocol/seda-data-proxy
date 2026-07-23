@@ -210,6 +210,72 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(body).toEqual(btcCtx);
 	});
 
+	it("expands a comma-separated coins entry in request body", async () => {
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				expect(JSON.parse(init?.body as string)).toEqual({
+					type: "assetContext",
+					coins: ["BTC", "ETH"],
+				});
+				return new Response(JSON.stringify({ BTC: btcCtx, ETH: ethCtx }), {
+					status: 200,
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC,ETH"]);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await response.json()).toEqual({ BTC: btcCtx, ETH: ethCtx });
+	});
+
+	it("expands a comma-delimited coins string in request body", async () => {
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				expect(JSON.parse(init?.body as string)).toEqual({
+					type: "assetContext",
+					coins: ["BTC", "ETH"],
+				});
+				return new Response(JSON.stringify({ BTC: btcCtx, ETH: ethCtx }), {
+					status: 200,
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, [], () =>
+			JSON.stringify({ type: "assetContext", coins: "BTC,ETH" }),
+		);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await response.json()).toEqual({ BTC: btcCtx, ETH: ethCtx });
+	});
+
+	it("does not expand a comma-separated coin entry in request body", async () => {
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				// Singular `coin` is kept as one literal ticker.
+				expect(JSON.parse(init?.body as string)).toEqual({
+					type: "assetContext",
+					coins: ["BTC,ETH"],
+				});
+				// Upstream treats "BTC,ETH" as an unknown symbol.
+				return new Response(JSON.stringify({ "BTC,ETH": null }), {
+					status: 200,
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC,ETH"], (coins) =>
+			JSON.stringify({ type: "assetContext", coin: coins[0] }),
+		);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await response.json()).toBeNull();
+	});
+
 	it("keeps null entries for coins that come back null", async () => {
 		globalThis.fetch = mock(
 			async () =>

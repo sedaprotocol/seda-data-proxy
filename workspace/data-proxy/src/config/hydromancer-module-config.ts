@@ -106,7 +106,8 @@ const SingleAssetContextType = v.object({
 });
 const BatchAssetContextType = v.object({
 	type: AssetContextType,
-	coins: v.array(v.string()),
+	// Array of tickers, or a single comma-delimited string (e.g. "BTC,ETH").
+	coins: v.union([v.string(), v.array(v.string())]),
 });
 // Request body the module accepts. Anything else is forwarded to the upstream
 export const AssetContextRequestBodySchema = v.union([
