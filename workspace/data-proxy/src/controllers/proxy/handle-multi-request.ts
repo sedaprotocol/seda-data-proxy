@@ -2,6 +2,7 @@ import { Effect, Either } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	EMPTY_PARAM_TOKEN,
+	EMPTY_RESPONSE_BY_TYPE,
 	type MultiFetch,
 	type MultiModuleRoute,
 } from "../../config/multi-module-config";
@@ -67,6 +68,9 @@ export const emptyParamsFor = (
 // pay for the rest (an unlisted symbol otherwise blocks on the price-wait
 // timeout). The param is part of the signed request URL, so selection needs no
 // signing changes. Without the param every configured fetch runs.
+//
+// A `_` path element means "no asset for this source": it is stripped before
+// templates are filled, and a fetch whose param it empties is skipped.
 export const handleMultiRequest = (
 	route: MultiModuleRoute,
 	params: Record<string, string>,
@@ -106,10 +110,18 @@ export const handleMultiRequest = (
 			);
 		}
 
+		const sanitizedParams = sanitizeParams(params);
+
 		const entries = yield* Effect.forEach(
 			selectedFetches,
 			(fetch) =>
 				Effect.gen(function* () {
+					// The price modules would otherwise block on the full
+					// price-wait timeout for a symbol nobody asked for.
+					if (emptyParamsFor(fetch, sanitizedParams).length > 0) {
+						return [fetch.name, EMPTY_RESPONSE_BY_TYPE[fetch.type]] as const;
+					}
+
 					const handlers = moduleHandlers.get(fetch.moduleName);
 					if (!handlers) {
 						return [
@@ -119,10 +131,10 @@ export const handleMultiRequest = (
 					}
 
 					const fetchFromModule = fetch.fetchFromModule
-						? replaceParams(fetch.fetchFromModule, params)
+						? replaceParams(fetch.fetchFromModule, sanitizedParams)
 						: "";
 					const body = fetch.body
-						? replaceParams(fetch.body, params)
+						? replaceParams(fetch.body, sanitizedParams)
 						: undefined;
 
 					const syntheticRoute = {
@@ -143,7 +155,12 @@ export const handleMultiRequest = (
 					} as Route;
 
 					const result = yield* Effect.either(
-						handlers.handleRequest(syntheticRoute, params, request, body),
+						handlers.handleRequest(
+							syntheticRoute,
+							sanitizedParams,
+							request,
+							body,
+						),
 					);
 
 					if (Either.isLeft(result)) {

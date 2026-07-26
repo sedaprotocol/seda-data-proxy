@@ -53,21 +53,16 @@ const runRaw = (
 	route: MultiModuleRoute,
 	map: Map<string, ModuleHandlers>,
 	url = "http://localhost/multi/BTC/1",
+	params: Record<string, string> = { symbol: "BTC", index: "1" },
 ) =>
-	Effect.runPromise(
-		handleMultiRequest(
-			route,
-			{ symbol: "BTC", index: "1" },
-			new Request(url),
-			map,
-		),
-	);
+	Effect.runPromise(handleMultiRequest(route, params, new Request(url), map));
 
 const run = (
 	route: MultiModuleRoute,
 	map: Map<string, ModuleHandlers>,
 	url?: string,
-) => runRaw(route, map, url).then((res) => res.json());
+	params?: Record<string, string>,
+) => runRaw(route, map, url, params).then((res) => res.json());
 
 describe("handleMultiRequest", () => {
 	it("fills each fetch template from the request params and keys results by name", async () => {
@@ -341,6 +336,148 @@ describe("handleMultiRequest", () => {
 			expect(response.status).toBe(400);
 			const body = (await response.json()) as { error: string };
 			expect(body.error).toContain("no sources selected");
+		});
+	});
+
+	describe("empty param token", () => {
+		const countingEcho = () => {
+			let calls = 0;
+			return {
+				handlers: handlers((route, _params, _request, body) => {
+					calls++;
+					return Effect.succeed(
+						new Response(
+							JSON.stringify({
+								fetchFromModule:
+									"fetchFromModule" in route
+										? route.fetchFromModule
+										: undefined,
+								body,
+							}),
+							{ status: 200 },
+						),
+					);
+				}),
+				calls: () => calls,
+			};
+		};
+
+		const binanceRoute = () =>
+			makeRoute([
+				{
+					name: "binance",
+					moduleName: "bin",
+					type: "binance",
+					fetchFromModule: "{:symbol}",
+				},
+				{
+					name: "lighter",
+					moduleName: "lig",
+					type: "lighter",
+					fetchFromModule: "{:index}",
+				},
+			]);
+
+		it("drops placeholder elements and forwards the remaining assets", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["lig", echoHandlers],
+			]);
+
+			const body = await run(binanceRoute(), map, undefined, {
+				symbol: "BTC,_,SOL",
+				index: "1,2,3",
+			});
+
+			expect(body).toEqual({
+				binance: { fetchFromModule: "BTC,SOL" },
+				lighter: { fetchFromModule: "1,2,3" },
+			});
+		});
+
+		it("skips a fetch whose only param is the placeholder without calling the module", async () => {
+			const bin = countingEcho();
+			const lig = countingEcho();
+			const map = new Map<string, ModuleHandlers>([
+				["bin", bin.handlers],
+				["lig", lig.handlers],
+			]);
+
+			const body = (await run(binanceRoute(), map, undefined, {
+				symbol: "_",
+				index: "1",
+			})) as Record<string, unknown>;
+
+			expect(body.binance).toEqual([]);
+			expect(bin.calls()).toBe(0);
+			expect(lig.calls()).toBe(1);
+		});
+
+		it("leaves an underscore inside a symbol untouched", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["lig", echoHandlers],
+			]);
+
+			const body = (await run(binanceRoute(), map, undefined, {
+				symbol: "BTC_USD",
+				index: "1",
+			})) as Record<string, unknown>;
+
+			expect(body.binance).toEqual({ fetchFromModule: "BTC_USD" });
+		});
+
+		it("skips a body-template fetch and returns the hydromancer empty shape", async () => {
+			const hydro = countingEcho();
+			const route = makeRoute([
+				{
+					name: "hydro",
+					moduleName: "hydro",
+					type: "hydromancer",
+					body: '{"type":"assetContext","coins":["{:symbol}"]}',
+				},
+			]);
+			const map = new Map<string, ModuleHandlers>([["hydro", hydro.handlers]]);
+
+			const body = (await run(route, map, undefined, {
+				symbol: "_",
+				index: "1",
+			})) as Record<string, unknown>;
+
+			expect(body.hydro).toEqual({});
+			expect(hydro.calls()).toBe(0);
+		});
+
+		it("intersects with the sources query param", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["lig", echoHandlers],
+			]);
+
+			const body = (await run(
+				binanceRoute(),
+				map,
+				"http://localhost/multi/_/1?sources=binance,lighter",
+				{ symbol: "_", index: "1" },
+			)) as Record<string, unknown>;
+
+			expect(body.binance).toEqual([]);
+			expect(body.lighter).toEqual({ fetchFromModule: "1" });
+		});
+
+		it("returns 200 with every value empty when all params are the placeholder", async () => {
+			const map = new Map<string, ModuleHandlers>([
+				["bin", echoHandlers],
+				["lig", echoHandlers],
+			]);
+
+			const response = await runRaw(binanceRoute(), map, undefined, {
+				symbol: "_",
+				index: "_",
+			});
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ binance: [], lighter: [] });
 		});
 	});
 });
