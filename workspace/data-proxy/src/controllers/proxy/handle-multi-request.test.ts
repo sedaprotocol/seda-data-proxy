@@ -5,7 +5,7 @@ import {
 	FailedToHandleRequest,
 	type ModuleHandlers,
 } from "../../modules/module";
-import { handleMultiRequest } from "./handle-multi-request";
+import { handleMultiRequest, sanitizeParams } from "./handle-multi-request";
 
 const handlers = (
 	handleRequest: ModuleHandlers["handleRequest"],
@@ -335,5 +335,40 @@ describe("handleMultiRequest", () => {
 			const body = (await response.json()) as { error: string };
 			expect(body.error).toContain("no sources selected");
 		});
+	});
+});
+
+describe("sanitizeParams", () => {
+	it("drops whole-element placeholder tokens from a comma list", () => {
+		expect(sanitizeParams({ symbol: "BTC,_,SOL" })).toEqual({
+			symbol: "BTC,SOL",
+		});
+	});
+
+	it("empties a param that is only the placeholder", () => {
+		expect(sanitizeParams({ symbol: "_" })).toEqual({ symbol: "" });
+	});
+
+	it("leaves the placeholder alone inside a larger element", () => {
+		expect(sanitizeParams({ symbol: "BTC_USD,wstETH_1" })).toEqual({
+			symbol: "BTC_USD,wstETH_1",
+		});
+	});
+
+	it("strips surrounding whitespace before matching the token", () => {
+		expect(sanitizeParams({ symbol: "BTC, _ ,SOL" })).toEqual({
+			symbol: "BTC,SOL",
+		});
+	});
+
+	it("leaves params without the token untouched", () => {
+		expect(sanitizeParams({ market: "1,2,3", tk: "BTC" })).toEqual({
+			market: "1,2,3",
+			tk: "BTC",
+		});
+	});
+
+	it("handles an empty params map", () => {
+		expect(sanitizeParams({})).toEqual({});
 	});
 });

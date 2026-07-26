@@ -1,9 +1,30 @@
 import { Effect, Either } from "effect";
 import type { Route } from "../../config/config-parser";
-import type { MultiModuleRoute } from "../../config/multi-module-config";
+import {
+	EMPTY_PARAM_TOKEN,
+	type MultiModuleRoute,
+} from "../../config/multi-module-config";
 import { PYTH_LAZER_DEFAULT_CHANNEL } from "../../config/pyth-lazer-module-config";
 import type { ModuleHandlers } from "../../modules/module";
 import { replaceParams } from "../../utils/replace-params";
+
+// Stripping at param level covers fetchFromModule and body alike, without
+// having to parse either format.
+export const sanitizeParams = (
+	params: Record<string, string>,
+): Record<string, string> => {
+	const sanitized: Record<string, string> = {};
+
+	for (const [key, value] of Object.entries(params)) {
+		sanitized[key] = value
+			.split(",")
+			.map((element) => element.trim())
+			.filter((element) => element !== EMPTY_PARAM_TOKEN)
+			.join(",");
+	}
+
+	return sanitized;
+};
 
 // Fans a multi route out to its configured sub-fetches concurrently, forwarding
 // each to its target module's own handler and collecting the raw responses
