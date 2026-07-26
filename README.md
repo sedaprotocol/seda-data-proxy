@@ -388,6 +388,8 @@ A **multi** route fans out to several module handlers in one request. Each entry
 - **`body`** — forwarded to modules that expect a request body (for example Hydromancer `assetContext`).
 - Sub-fetch failures are **non-fatal**: the failing source appears as an `{ "error": "...", "status": ... }` entry; other sources still resolve. The multi route itself returns HTTP `200`.
 - Fetch `name` values must be **unique** within a route (validated at startup).
+- A path element of **`_`** means "no asset for this source" and is dropped before templates are filled, so `/multi/BTC,_,SOL/1,2,3/BTC,ETH,SOL` asks the first source for BTC and SOL only. Only whole elements count, so `BTC_USD` is unaffected.
+- A fetch whose param is left **entirely empty** is skipped without calling its module; its entry is `[]` for the price modules, `{}` for Hydromancer, `null` for `pm-insights` and `chainlink-streams`. `_` and `sources` compose: `sources` selects, `_` subtracts.
 
 Example — Binance spot, Lighter perp ticker, and Hydromancer asset context in one call:
 
@@ -439,6 +441,9 @@ Test locally (disable proof verification for easier debugging):
 
 ```bash
 curl -s "http://127.0.0.1:5384/proxy/multi/BTC/1/BTC" | jq .
+
+# Skip Binance for this request
+curl -s "http://127.0.0.1:5384/proxy/multi/_/1/BTC" | jq .
 ```
 
 Example response shape:
