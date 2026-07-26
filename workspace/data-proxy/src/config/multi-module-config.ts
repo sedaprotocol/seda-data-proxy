@@ -20,6 +20,21 @@ export const MULTI_FETCH_TYPES = [
 // Callers need a way to leave a gap; an empty path segment does not route.
 export const EMPTY_PARAM_TOKEN = "_";
 
+export const EMPTY_RESPONSE_BY_TYPE: Record<
+	(typeof MULTI_FETCH_TYPES)[number],
+	unknown
+> = {
+	binance: [],
+	lighter: [],
+	dxfeed: [],
+	volmex: [],
+	"pyth-lazer": [],
+	"lo-tech": [],
+	hydromancer: {},
+	"pm-insights": null,
+	"chainlink-streams": null,
+};
+
 // A single sub-request inside a multi route. `fetchFromModule` and `body` are
 // templates filled from the inbound request path params via replaceParams; the
 // resolved value is forwarded to the target module's own handler.

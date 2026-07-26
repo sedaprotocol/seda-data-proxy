@@ -1,11 +1,18 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { MultiModuleRoute } from "../../config/multi-module-config";
+import type {
+	MultiFetch,
+	MultiModuleRoute,
+} from "../../config/multi-module-config";
 import {
 	FailedToHandleRequest,
 	type ModuleHandlers,
 } from "../../modules/module";
-import { handleMultiRequest, sanitizeParams } from "./handle-multi-request";
+import {
+	emptyParamsFor,
+	handleMultiRequest,
+	sanitizeParams,
+} from "./handle-multi-request";
 
 const handlers = (
 	handleRequest: ModuleHandlers["handleRequest"],
@@ -370,5 +377,61 @@ describe("sanitizeParams", () => {
 
 	it("handles an empty params map", () => {
 		expect(sanitizeParams({})).toEqual({});
+	});
+});
+
+const fetchOf = (overrides: Partial<MultiFetch>): MultiFetch => ({
+	name: "f",
+	moduleName: "m",
+	type: "binance",
+	...overrides,
+});
+
+describe("emptyParamsFor", () => {
+	it("reports a referenced param that sanitized to empty", () => {
+		const fetch = fetchOf({ fetchFromModule: "{:symbol}" });
+		expect(emptyParamsFor(fetch, { symbol: "", market: "1" })).toEqual([
+			"symbol",
+		]);
+	});
+
+	it("ignores an empty param the fetch does not reference", () => {
+		const fetch = fetchOf({ fetchFromModule: "{:market}" });
+		expect(emptyParamsFor(fetch, { symbol: "", market: "1" })).toEqual([]);
+	});
+
+	it("reports an empty param referenced from a body template", () => {
+		const fetch = fetchOf({
+			type: "hydromancer",
+			body: '{"type":"assetContext","coins":["{:tk}"]}',
+		});
+		expect(emptyParamsFor(fetch, { tk: "" })).toEqual(["tk"]);
+	});
+
+	it("reports every empty referenced param when a fetch uses several", () => {
+		const fetch = fetchOf({ fetchFromModule: "{:symbol}-{:market}" });
+		expect(emptyParamsFor(fetch, { symbol: "", market: "" }).sort()).toEqual([
+			"market",
+			"symbol",
+		]);
+	});
+
+	it("returns nothing when every referenced param has a value", () => {
+		const fetch = fetchOf({ fetchFromModule: "{:symbol}" });
+		expect(emptyParamsFor(fetch, { symbol: "BTC,SOL" })).toEqual([]);
+	});
+
+	it("recognizes both wildcard reference forms", () => {
+		expect(
+			emptyParamsFor(fetchOf({ fetchFromModule: "{*}" }), { "*": "" }),
+		).toEqual(["*"]);
+		expect(
+			emptyParamsFor(fetchOf({ fetchFromModule: "{:*}" }), { "*": "" }),
+		).toEqual(["*"]);
+	});
+
+	it("does not match a reference split across fetchFromModule and body", () => {
+		const fetch = fetchOf({ fetchFromModule: "{:sym", body: "bol}" });
+		expect(emptyParamsFor(fetch, { symbol: "" })).toEqual([]);
 	});
 });

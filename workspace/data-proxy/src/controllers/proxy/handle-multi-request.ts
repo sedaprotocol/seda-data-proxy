@@ -2,6 +2,7 @@ import { Effect, Either } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	EMPTY_PARAM_TOKEN,
+	type MultiFetch,
 	type MultiModuleRoute,
 } from "../../config/multi-module-config";
 import { PYTH_LAZER_DEFAULT_CHANNEL } from "../../config/pyth-lazer-module-config";
@@ -24,6 +25,35 @@ export const sanitizeParams = (
 	}
 
 	return sanitized;
+};
+
+// Scans the raw templates: after substitution an intentionally-emptied param
+// is indistinguishable from one that was never referenced.
+export const emptyParamsFor = (
+	fetch: MultiFetch,
+	sanitized: Record<string, string>,
+): string[] => {
+	const templates = [fetch.fetchFromModule ?? "", fetch.body ?? ""];
+	const empty: string[] = [];
+
+	for (const [key, value] of Object.entries(sanitized)) {
+		if (value.length > 0) {
+			continue;
+		}
+
+		// Mirrors replaceParams, which substitutes both forms for the wildcard.
+		const references = key === "*" ? ["{*}", "{:*}"] : [`{:${key}}`];
+
+		if (
+			templates.some((template) =>
+				references.some((reference) => template.includes(reference)),
+			)
+		) {
+			empty.push(key);
+		}
+	}
+
+	return empty;
 };
 
 // Fans a multi route out to its configured sub-fetches concurrently, forwarding
