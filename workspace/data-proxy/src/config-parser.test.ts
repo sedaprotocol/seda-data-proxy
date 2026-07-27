@@ -527,6 +527,50 @@ describe("parseConfig", () => {
 			process.env.VOLMEX_API_KEY = undefined;
 		});
 
+		it("should accept a volmex REST route with upstreamPath", () => {
+			process.env.VOLMEX_API_KEY = "volmex-api-key";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [
+						{
+							type: "volmex",
+							moduleName: "volmex",
+							source: "rest",
+							path: "/history",
+							upstreamPath: "/public/history",
+						},
+					],
+					modules: [
+						{
+							type: "volmex",
+							name: "volmex",
+							volmexApiKeyEnvKey: "VOLMEX_API_KEY",
+							wsBaseUrl: "wss://ws.volmex.finance",
+							restBaseUrl: "https://www.volmex.finance",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const route = result.value.config.routes[0];
+			expect(route.type).toBe("volmex");
+			if (route.type === "volmex") {
+				expect(route.source).toBe("rest");
+				if (route.source === "rest") {
+					expect(route.upstreamPath).toBe("/public/history");
+				}
+			}
+			const module = result.value.config.modules[0];
+			if (module.type !== "volmex") {
+				throw new Error(`expected volmex, got ${module.type}`);
+			}
+			expect(module.wsBaseUrl).toBe("wss://ws.volmex.finance");
+			expect(module.restBaseUrl).toBe("https://www.volmex.finance");
+			process.env.VOLMEX_API_KEY = undefined;
+		});
+
 		it("should reject a pm-insights module when the email env var is unset", () => {
 			process.env.PM_INSIGHTS_EMAIL = undefined;
 			process.env.PM_INSIGHTS_PASSWORD = "pw";

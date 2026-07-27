@@ -10,7 +10,7 @@ const INDICES_STREAM_EVENT = "indices-messages-stream-private";
 export type VolmexWebSocketServiceDeps = {
 	config: Pick<
 		VolmexModuleConfig,
-		"baseUrl" | "volmexApiKey" | "reconnectDelayMs"
+		"wsBaseUrl" | "volmexApiKey" | "reconnectDelayMs"
 	>;
 	runtime: Runtime.Runtime<never>;
 	onPrice: (price: VolmexDataPrice) => Effect.Effect<void>;
@@ -32,7 +32,7 @@ export const makeVolmexWebSocketService = (
 			const socket = yield* Effect.acquireRelease(
 				Effect.try({
 					try: () =>
-						io(config.baseUrl.replace(/\/$/, ""), {
+						io(config.wsBaseUrl.replace(/\/$/, ""), {
 							path: "/socket.io",
 							transports: ["websocket"],
 							query: {
@@ -54,7 +54,7 @@ export const makeVolmexWebSocketService = (
 				Runtime.runSync(
 					runtime,
 					Effect.logInfo("Volmex Socket.IO connected", {
-						url: config.baseUrl,
+						url: config.wsBaseUrl,
 					}),
 				);
 				socket.emit(FETCH_INDICES_EVENT, {});

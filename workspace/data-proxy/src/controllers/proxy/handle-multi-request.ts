@@ -152,6 +152,8 @@ export const handleMultiRequest = (
 									channel: fetch.channel ?? PYTH_LAZER_DEFAULT_CHANNEL,
 								}
 							: {}),
+						// Volmex multi fetches only target the WS/cache path today.
+						...(fetch.type === "volmex" ? { source: "ws" as const } : {}),
 					} as Route;
 
 					const result = yield* Effect.either(

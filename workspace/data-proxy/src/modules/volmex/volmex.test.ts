@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Effect, LogLevel, Logger, Redacted } from "effect";
+import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
 import * as v from "valibot";
 import {
 	type VolmexModuleConfig,
@@ -79,10 +79,12 @@ const evivPrice = {
 const baseConfig: VolmexModuleConfig = {
 	name: "volmex",
 	type: "volmex",
-	baseUrl: "wss://volmex.test",
+	wsBaseUrl: "wss://volmex.test",
+	restBaseUrl: "https://rest.volmex.test",
 	maxSymbolsPerRequest: 100,
 	volmexApiKeyEnvKey: "VOLMEX_API_KEY",
 	reconnectDelayMs: 60_000,
+	restFetchTimeout: Duration.seconds(15),
 	volmexApiKey: Redacted.make("test.jwt.token"),
 };
 
@@ -90,9 +92,21 @@ const buildRoute = () =>
 	v.parse(VolmexModuleRouteSchema, {
 		type: "volmex",
 		moduleName: "volmex",
+		source: "ws",
 		path: "/price/:symbols",
 		fetchFromModule: "{:symbols}",
 		method: ["GET"],
+	});
+
+const buildRestRoute = (overrides: Record<string, unknown> = {}) =>
+	v.parse(VolmexModuleRouteSchema, {
+		type: "volmex",
+		moduleName: "volmex",
+		source: "rest",
+		path: "/history",
+		upstreamPath: "/v2/history",
+		method: ["GET"],
+		...overrides,
 	});
 
 const dummyRequest = new Request("http://proxy.local/price/x", {
@@ -127,6 +141,8 @@ const completeHandshake = async (socket: FakeSocket) => {
 const quiet = <A, E>(effect: Effect.Effect<A, E>) =>
 	effect.pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
+const originalFetch = globalThis.fetch;
+
 beforeEach(() => {
 	FakeSocket.instances = [];
 });
@@ -135,6 +151,7 @@ afterEach(() => {
 	for (const socket of FakeSocket.instances) {
 		socket.close();
 	}
+	globalThis.fetch = originalFetch;
 });
 
 describe("VolmexModuleService.handleRequest", () => {
@@ -219,5 +236,139 @@ describe("VolmexModuleService.handleRequest", () => {
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("VolmexModuleService.handleRequest (REST)", () => {
+	it("proxies to restBaseUrl + upstreamPath with JWT and forwards query params", async () => {
+		const route = buildRestRoute({
+			allowedQueryParams: ["symbol", "resolution", "from", "to"],
+		});
+		const request = new Request(
+			"http://proxy.local/history?symbol=BVIV&resolution=D&from=1&to=2&ignored=x",
+			{ method: "GET" },
+		);
+
+		const fetchMock = mock(
+			async (input: URL | RequestInfo, init?: RequestInit) => {
+				const url =
+					input instanceof URL
+						? input
+						: new URL(typeof input === "string" ? input : input.url);
+				expect(url.origin + url.pathname).toBe(
+					"https://rest.volmex.test/v2/history",
+				);
+				expect(url.searchParams.get("symbol")).toBe("BVIV");
+				expect(url.searchParams.get("resolution")).toBe("D");
+				expect(url.searchParams.get("from")).toBe("1");
+				expect(url.searchParams.get("to")).toBe("2");
+				expect(url.searchParams.has("ignored")).toBe(false);
+				expect(init?.method).toBe("GET");
+				expect((init?.headers as Record<string, string>).Authorization).toBe(
+					"Bearer test.jwt.token",
+				);
+				return new Response(JSON.stringify({ s: "ok", t: [1], c: [42] }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			return yield* svc.handleRequest(route, {}, request);
+		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+
+		const response = await Effect.runPromise(program);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await response.json()).toEqual({ s: "ok", t: [1], c: [42] });
+	});
+
+	it("substitutes path params in upstreamPath", async () => {
+		const route = buildRestRoute({
+			path: "/history/:symbol",
+			upstreamPath: "/v2/history/{:symbol}",
+		});
+		const request = new Request("http://proxy.local/history/BVIV", {
+			method: "GET",
+		});
+
+		const fetchMock = mock(async (input: URL | RequestInfo) => {
+			const url =
+				input instanceof URL
+					? input.toString()
+					: typeof input === "string"
+						? input
+						: input.url;
+			expect(url).toBe("https://rest.volmex.test/v2/history/BVIV");
+			return new Response("{}", { status: 200 });
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			return yield* svc.handleRequest(route, { symbol: "BVIV" }, request);
+		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+
+		const response = await Effect.runPromise(program);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("passes through upstream 4xx status", async () => {
+		const route = buildRestRoute();
+		const fetchMock = mock(
+			async () => new Response("bad symbol", { status: 400 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			return yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/history", { method: "GET" }),
+			);
+		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+
+		const response = await Effect.runPromise(program);
+		expect(response.status).toBe(400);
+		expect(await response.text()).toBe("bad symbol");
+	});
+
+	it("returns 504 when the upstream fetch times out", async () => {
+		const route = buildRestRoute();
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				const signal = init?.signal;
+				return await new Promise<Response>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => {
+						const error = new Error("aborted");
+						error.name = "TimeoutError";
+						reject(error);
+					});
+				});
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const config: VolmexModuleConfig = {
+			...baseConfig,
+			restFetchTimeout: Duration.millis(20),
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			return yield* svc.handleRequest(
+				route,
+				{},
+				new Request("http://proxy.local/history", { method: "GET" }),
+			);
+		}).pipe(Effect.provide(VolmexModuleService(config)), quiet);
+
+		const response = await Effect.runPromise(program);
+		expect(response.status).toBe(504);
 	});
 });

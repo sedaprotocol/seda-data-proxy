@@ -7,6 +7,7 @@ import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleVolmexRequestError } from "./errors";
+import { proxyVolmexRestRequest } from "./rest-client";
 import type { VolmexDataPrice, VolmexResponse } from "./schema";
 import { makeVolmexWebSocketService } from "./ws-client";
 
@@ -40,7 +41,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 			const handleRequest = (
 				route: Route,
 				params: Record<string, string>,
-				_request: Request,
+				request: Request,
 			) =>
 				Effect.gen(function* () {
 					if (route.type !== "volmex") {
@@ -51,7 +52,20 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 						);
 					}
 
-					yield* Effect.logDebug("Handling Volmex request", { route, params });
+					if (route.source === "rest") {
+						return yield* proxyVolmexRestRequest({
+							config,
+							upstreamPathTemplate: route.upstreamPath,
+							params,
+							request,
+							allowedQueryParams: route.allowedQueryParams,
+						});
+					}
+
+					yield* Effect.logDebug("Handling Volmex WS request", {
+						route,
+						params,
+					});
 
 					const symbols = replaceParams(route.fetchFromModule, params)
 						.split(",")
@@ -63,6 +77,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 							createErrorResponse(
 								new FailedToHandleVolmexRequestError({
 									error: `Too many symbols requested, max is ${config.maxSymbolsPerRequest} but got ${symbols.length}`,
+									status: 400,
 								}),
 								400,
 							),
@@ -99,7 +114,9 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 				}).pipe(
 					Effect.withSpan("handleVolmexRequest"),
 					Effect.catchAll((error) => {
-						return Effect.succeed(createErrorResponse(error, error.status));
+						const status =
+							typeof error.status === "number" ? error.status : 500;
+						return Effect.succeed(createErrorResponse(error, status));
 					}),
 				);
 
