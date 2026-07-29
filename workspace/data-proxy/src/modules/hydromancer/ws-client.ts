@@ -92,7 +92,7 @@ export const createHydromancerWS = (
 		const runtime = yield* Effect.runtime<never>();
 		const desiredCoins = MutableHashMap.empty<string, true>();
 		let currentWS: WebSocket | null = null;
-		let socketError: string | undefined;
+		let unhealthy = false;
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
 
@@ -103,7 +103,7 @@ export const createHydromancerWS = (
 				try {
 					ws.send(frame);
 				} catch (err) {
-					socketError = `ws send failed: ${String(err)}`;
+					unhealthy = true;
 					yield* Effect.logWarning("Hydromancer WS send failed", {
 						error: String(err),
 					});
@@ -129,12 +129,12 @@ export const createHydromancerWS = (
 				yield* trySend(buildUnsubscribeFrame(coin));
 			});
 
-		const hasError = () => Effect.sync(() => socketError !== undefined);
+		const hasError = () => Effect.sync(() => unhealthy);
 
 		const handleOpen = (ws: WebSocket) =>
 			Effect.gen(function* () {
 				yield* Effect.logInfo("Hydromancer WS open", { name: config.name });
-				socketError = undefined;
+				unhealthy = false;
 				currentWS = ws;
 				for (const [coin] of desiredCoins) {
 					yield* trySend(buildSubscribeFrame(coin));
@@ -152,22 +152,18 @@ export const createHydromancerWS = (
 				yield* cache.set(frame.coin, frame.ctx, now);
 			});
 
-		const handleDisconnect = (
-			reason: "close" | "error",
-			closed: Deferred.Deferred<void, "close" | "error">,
-		) =>
+		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
-				yield* Effect.logWarning("Hydromancer WS disconnected", { reason });
-				socketError = `ws ${reason}`;
+				unhealthy = true;
 				currentWS = null;
-				yield* Deferred.fail(closed, reason);
+				yield* Deferred.fail(closed, undefined);
 			});
 
 		const connectOnce = Effect.gen(function* () {
 			const wsUrl = `${config.wsUrl}?token=${encodeURIComponent(
 				config.hydromancerApiKey,
 			)}`;
-			const closed = yield* Deferred.make<void, "close" | "error">();
+			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Hydromancer WS connecting", {
 				name: config.name,
@@ -190,20 +186,36 @@ export const createHydromancerWS = (
 				if (typeof event.data !== "string") return;
 				Runtime.runSync(runtime, handleInboundMessage(event.data));
 			});
-			ws.addEventListener("close", () => {
-				Runtime.runSync(runtime, handleDisconnect("close", closed));
-			});
 			ws.addEventListener("error", () => {
-				Runtime.runSync(runtime, handleDisconnect("error", closed));
+				unhealthy = true;
+				Runtime.runSync(
+					runtime,
+					Effect.logWarning("Hydromancer WS error event", {
+						name: config.name,
+					}),
+				);
+			});
+			ws.addEventListener("close", (event) => {
+				Runtime.runSync(
+					runtime,
+					Effect.gen(function* () {
+						yield* Effect.logWarning("Hydromancer WS disconnected", {
+							code: event.code,
+							closeReason: event.reason,
+							wasClean: event.wasClean,
+						});
+						yield* handleDisconnect(deferred);
+					}),
+				);
 			});
 
-			yield* Deferred.await(closed);
+			yield* Deferred.await(deferred);
 		}).pipe(Effect.scoped);
 
 		const loop = connectOnce.pipe(
-			Effect.tapError((error) =>
+			Effect.tapError(() =>
 				Effect.sync(() => {
-					socketError = `ws connect failed: ${String(error)}`;
+					unhealthy = true;
 				}),
 			),
 			Effect.retry(schedule),

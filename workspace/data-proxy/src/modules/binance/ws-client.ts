@@ -100,7 +100,7 @@ export const createBinanceWS = (
 		const runtime = yield* Effect.runtime<never>();
 		const desiredSymbols = MutableHashMap.empty<string, true>();
 		let currentWS: WebSocket | null = null;
-		let socketError: string | undefined;
+		let unhealthy = false;
 		let controlId = 0;
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
@@ -117,7 +117,7 @@ export const createBinanceWS = (
 				try {
 					ws.send(frame);
 				} catch (err) {
-					socketError = `ws send failed: ${String(err)}`;
+					unhealthy = true;
 					yield* Effect.logWarning("Binance WS send failed", {
 						error: String(err),
 					});
@@ -162,12 +162,12 @@ export const createBinanceWS = (
 				);
 			});
 
-		const hasError = () => Effect.sync(() => socketError !== undefined);
+		const hasError = () => Effect.sync(() => unhealthy);
 
 		const handleOpen = (ws: WebSocket) =>
 			Effect.gen(function* () {
 				yield* Effect.logInfo("Binance WS open", { name: config.name });
-				socketError = undefined;
+				unhealthy = false;
 				currentWS = ws;
 				const symbols: string[] = [];
 				for (const [symbol] of desiredSymbols) symbols.push(symbol);
@@ -194,19 +194,15 @@ export const createBinanceWS = (
 			);
 		};
 
-		const handleDisconnect = (
-			reason: "close" | "error",
-			closed: Deferred.Deferred<void, "close" | "error">,
-		) =>
+		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
-				yield* Effect.logWarning("Binance WS disconnected", { reason });
-				socketError = `ws ${reason}`;
+				unhealthy = true;
 				currentWS = null;
-				yield* Deferred.fail(closed, reason);
+				yield* Deferred.fail(closed, undefined);
 			});
 
 		const connectOnce = Effect.gen(function* () {
-			const closed = yield* Deferred.make<void, "close" | "error">();
+			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Binance WS connecting", { name: config.name });
 
@@ -227,20 +223,34 @@ export const createBinanceWS = (
 				if (typeof event.data !== "string") return;
 				Runtime.runSync(runtime, handleInboundMessage(event.data));
 			});
-			ws.addEventListener("close", () => {
-				Runtime.runSync(runtime, handleDisconnect("close", closed));
-			});
 			ws.addEventListener("error", () => {
-				Runtime.runSync(runtime, handleDisconnect("error", closed));
+				unhealthy = true;
+				Runtime.runSync(
+					runtime,
+					Effect.logWarning("Binance WS error event", { name: config.name }),
+				);
+			});
+			ws.addEventListener("close", (event) => {
+				Runtime.runSync(
+					runtime,
+					Effect.gen(function* () {
+						yield* Effect.logWarning("Binance WS disconnected", {
+							code: event.code,
+							closeReason: event.reason,
+							wasClean: event.wasClean,
+						});
+						yield* handleDisconnect(deferred);
+					}),
+				);
 			});
 
-			yield* Deferred.await(closed);
+			yield* Deferred.await(deferred);
 		}).pipe(Effect.scoped);
 
 		const loop = connectOnce.pipe(
-			Effect.tapError((error) =>
+			Effect.tapError(() =>
 				Effect.sync(() => {
-					socketError = `ws connect failed: ${String(error)}`;
+					unhealthy = true;
 				}),
 			),
 			Effect.retry(schedule),

@@ -668,7 +668,7 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 			ws.close();
 			yield* Effect.sleep(Duration.millis(0));
 
-			// Request 2: BTC is fresh in cache but socketError forces another REST.
+			// Request 2: BTC is fresh in cache but unhealthy socket forces another REST.
 			yield* svc.handleRequest(route, {}, buildAssetContextRequest(body), body);
 		});
 
