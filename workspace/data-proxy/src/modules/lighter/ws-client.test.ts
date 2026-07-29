@@ -121,7 +121,7 @@ class FakeWebSocket extends EventTarget {
 	close(): void {
 		if (this.readyState === FakeWebSocket.CLOSED) return;
 		this.readyState = FakeWebSocket.CLOSED;
-		this.dispatchEvent(new Event("close"));
+		this.dispatchEvent(new CloseEvent("close", { code: 1000, wasClean: true }));
 	}
 
 	triggerOpen(): void {
@@ -133,10 +133,14 @@ class FakeWebSocket extends EventTarget {
 		this.dispatchEvent(new MessageEvent("message", { data }));
 	}
 
-	triggerClose(): void {
+	triggerClose(code = 1000, reason = "", wasClean = true): void {
 		if (this.readyState === FakeWebSocket.CLOSED) return;
 		this.readyState = FakeWebSocket.CLOSED;
-		this.dispatchEvent(new Event("close"));
+		this.dispatchEvent(new CloseEvent("close", { code, reason, wasClean }));
+	}
+
+	triggerError(message = "socket error"): void {
+		this.dispatchEvent(new ErrorEvent("error", { message }));
 	}
 }
 

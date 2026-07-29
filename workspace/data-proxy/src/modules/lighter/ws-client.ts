@@ -171,18 +171,14 @@ export const createLighterWS = (
 				yield* cache.setPrice(parsed.marketId, parsed.frame);
 			});
 
-		const handleDisconnect = (
-			reason: "close" | "error",
-			closed: Deferred.Deferred<void, "close" | "error">,
-		) =>
+		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
-				yield* Effect.logWarning("Lighter WS disconnected", { reason });
 				currentWS = null;
-				yield* Deferred.fail(closed, reason);
+				yield* Deferred.fail(closed, undefined);
 			});
 
 		const connectOnce = Effect.gen(function* () {
-			const closed = yield* Deferred.make<void, "close" | "error">();
+			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Lighter WS connecting", { name: config.name });
 
@@ -203,22 +199,31 @@ export const createLighterWS = (
 				if (typeof event.data !== "string") return;
 				Runtime.runSync(runtime, handleInboundMessage(event.data));
 			});
-			ws.addEventListener("close", () => {
-				Runtime.runSync(runtime, handleDisconnect("close", closed));
-			});
 			ws.addEventListener("error", () => {
-				Runtime.runSync(runtime, handleDisconnect("error", closed));
+				Runtime.runSync(
+					runtime,
+					Effect.logWarning("Lighter WS error event", { name: config.name }),
+				);
+			});
+			ws.addEventListener("close", (event) => {
+				Runtime.runSync(
+					runtime,
+					Effect.gen(function* () {
+						yield* Effect.logWarning("Lighter WS disconnected", {
+							code: event.code,
+							closeReason: event.reason,
+							wasClean: event.wasClean,
+						});
+						yield* handleDisconnect(deferred);
+					}),
+				);
 			});
 
-			yield* Deferred.await(closed);
+			yield* Deferred.await(deferred);
 		}).pipe(Effect.scoped);
 
 		const loop = connectOnce.pipe(
-			Effect.tapError((error) =>
-				Effect.logWarning("Lighter WS connect failed", {
-					error: String(error),
-				}),
-			),
+			Effect.tapError(() => Effect.logWarning("Lighter WS connect failed")),
 			Effect.retry(schedule),
 		);
 
