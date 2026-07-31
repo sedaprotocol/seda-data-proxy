@@ -11,6 +11,7 @@ import {
 	DEFAULT_VERIFICATION_MAX_RETRIES,
 	DEFAULT_VERIFICATION_RETRY_DELAY,
 } from "../constants";
+import { normalizePath } from "../utils/match-route-path";
 import { replaceParams } from "../utils/replace-params";
 import {
 	type BinanceModuleRoute,
@@ -44,6 +45,12 @@ import {
 	validateLoTechModuleRoute,
 } from "./lo-tech-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
+import {
+	DEFAULT_MULTI_CONCURRENCY,
+	DEFAULT_MULTI_ENDPOINT_PATH,
+	DEFAULT_MULTI_MAX_REQUESTS,
+	MultiEndpointSchema,
+} from "./multi-endpoint-config";
 import {
 	type MultiModuleRoute,
 	MultiModuleRouteSchema,
@@ -176,6 +183,12 @@ const ConfigSchema = v.strictObject(
 				root: "status",
 			},
 		),
+		multiEndpoint: v.optional(MultiEndpointSchema, {
+			enable: false,
+			path: DEFAULT_MULTI_ENDPOINT_PATH,
+			maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
+			concurrency: DEFAULT_MULTI_CONCURRENCY,
+		}),
 	},
 	UNKNOWN_ATTRIBUTE_ERROR,
 );
@@ -251,6 +264,21 @@ export const parseConfig = (
 				),
 				hasWarnings,
 			];
+		}
+
+		if (config.multiEndpoint.enable) {
+			const multiPath = normalizePath(config.multiEndpoint.path);
+
+			for (const route of config.routes) {
+				if (normalizePath(route.path) === multiPath) {
+					return [
+						Result.err(
+							`Route ${route.path} collides with multiEndpoint.path; rename the route or multiEndpoint.path`,
+						),
+						hasWarnings,
+					];
+				}
+			}
 		}
 
 		// Check if the environment variables required by the status endpoint are available.

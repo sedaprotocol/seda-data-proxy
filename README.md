@@ -380,7 +380,7 @@ Lighter example — numeric market ids (for example `1` for BTC on mainnet):
 
 Module responses include a per-item `__sedaHasPrice` flag (`true` when a price was resolved, `false` on timeout or invalid input). The first request for a new symbol may need a retry while the WebSocket subscription warms up.
 
-#### Multi routes
+#### Multi routes (To be deprecated)
 
 A **multi** route fans out to several module handlers in one request. Each entry in `fetches` runs concurrently; results are merged into a single JSON object keyed by fetch `name`.
 
@@ -458,6 +458,88 @@ Example response shape:
 
 > [!NOTE]
 > Multi routes skip the global `__sedaHasPrice` gate used on single-source routes, because a partial miss on one source is expected and reported inside the combined payload.
+
+### Multi endpoint
+
+The **multi endpoint** allows clients to send multiple requests to configured routes (module or upstream) in a single `POST`. Clients specify those requests in the body (see below).
+
+Enable it with the root `multiEndpoint` config (off by default):
+
+```jsonc
+{
+  "routeGroup": "proxy",
+  "multiEndpoint": {
+    "enable": true,
+    // POST path under the route group; default is "multi" → /proxy/multi
+    "path": "multi",
+    // Max entries in the request body object per call; default is 20
+    "maxRequests": 20,
+    // Max sub-requests running in parallel within one call; default is 5
+    "concurrency": 5
+  },
+  "modules": [
+    { "name": "bin", "type": "binance" },
+    { "name": "lig", "type": "lighter" }
+  ],
+  "routes": [
+    {
+      "type": "binance",
+      "moduleName": "bin",
+      "path": "/binance/:symbols",
+      "method": ["GET"],
+      "fetchFromModule": "{:symbols}"
+    },
+    {
+      "type": "lighter",
+      "moduleName": "lig",
+      "path": "/lighter/:markets",
+      "method": ["GET"],
+      "fetchFromModule": "{:markets}"
+    }
+  ]
+}
+```
+
+Request body (object keyed by request id):
+
+```jsonc
+{
+  "binance": {
+    "path": "/binance/BTCUSDT,ETHUSDT", // Matched against configured route paths
+    "method": "GET", // Optional; default GET
+    "query": { "skipPriceErrors": "true" }, // Optional; forwarded as query string
+    "body": { "type": "assetContext", "coins": "BTC" } // Optional; for POST routes
+  },
+  "lighter": {
+    "path": "/lighter/1,2"
+  }
+}
+```
+
+```bash
+curl -sX POST "http://127.0.0.1:5384/proxy/multi" \
+  -H "content-type: application/json" \
+  --data '{
+    "binance": { "path": "/binance/BTCUSDT,ETHUSDT" },
+    "lighter": { "path": "/lighter/1" }
+  }' | jq .
+```
+
+Example response shape (results keyed by the same ids):
+
+```jsonc
+{
+  "binance": [{ "symbol": "BTCUSDT", "__sedaHasPrice": true, "...": "..." }],
+  "lighter": [{ "marketId": "1", "__sedaHasPrice": true, "...": "..." }]
+}
+```
+
+Behavior notes:
+
+- Sub-request failures are **non-fatal**: a failing id appears as `{ "error": "...", "status": ... }`; other ids still resolve. The outer response is still signed as HTTP `200`.
+- Path params are filled the same way as a direct call (`/binance/:symbols` + `/binance/BTC` → `{ symbols: "BTC" }`).
+- Legacy `type: "multi"` routes are **not** valid targets (nesting is rejected).
+- Invalid JSON, schema errors, empty body, or exceeding `maxRequests` return HTTP `400`.
 
 ### Status Endpoint
 

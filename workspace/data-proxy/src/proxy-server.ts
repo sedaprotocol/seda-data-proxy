@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { opentelemetry } from "@elysia/opentelemetry";
 import node from "@elysiajs/node";
 import { openapi } from "@elysiajs/openapi";
-import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
+import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
 import { Effect, Layer, Match, MutableHashMap, Option, Runtime } from "effect";
 import { Elysia } from "elysia";
 import { type Config, getHttpMethods } from "./config/config-parser";
 import { DATA_PROXY_ID, DEFAULT_PROXY_ROUTE_GROUP } from "./constants";
+import { handleMultiEndpointRequest } from "./controllers/proxy/handle-multi-endpoint-request";
 import { handleProxyRequest } from "./controllers/proxy/handle-proxy-request";
 import { BinanceModuleService } from "./modules/binance/binance";
 import { ChainlinkStreamsModuleService } from "./modules/chainlink-streams/chainlink-streams";
@@ -14,16 +15,13 @@ import { DxFeedModuleService } from "./modules/dxfeed/dxfeed";
 import { HydromancerModuleService } from "./modules/hydromancer/hydromancer";
 import { LighterModuleService } from "./modules/lighter/lighter";
 import { LoTechModuleService } from "./modules/lo-tech/lo-tech";
-import {
-	EmptyModuleService,
-	type ModuleHandlers,
-	ModuleService,
-} from "./modules/module";
+import { type ModuleHandlers, ModuleService } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
+import { createOptionsResponse } from "./utils/create-headers";
 import { withIncomingTrace } from "./utils/with-incoming-trace";
 
 export interface ProxyServerOptions {
@@ -171,6 +169,11 @@ export const startProxyServer = (
 			),
 		);
 		const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;
+		const optionsHandler = () =>
+			createOptionsResponse(
+				dataProxy.publicKey.toString("hex"),
+				dataProxy.version,
+			);
 
 		server.group(proxyGroup, (app) => {
 			// Only update the status context in routes that are part of the proxy group
@@ -181,15 +184,73 @@ export const startProxyServer = (
 				}
 			});
 
+			// If enabled, multi endpoint fans out to configured module/upstream
+			// routes by path.
+			const multiEndpoint = config.multiEndpoint;
+			if (multiEndpoint.enable) {
+				const multiPath = multiEndpoint.path.startsWith("/")
+					? multiEndpoint.path
+					: `/${multiEndpoint.path}`;
+
+				// Legacy multi routes are not valid targets.
+				// TODO(#162): Adjust once legacy multi routes are deprecated.
+				const eligibleRoutes = config.routes.filter(
+					(route) => route.type !== "multi",
+				);
+
+				app.route("OPTIONS", multiPath, optionsHandler);
+
+				app.route(
+					"POST",
+					multiPath,
+					async ({ headers, body, path, requestId, request }) => {
+						const annotations = {
+							requestId,
+							method: request.method,
+							path,
+						};
+						return Runtime.runPromise(
+							runtime,
+							Effect.gen(function* () {
+								const requestBody = Option.fromNullable(
+									body as string | undefined,
+								);
+
+								return yield* handleMultiEndpointRequest({
+									serverOptions,
+									headers,
+									body: requestBody,
+									path,
+									request,
+									config,
+									dataProxy,
+									moduleHandlers,
+									eligibleRoutes,
+									multiEndpoint,
+								});
+							}).pipe(
+								withIncomingTrace,
+								Effect.annotateLogs(annotations),
+								Effect.annotateSpans(annotations),
+							),
+						);
+					},
+					{
+						config: {},
+						parse: ({ request }) => request.text(),
+					},
+				);
+
+				Runtime.runSync(
+					runtime,
+					Effect.logInfo(
+						`Multi endpoint: POST /${proxyGroup.replace(/\/$/, "")}/${multiPath.replace(/^\//, "")}`,
+					),
+				);
+			}
+
 			for (const route of config.routes) {
-				app.route("OPTIONS", route.path, () => {
-					const headers = new Headers({
-						[constants.PUBLIC_KEY_HEADER_KEY]:
-							dataProxy.publicKey.toString("hex"),
-						[constants.SIGNATURE_VERSION_HEADER_KEY]: dataProxy.version,
-					});
-					return new Response(null, { headers });
-				});
+				app.route("OPTIONS", route.path, optionsHandler);
 
 				// A route can have multiple methods attach to it
 				const routeMethods = getHttpMethods(route.method);
@@ -211,11 +272,6 @@ export const startProxyServer = (
 										body as string | undefined,
 									);
 
-									const moduleLayer = MutableHashMap.get(
-										modules,
-										route.moduleName,
-									).pipe(Option.getOrElse(() => EmptyModuleService));
-
 									return yield* handleProxyRequest({
 										serverOptions,
 										headers,
@@ -227,7 +283,7 @@ export const startProxyServer = (
 										config,
 										dataProxy,
 										moduleHandlers,
-									}).pipe(Effect.provide(moduleLayer));
+									});
 								}).pipe(
 									withIncomingTrace,
 									Effect.annotateLogs(annotations),

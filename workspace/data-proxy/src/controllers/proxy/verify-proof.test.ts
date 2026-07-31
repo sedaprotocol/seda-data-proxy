@@ -26,6 +26,12 @@ const fastOnlyConfig: Config = {
 	routeGroup: DEFAULT_PROXY_ROUTE_GROUP,
 	baseURL: Maybe.nothing(),
 	statusEndpoints: { root: "status" },
+	multiEndpoint: {
+		enable: false,
+		path: "multi",
+		maxRequests: 20,
+		concurrency: 5,
+	},
 };
 
 describe("verifyProof", () => {

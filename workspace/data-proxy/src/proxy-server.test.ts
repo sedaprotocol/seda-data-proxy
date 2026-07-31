@@ -69,6 +69,12 @@ describe("proxy server", () => {
 					statusEndpoints: {
 						root: "status",
 					},
+					multiEndpoint: {
+						enable: false,
+						path: "multi",
+						maxRequests: 20,
+						concurrency: 5,
+					},
 					baseURL: Maybe.nothing(),
 					routes: [
 						{
@@ -132,6 +138,12 @@ describe("proxy server", () => {
 					statusEndpoints: {
 						root: "status",
 					},
+					multiEndpoint: {
+						enable: false,
+						path: "multi",
+						maxRequests: 20,
+						concurrency: 5,
+					},
 					baseURL: Maybe.nothing(),
 					routes: [
 						{
@@ -191,6 +203,12 @@ describe("proxy server", () => {
 						},
 						statusEndpoints: {
 							root: "status",
+						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
 						},
 						baseURL: Maybe.of("https://seda-data-proxy.com"),
 						routes: [
@@ -265,6 +283,12 @@ describe("proxy server", () => {
 						},
 						statusEndpoints: {
 							root: "status",
+						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
 						},
 						baseURL: Maybe.of("https://seda-data-proxy.com"),
 						routes: [
@@ -344,6 +368,12 @@ describe("proxy server", () => {
 						statusEndpoints: {
 							root: "status",
 						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
 						baseURL: Maybe.nothing(),
 						routes: [
 							{
@@ -415,6 +445,12 @@ describe("proxy server", () => {
 						statusEndpoints: {
 							root: "status",
 						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
 						baseURL: Maybe.nothing(),
 						routes: [
 							{
@@ -485,6 +521,12 @@ describe("proxy server", () => {
 					},
 					statusEndpoints: {
 						root: "status",
+					},
+					multiEndpoint: {
+						enable: false,
+						path: "multi",
+						maxRequests: 20,
+						concurrency: 5,
 					},
 					baseURL: Maybe.nothing(),
 					routes: [
@@ -562,6 +604,12 @@ describe("proxy server", () => {
 						},
 						statusEndpoints: {
 							root: "status",
+						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
 						routes: [
@@ -657,6 +705,12 @@ describe("proxy server", () => {
 						statusEndpoints: {
 							root: "status",
 						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
 						baseURL: Maybe.nothing(),
 						routes: [
 							{
@@ -730,6 +784,12 @@ describe("proxy server", () => {
 								secret: "secret",
 							},
 						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
 						baseURL: Maybe.nothing(),
 						routes: [
 							{
@@ -797,6 +857,92 @@ describe("proxy server", () => {
 					requests: 0,
 					errors: 0,
 				},
+			});
+		});
+	});
+
+	describe("multi endpoint", () => {
+		it("fans out POST /multi to configured upstream routes by path", async () => {
+			const a = registerHandler("get", "/prices/a", async () =>
+				HttpResponse.json({ venue: "a", price: 1 }),
+			);
+			const b = registerHandler("get", "/prices/b", async () =>
+				HttpResponse.json({ venue: "b", price: 2 }),
+			);
+
+			await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						modules: [],
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
+						},
+						statusEndpoints: {
+							root: "status",
+						},
+						multiEndpoint: {
+							enable: true,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path: "/prices/a",
+								upstreamUrl: a.upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path: "/prices/b",
+								upstreamUrl: b.upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+						],
+						fastOnly: false,
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port: a.port,
+					},
+				)
+					.pipe(Effect.scoped)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+			);
+
+			const response = await fetch(`http://localhost:${a.port}/multi`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					a: { path: "/prices/a" },
+					b: { path: "/prices/b" },
+				}),
+			});
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get(constants.SIGNATURE_HEADER_KEY)).toBeTruthy();
+			expect(await response.json()).toEqual({
+				a: { venue: "a", price: 1 },
+				b: { venue: "b", price: 2 },
 			});
 		});
 	});

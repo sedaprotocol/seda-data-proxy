@@ -995,6 +995,74 @@ describe("parseConfig", () => {
 		});
 	});
 
+	describe("multi endpoint", () => {
+		it("accepts an enabled multi endpoint", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [{ name: "bin", type: "binance" }],
+					multiEndpoint: { enable: true },
+					routes: [
+						{
+							type: "binance",
+							moduleName: "bin",
+							path: "/binance/:symbols",
+							fetchFromModule: "{:symbols}",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+			assertIsOkResult(result);
+			expect(result.value.config.multiEndpoint).toEqual({
+				enable: true,
+				path: "multi",
+				maxRequests: 20,
+				concurrency: 5,
+			});
+		});
+
+		it("rejects a route that collides with the multi endpoint path", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [],
+					multiEndpoint: { enable: true, path: "multi" },
+					routes: [
+						{
+							path: "/multi",
+							method: ["GET"],
+							upstreamUrl: "https://example.com/multi",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Route /multi collides with multiEndpoint.path; rename the route or multiEndpoint.path",
+			);
+		});
+
+		it("rejects a route that collides after trailing-slash normalization", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [],
+					multiEndpoint: { enable: true, path: "multi" },
+					routes: [
+						{
+							path: "/multi/",
+							method: ["GET"],
+							upstreamUrl: "https://example.com/multi",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult(
+				"Route /multi/ collides with multiEndpoint.path; rename the route or multiEndpoint.path",
+			);
+		});
+	});
+
 	describe("fastOnly", () => {
 		it("rejects fastOnly when sedaFast is not enabled", () => {
 			const [result] = Effect.runSync(

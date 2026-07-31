@@ -1,25 +1,15 @@
-import { constants, type DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Effect, Match, Option } from "effect";
+import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
+import { Effect, Option } from "effect";
 import type { Config } from "../../config/config-parser";
-import { HAS_PRICE_KEY, JSON_PATH_HEADER_KEY } from "../../constants";
-import {
-	FailedToParseResponseBodyError,
-	NotOkUpstreamResponseError,
-	QueryJsonError,
-	UpstreamRequestFailedError,
-} from "../../errors";
+import { JSON_PATH_HEADER_KEY } from "../../constants";
+import { QueryJsonError } from "../../errors";
 import type { ModuleHandlers } from "../../modules/module";
-import { ModuleService } from "../../modules/module";
 import type { ProxyServerOptions } from "../../proxy-server";
-import { HttpClientService } from "../../services/http-client";
 import { createSignedResponseHeaders } from "../../utils/create-headers";
 import { maybeToOption } from "../../utils/effect-utils";
 import { queryJson } from "../../utils/query-json";
-import { replaceParams } from "../../utils/replace-params";
-import { createUrlSearchParams } from "../../utils/search-params";
-import { injectSearchParamsInUrl } from "../../utils/url";
 import { createErrorResponse } from "../create-error-response";
-import { handleMultiRequest } from "./handle-multi-request";
+import { executeRoute } from "./execute-route";
 import { verifyProof } from "./verify-proof";
 
 export type HandleProxyRequestParams = {
@@ -40,9 +30,6 @@ export type HandleProxyRequestParams = {
 
 export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 	Effect.gen(function* () {
-		const httpClient = yield* HttpClientService;
-		const moduleService = yield* ModuleService;
-
 		const {
 			serverOptions,
 			headers,
@@ -62,294 +49,17 @@ export const handleProxyRequest = (inputParams: HandleProxyRequestParams) =>
 			yield* Effect.logDebug("Skipping proof verification.");
 		}
 
-		// Parse the request URL to get the search params,
-		// this is to support query params that can be repeated, such as ?one=one&one=two
-		const requestUrl = new URL(request.url);
-		// Add the request search params (?one=two) to the upstream url
-		const requestSearchParams = createUrlSearchParams(
-			requestUrl.searchParams,
-			route.allowedQueryParams,
-		);
-
-		const upstreamResponse = yield* Match.value(route).pipe(
-			Match.when({ type: "pyth-lazer" }, (pythLazerModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Pyth Lazer request");
-					return yield* moduleService.handleRequest(
-						pythLazerModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "chainlink-streams" }, (chainlinkStreamsModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Chainlink Streams request");
-					return yield* moduleService.handleRequest(
-						chainlinkStreamsModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "dxfeed" }, (dxFeedModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling dxFeed request");
-					return yield* moduleService.handleRequest(
-						dxFeedModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "hydromancer" }, (hydromancerModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Hydromancer request");
-					return yield* moduleService.handleRequest(
-						hydromancerModuleRoute,
-						params,
-						request,
-						Option.getOrElse(body, () => ""),
-					);
-				}),
-			),
-			Match.when({ type: "lo-tech" }, (loTechModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling LO:TECH request");
-					return yield* moduleService.handleRequest(
-						loTechModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "volmex" }, (volmexModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Volmex request");
-					return yield* moduleService.handleRequest(
-						volmexModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "pm-insights" }, (pmInsightsModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling PM Insights request");
-					return yield* moduleService.handleRequest(
-						pmInsightsModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "binance" }, (binanceModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Binance request");
-					return yield* moduleService.handleRequest(
-						binanceModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "lighter" }, (lighterModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling Lighter request");
-					return yield* moduleService.handleRequest(
-						lighterModuleRoute,
-						params,
-						request,
-					);
-				}),
-			),
-			Match.when({ type: "multi" }, (multiModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling multi request");
-					return yield* handleMultiRequest(
-						multiModuleRoute,
-						params,
-						request,
-						moduleHandlers,
-					);
-				}),
-			),
-			Match.when({ type: "upstream" }, (upstreamModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling upstream request");
-					const upstreamHeaders = new Headers();
-
-					const url = replaceParams(upstreamModuleRoute.upstreamUrl, params);
-
-					const upstreamUrl = yield* injectSearchParamsInUrl(
-						url,
-						requestSearchParams,
-					).pipe(Effect.map((url) => url.toString()));
-
-					// Forward all headers sent by the requester
-					for (const [key, value] of Object.entries(headers)) {
-						if (!value || key === constants.PROOF_HEADER_KEY) {
-							continue;
-						}
-						upstreamHeaders.append(key, value);
-					}
-
-					// Inject all configured headers by the data proxy node configuration
-					// Important: configured headers take precedence over headers sent in the request
-					for (const [key, value] of Object.entries(
-						upstreamModuleRoute.headers,
-					)) {
-						upstreamHeaders.set(key, replaceParams(value, params));
-					}
-
-					// Host doesn't match since we are proxying. Returning the upstream host while the URL does not match results
-					// in the client to not return the response.
-					upstreamHeaders.delete("host");
-
-					yield* Effect.logDebug(`Fetching ${upstreamUrl}..`, {
-						headers: upstreamHeaders,
-						body: Option.getOrUndefined(body),
-						upstreamUrl,
-					});
-
-					// Fetch the upstream response and process
-					const upstreamResponse = yield* httpClient
-						.request(upstreamUrl, {
-							method: request.method,
-							headers: upstreamHeaders,
-							body: Option.getOrUndefined(body),
-						})
-						.pipe(
-							Effect.tapError((error) =>
-								Effect.logError("Upstream HTTP request failed", {
-									routePath: path,
-									method: request.method,
-									clientRequestUrl: request.url,
-									upstreamRequestUrl: upstreamUrl,
-									upstreamRequestHeaders: upstreamHeaders,
-									routeParams: params,
-									requestBody: Option.getOrUndefined(body),
-								}),
-							),
-							Effect.mapError(
-								(error) =>
-									new UpstreamRequestFailedError({ error, routePath: path }),
-							),
-						);
-
-					return upstreamResponse;
-				}),
-			),
-			Match.exhaustive,
-		);
-
-		if (!upstreamResponse.ok) {
-			const upstreamResponseBody = yield* httpClient
-				.parseBodyAsText(upstreamResponse)
-				.pipe(
-					// Attach the status to the error.
-					Effect.mapError(
-						(error) =>
-							new FailedToParseResponseBodyError({
-								error: error.message,
-								status: upstreamResponse.status,
-							}),
-					),
-				)
-				.pipe(
-					Effect.tapError((error) =>
-						Effect.logError(
-							`Upstream response body parsing failed with status: ${upstreamResponse.status} err: ${error}`,
-							{
-								routePath: path,
-								method: request.method,
-								clientRequestUrl: request.url,
-								upstreamResponseUrl: upstreamResponse.url,
-								routeParams: params,
-								requestBody: Option.getOrUndefined(body),
-							},
-						),
-					),
-				);
-
-			yield* Effect.logError(
-				`Upstream response for route ${path} is not ok: ${upstreamResponse.status} body: ${upstreamResponseBody}`,
-				{
-					requestBody: Option.getOrUndefined(body),
-					method: request.method,
-					upstreamUrl: upstreamResponse.url,
-				},
-			);
-
-			return yield* Effect.fail(
-				new NotOkUpstreamResponseError({
-					status: upstreamResponse.status,
-					body: upstreamResponseBody,
-					routePath: path,
-				}),
-			);
-		}
-
-		yield* Effect.logDebug("Received upstream response", {
-			headers: upstreamResponse.headers,
+		let { responseData, upstreamResponse } = yield* executeRoute({
+			route,
+			params,
+			request,
+			headers,
+			body,
+			moduleHandlers,
+			routePath: path,
 		});
 
-		const upstreamTextResponse = yield* httpClient
-			.parseBodyAsText(upstreamResponse)
-			.pipe(
-				Effect.mapError(
-					(error) =>
-						new FailedToParseResponseBodyError({
-							error: error.message,
-							status: upstreamResponse.status,
-						}),
-				),
-			);
-
-		// Now we are going to handle jsonPath filtering if configured
-		let responseData: string = upstreamTextResponse;
-
-		// TEMP: This is added for older ops who may not handle __sedaHasPrice key in the response.
-		// we should remove this once all ops have updated to the new response format.
-		// Multi routes return arbitrary per-source payloads where a per-source miss
-		// is expected, so the price gate does not apply.
-		if (route.type !== "multi" && !requestSearchParams.has("skipPriceErrors")) {
-			if (upstreamTextResponse.includes(`"${HAS_PRICE_KEY}":false`)) {
-				return yield* Effect.fail(
-					new NotOkUpstreamResponseError({
-						status: 500,
-						body: `Not all symbols have a price: ${upstreamTextResponse}`,
-						routePath: path,
-					}),
-				);
-			}
-		}
-
-		if (route.jsonPath) {
-			yield* Effect.logDebug(`Applying route JSONpath ${route.jsonPath}`);
-			const data = yield* queryJson(
-				upstreamTextResponse,
-				route.jsonPath,
-				route.useLegacyJsonPath,
-			).pipe(
-				Effect.annotateSpans("type", "route-config"),
-				Effect.mapError(
-					(error) =>
-						new QueryJsonError({
-							error: error.message,
-							data: error.data,
-							type: "config",
-							status: 500,
-						}),
-				),
-			);
-			responseData = JSON.stringify(data);
-			yield* Effect.logDebug("Successfully applied route JSONpath");
-		}
-
-		// Now we are going to handle jsonPath filtering if configured in the request header (by the user)
-		// We apply the JSON path to the data that's exposed by the data proxy.
-		// This allows operators to specify what data is accessible while the data request program can specify what it wants from the accessible data.
+		// Apply header-based JSON path if provided.
 		const jsonPathRequestHeader = Option.fromNullable(
 			headers[JSON_PATH_HEADER_KEY],
 		);

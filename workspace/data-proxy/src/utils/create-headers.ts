@@ -7,6 +7,15 @@ export function createDefaultResponseHeaders() {
 	return headers;
 }
 
+export function createOptionsResponse(publicKeyHex: string, version: string) {
+	return new Response(null, {
+		headers: {
+			[constants.PUBLIC_KEY_HEADER_KEY]: publicKeyHex,
+			[constants.SIGNATURE_VERSION_HEADER_KEY]: version,
+		},
+	});
+}
+
 export function createSignedResponseHeaders(
 	signature: SignedData,
 	headers = new Headers(),
