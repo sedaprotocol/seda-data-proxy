@@ -508,6 +508,7 @@ Request body (object keyed by request id):
     "path": "/binance/BTCUSDT,ETHUSDT", // Matched against configured route paths
     "method": "GET", // Optional; default GET
     "query": { "skipPriceErrors": "true" }, // Optional; forwarded as query string
+    "headers": { "x-custom": "value" }, // Optional
     "body": { "type": "assetContext", "coins": "BTC" } // Optional; for POST routes
   },
   "lighter": {
@@ -538,6 +539,7 @@ Behavior notes:
 
 - Sub-request failures are **non-fatal**: a failing id appears as `{ "error": "...", "status": ... }`; other ids still resolve. The outer response is still signed as HTTP `200`.
 - Path params are filled the same way as a direct call (`/binance/:symbols` + `/binance/BTC` → `{ symbols: "BTC" }`).
+- Parent request headers are **not** forwarded to sub-requests. Use the per-entry `headers` field when a sub-request needs headers (route-configured headers still apply as usual).
 - Legacy `type: "multi"` routes are **not** valid targets (nesting is rejected).
 - Invalid JSON, schema errors, empty body, or exceeding `maxRequests` return HTTP `400`.
 

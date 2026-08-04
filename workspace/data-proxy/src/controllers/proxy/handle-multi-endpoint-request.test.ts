@@ -117,17 +117,27 @@ const runMultiEndpoint = async (
 		maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
 		concurrency: DEFAULT_MULTI_CONCURRENCY,
 	},
+	headers: Record<string, string | undefined> = {},
 ) => {
+	const bodyText = JSON.stringify(body);
 	const params: HandleMultiEndpointRequestParams = {
 		serverOptions: { port: 0, disableProof: true },
 		dataProxy: mockDataProxy,
-		headers: {},
-		body: Option.some(JSON.stringify(body)),
+		headers: {
+			"content-type": "application/json",
+			"content-length": String(bodyText.length),
+			...headers,
+		},
+		body: Option.some(bodyText),
 		path: "/multi",
 		config: baseConfig(),
 		request: new Request("http://localhost/proxy/multi", {
 			method: "POST",
-			body: JSON.stringify(body),
+			headers: {
+				"content-type": "application/json",
+				"content-length": String(bodyText.length),
+			},
+			body: bodyText,
 		}),
 		moduleHandlers,
 		eligibleRoutes,
@@ -288,5 +298,34 @@ describe("handleMultiEndpointRequest", () => {
 		);
 
 		expect(response.status).toBe(400);
+	});
+
+	it("uses body headers and ignores parent request headers", async () => {
+		let seen: Headers | undefined;
+		const capturing = handlers((_route, _params, request) => {
+			seen = request.headers;
+			return Effect.succeed(
+				new Response(JSON.stringify({ ok: true }), { status: 200 }),
+			);
+		});
+
+		const response = await runMultiEndpoint(
+			{
+				binance: {
+					path: "/binance/BTC",
+					headers: { "x-custom": "from-body" },
+				},
+			},
+			new Map([["bin", capturing]]),
+			[binanceRoute] as Config["routes"],
+			undefined,
+			{ "x-custom": "from-parent", "user-agent": "curl/8.7.1" },
+		);
+
+		expect(response.status).toBe(200);
+		expect(seen?.get("content-length")).toBeNull();
+		expect(seen?.get("content-type")).toBeNull();
+		expect(seen?.get("user-agent")).toBeNull();
+		expect(seen?.get("x-custom")).toBe("from-body");
 	});
 });

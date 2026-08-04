@@ -35,6 +35,8 @@ export const MultiEndpointRequestSchema = v.strictObject({
 	query: v.optional(
 		v.record(v.string(), v.union([v.string(), v.array(v.string())])),
 	),
+	// Optional headers for the request.
+	headers: v.optional(v.record(v.string(), v.string()), {}),
 	// String is forwarded as-is; objects/arrays are JSON-stringified.
 	body: v.optional(v.unknown()),
 });

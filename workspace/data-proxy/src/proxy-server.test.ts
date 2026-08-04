@@ -945,5 +945,72 @@ describe("proxy server", () => {
 				b: { venue: "b", price: 2 },
 			});
 		});
+
+		it("fans out to a trailing wildcard upstream route", async () => {
+			const coffee = registerHandler("get", "/api/coffee/hot", async () =>
+				HttpResponse.json({ title: "latte" }),
+			);
+
+			await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						modules: [],
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
+						},
+						statusEndpoints: {
+							root: "status",
+						},
+						multiEndpoint: {
+							enable: true,
+							path: "multi",
+							maxRequests: 20,
+							concurrency: 5,
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "GET",
+								path: "/api/*",
+								upstreamUrl: "https://proxy-upstream.com/api/{*}",
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+						],
+						fastOnly: false,
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port: coffee.port,
+					},
+				)
+					.pipe(Effect.scoped)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+			);
+
+			const response = await fetch(`http://localhost:${coffee.port}/multi`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					coffee: { path: "/api/coffee/hot" },
+				}),
+			});
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				coffee: { title: "latte" },
+			});
+		});
 	});
 });

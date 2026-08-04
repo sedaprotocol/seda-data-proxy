@@ -67,4 +67,32 @@ describe("matchRoutePath", () => {
 			symbols: "BTC",
 		});
 	});
+
+	it("captures a trailing wildcard remainder", () => {
+		expect(matchRoutePath("/*", "/people/1")).toEqual({ "*": "people/1" });
+		expect(matchRoutePath("/upstream/*", "/upstream/coffee/hot")).toEqual({
+			"*": "coffee/hot",
+		});
+	});
+
+	it("captures an empty wildcard when only the prefix matches", () => {
+		expect(matchRoutePath("/*", "/")).toEqual({ "*": "" });
+		expect(matchRoutePath("/upstream/*", "/upstream")).toEqual({ "*": "" });
+	});
+
+	it("captures params before a trailing wildcard", () => {
+		expect(matchRoutePath("/:coinA/*", "/btc/orderbook/depth")).toEqual({
+			coinA: "btc",
+			"*": "orderbook/depth",
+		});
+	});
+
+	it("does not match when a wildcard prefix differs", () => {
+		expect(matchRoutePath("/upstream/*", "/other/x")).toBeNull();
+	});
+
+	it("does not treat a non-trailing * as a wildcard", () => {
+		expect(matchRoutePath("/a/*/b", "/a/x/b")).toBeNull();
+		expect(matchRoutePath("/a/*/b", "/a/*/b")).toEqual({});
+	});
 });

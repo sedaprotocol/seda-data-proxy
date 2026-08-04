@@ -76,6 +76,7 @@ const findMatchingRoute = (
 const buildRequest = (
 	parent: Request,
 	entry: MultiEndpointRequest,
+	headers: Record<string, string>,
 	body: string | undefined,
 ): Request => {
 	const url = new URL(parent.url);
@@ -99,7 +100,7 @@ const buildRequest = (
 
 	const init: RequestInit = {
 		method: entry.method.toUpperCase(),
-		headers: parent.headers,
+		headers,
 	};
 
 	if (body !== undefined && init.method !== "GET" && init.method !== "HEAD") {
@@ -140,10 +141,13 @@ const runRequest = (
 		}
 
 		const bodyText = serializeRequestBody(entry.body);
-		const request = buildRequest(params.request, entry, bodyText);
-		const requestHeaders: Record<string, string | undefined> = {
-			...params.headers,
-		};
+		const requestHeaders = entry.headers;
+		const request = buildRequest(
+			params.request,
+			entry,
+			requestHeaders,
+			bodyText,
+		);
 
 		const result = yield* Effect.either(
 			executeRoute({
@@ -151,7 +155,10 @@ const runRequest = (
 				params: matched.params,
 				request,
 				headers: requestHeaders,
-				body: Option.fromNullable(bodyText),
+				body:
+					bodyText !== undefined && method !== "GET" && method !== "HEAD"
+						? Option.some(bodyText)
+						: Option.none(),
 				moduleHandlers: params.moduleHandlers,
 				routePath: matched.route.path,
 			}),
