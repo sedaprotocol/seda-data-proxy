@@ -461,7 +461,7 @@ Example response shape:
 
 ### Multi endpoint
 
-The **multi endpoint** allows clients to send multiple requests to configured routes (module or upstream) in a single `POST`. Clients specify those requests in the body (see below).
+The **multi endpoint** allows clients to send multiple sub-requests to configured routes (module or upstream) in a single `POST`. Clients specify those sub-requests in the body (see below).
 
 Enable it with the root `multiEndpoint` config (off by default):
 
@@ -472,8 +472,8 @@ Enable it with the root `multiEndpoint` config (off by default):
     "enable": true,
     // POST path under the route group; default is "multi" → /proxy/multi
     "path": "multi",
-    // Max entries in the request body object per call; default is 20
-    "maxRequests": 20,
+    // Max sub-requests in the request body object per call; default is 20
+    "maxSubRequests": 20,
     // Max sub-requests running in parallel within one call; default is 5
     "concurrency": 5
   },
@@ -500,7 +500,7 @@ Enable it with the root `multiEndpoint` config (off by default):
 }
 ```
 
-Request body (object keyed by request id):
+Request body (object keyed by sub-request id):
 
 ```jsonc
 {
@@ -539,9 +539,9 @@ Behavior notes:
 
 - Sub-request failures are **non-fatal**: a failing id appears as `{ "error": "...", "status": ... }`; other ids still resolve. The outer response is still signed as HTTP `200`.
 - Path params are filled the same way as a direct call (`/binance/:symbols` + `/binance/BTC` → `{ symbols: "BTC" }`).
-- Parent request headers are **not** forwarded to sub-requests. Use the per-entry `headers` field when a sub-request needs headers (route-configured headers still apply as usual).
+- Parent request headers are **not** forwarded to sub-requests. Use the per-sub-request `headers` field when a sub-request needs headers (route-configured headers still apply as usual).
 - Legacy `type: "multi"` routes are **not** valid targets (nesting is rejected).
-- Invalid JSON, schema errors, empty body, or exceeding `maxRequests` return HTTP `400`.
+- Invalid JSON, schema errors, empty body, or exceeding `maxSubRequests` return HTTP `400`.
 
 ### Status Endpoint
 

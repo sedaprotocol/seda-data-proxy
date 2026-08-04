@@ -72,7 +72,7 @@ describe("proxy server", () => {
 					multiEndpoint: {
 						enable: false,
 						path: "multi",
-						maxRequests: 20,
+						maxSubRequests: 20,
 						concurrency: 5,
 					},
 					baseURL: Maybe.nothing(),
@@ -141,7 +141,7 @@ describe("proxy server", () => {
 					multiEndpoint: {
 						enable: false,
 						path: "multi",
-						maxRequests: 20,
+						maxSubRequests: 20,
 						concurrency: 5,
 					},
 					baseURL: Maybe.nothing(),
@@ -207,7 +207,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.of("https://seda-data-proxy.com"),
@@ -287,7 +287,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.of("https://seda-data-proxy.com"),
@@ -371,7 +371,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -448,7 +448,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -525,7 +525,7 @@ describe("proxy server", () => {
 					multiEndpoint: {
 						enable: false,
 						path: "multi",
-						maxRequests: 20,
+						maxSubRequests: 20,
 						concurrency: 5,
 					},
 					baseURL: Maybe.nothing(),
@@ -608,7 +608,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -708,7 +708,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -787,7 +787,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: false,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -888,7 +888,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: true,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),
@@ -969,7 +969,7 @@ describe("proxy server", () => {
 						multiEndpoint: {
 							enable: true,
 							path: "multi",
-							maxRequests: 20,
+							maxSubRequests: 20,
 							concurrency: 5,
 						},
 						baseURL: Maybe.nothing(),

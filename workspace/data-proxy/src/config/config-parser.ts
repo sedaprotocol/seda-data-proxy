@@ -48,7 +48,7 @@ import { type Modules, ModulesSchema } from "./module-config";
 import {
 	DEFAULT_MULTI_CONCURRENCY,
 	DEFAULT_MULTI_ENDPOINT_PATH,
-	DEFAULT_MULTI_MAX_REQUESTS,
+	DEFAULT_MULTI_MAX_SUB_REQUESTS,
 	MultiEndpointSchema,
 } from "./multi-endpoint-config";
 import {
@@ -186,7 +186,7 @@ const ConfigSchema = v.strictObject(
 		multiEndpoint: v.optional(MultiEndpointSchema, {
 			enable: false,
 			path: DEFAULT_MULTI_ENDPOINT_PATH,
-			maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
+			maxSubRequests: DEFAULT_MULTI_MAX_SUB_REQUESTS,
 			concurrency: DEFAULT_MULTI_CONCURRENCY,
 		}),
 	},

@@ -6,7 +6,7 @@ import type { Config } from "../../config/config-parser";
 import {
 	DEFAULT_MULTI_CONCURRENCY,
 	DEFAULT_MULTI_ENDPOINT_PATH,
-	DEFAULT_MULTI_MAX_REQUESTS,
+	DEFAULT_MULTI_MAX_SUB_REQUESTS,
 	type MultiEndpoint,
 } from "../../config/multi-endpoint-config";
 import {
@@ -67,7 +67,7 @@ const baseConfig = (): Config => ({
 	multiEndpoint: {
 		enable: false,
 		path: DEFAULT_MULTI_ENDPOINT_PATH,
-		maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
+		maxSubRequests: DEFAULT_MULTI_MAX_SUB_REQUESTS,
 		concurrency: DEFAULT_MULTI_CONCURRENCY,
 	},
 });
@@ -114,7 +114,7 @@ const runMultiEndpoint = async (
 	multiEndpoint: MultiEndpoint = {
 		enable: true,
 		path: DEFAULT_MULTI_ENDPOINT_PATH,
-		maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
+		maxSubRequests: DEFAULT_MULTI_MAX_SUB_REQUESTS,
 		concurrency: DEFAULT_MULTI_CONCURRENCY,
 	},
 	headers: Record<string, string | undefined> = {},
@@ -226,7 +226,7 @@ describe("handleMultiEndpointRequest", () => {
 		});
 	});
 
-	it("captures a module handler failure as an error entry", async () => {
+	it("captures a module handler failure as a sub-request error", async () => {
 		const failing = handlers(() =>
 			Effect.fail(new FailedToHandleRequest({ msg: "boom" })),
 		);
@@ -257,7 +257,7 @@ describe("handleMultiEndpointRequest", () => {
 		});
 	});
 
-	it("rejects requests that exceed maxRequests", async () => {
+	it("rejects requests that exceed maxSubRequests", async () => {
 		const response = await runMultiEndpoint(
 			{
 				a: { path: "/binance/BTC" },
@@ -265,12 +265,12 @@ describe("handleMultiEndpointRequest", () => {
 			},
 			new Map([["bin", echoHandlers]]),
 			[binanceRoute] as Config["routes"],
-			{ enable: true, path: "multi", maxRequests: 1, concurrency: 1 },
+			{ enable: true, path: "multi", maxSubRequests: 1, concurrency: 1 },
 		);
 
 		expect(response.status).toBe(400);
 		const body = (await response.json()) as { error: string };
-		expect(body.error).toContain("maxRequests");
+		expect(body.error).toContain("maxSubRequests");
 	});
 
 	it("rejects invalid JSON with 400", async () => {
@@ -291,7 +291,7 @@ describe("handleMultiEndpointRequest", () => {
 				multiEndpoint: {
 					enable: true,
 					path: DEFAULT_MULTI_ENDPOINT_PATH,
-					maxRequests: DEFAULT_MULTI_MAX_REQUESTS,
+					maxSubRequests: DEFAULT_MULTI_MAX_SUB_REQUESTS,
 					concurrency: DEFAULT_MULTI_CONCURRENCY,
 				},
 			}).pipe(Effect.provide(HttpClientService.Default())),
@@ -300,7 +300,7 @@ describe("handleMultiEndpointRequest", () => {
 		expect(response.status).toBe(400);
 	});
 
-	it("uses body headers and ignores parent request headers", async () => {
+	it("uses sub-request headers and ignores parent request headers", async () => {
 		let seen: Headers | undefined;
 		const capturing = handlers((_route, _params, request) => {
 			seen = request.headers;

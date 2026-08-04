@@ -184,8 +184,8 @@ export const startProxyServer = (
 				}
 			});
 
-			// If enabled, multi endpoint fans out to configured module/upstream
-			// routes by path.
+			// If enabled, multi endpoint fans out sub-requests to configured
+			// module/upstream routes by path.
 			const multiEndpoint = config.multiEndpoint;
 			if (multiEndpoint.enable) {
 				const multiPath = multiEndpoint.path.startsWith("/")

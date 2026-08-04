@@ -29,7 +29,7 @@ const fastOnlyConfig: Config = {
 	multiEndpoint: {
 		enable: false,
 		path: "multi",
-		maxRequests: 20,
+		maxSubRequests: 20,
 		concurrency: 5,
 	},
 };

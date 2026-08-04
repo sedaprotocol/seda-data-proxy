@@ -1017,7 +1017,7 @@ describe("parseConfig", () => {
 			expect(result.value.config.multiEndpoint).toEqual({
 				enable: true,
 				path: "multi",
-				maxRequests: 20,
+				maxSubRequests: 20,
 				concurrency: 5,
 			});
 		});

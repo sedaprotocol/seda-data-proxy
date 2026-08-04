@@ -4,9 +4,9 @@ import { Effect, Either, Option } from "effect";
 import { type Config, getHttpMethods } from "../../config/config-parser";
 import {
 	type MultiEndpoint,
-	type MultiEndpointRequest,
 	type MultiEndpointRequestBody,
 	MultiEndpointRequestBodySchema,
+	type MultiEndpointSubRequest,
 } from "../../config/multi-endpoint-config";
 import type { ModuleHandlers } from "../../modules/module";
 import type { ProxyServerOptions } from "../../proxy-server";
@@ -73,21 +73,23 @@ const findMatchingRoute = (
 	return null;
 };
 
-const buildRequest = (
+const buildSubRequest = (
 	parent: Request,
-	entry: MultiEndpointRequest,
+	subRequest: MultiEndpointSubRequest,
 	headers: Record<string, string>,
 	body: string | undefined,
 ): Request => {
 	const url = new URL(parent.url);
-	// Entry paths are route paths (e.g. /binance/BTC), not including the outer
-	// multi endpoint path. Keep the parent origin; replace path + query.
-	const pathname = entry.path.startsWith("/") ? entry.path : `/${entry.path}`;
+	// Sub-request paths are route paths (e.g. /binance/BTC), not including the
+	// outer multi endpoint path. Keep the parent origin; replace path + query.
+	const pathname = subRequest.path.startsWith("/")
+		? subRequest.path
+		: `/${subRequest.path}`;
 	url.pathname = pathname;
 	url.search = "";
 
-	if (entry.query) {
-		for (const [key, value] of Object.entries(entry.query)) {
+	if (subRequest.query) {
+		for (const [key, value] of Object.entries(subRequest.query)) {
 			if (Array.isArray(value)) {
 				for (const valueEntry of value) {
 					url.searchParams.append(key, valueEntry);
@@ -99,7 +101,7 @@ const buildRequest = (
 	}
 
 	const init: RequestInit = {
-		method: entry.method.toUpperCase(),
+		method: subRequest.method.toUpperCase(),
 		headers,
 	};
 
@@ -110,21 +112,21 @@ const buildRequest = (
 	return new Request(url, init);
 };
 
-const runRequest = (
-	entry: MultiEndpointRequest,
+const runSubRequest = (
+	subRequest: MultiEndpointSubRequest,
 	params: HandleMultiEndpointRequestParams,
 ) =>
 	Effect.gen(function* () {
-		const method = entry.method.toUpperCase();
+		const method = subRequest.method.toUpperCase();
 		const matched = findMatchingRoute(
 			params.eligibleRoutes,
-			entry.path,
+			subRequest.path,
 			method,
 		);
 
 		if (!matched) {
 			return {
-				error: `No configured route matches ${method} ${entry.path}`,
+				error: `No configured route matches ${method} ${subRequest.path}`,
 				status: 404,
 			};
 		}
@@ -140,11 +142,11 @@ const runRequest = (
 			};
 		}
 
-		const bodyText = serializeRequestBody(entry.body);
-		const requestHeaders = entry.headers;
-		const request = buildRequest(
+		const bodyText = serializeRequestBody(subRequest.body);
+		const requestHeaders = subRequest.headers;
+		const request = buildSubRequest(
 			params.request,
-			entry,
+			subRequest,
 			requestHeaders,
 			bodyText,
 		);
@@ -237,23 +239,24 @@ export const handleMultiEndpointRequest = (
 		}
 
 		const multiBody: MultiEndpointRequestBody = parsedBody.value;
-		const requestEntries = Object.entries(multiBody);
+		const subRequestEntries = Object.entries(multiBody);
 
-		if (requestEntries.length > multiEndpoint.maxRequests) {
+		if (subRequestEntries.length > multiEndpoint.maxSubRequests) {
 			return createBadRequestResponse(
-				`Request exceeds maxRequests (${multiEndpoint.maxRequests}): got ${requestEntries.length}`,
+				`Request exceeds maxSubRequests (${multiEndpoint.maxSubRequests}): got ${subRequestEntries.length}`,
 			);
 		}
 
-		// Run each request concurrently; results align with requestEntries order.
+		// Run each sub-request concurrently; results align with
+		// subRequestEntries order.
 		const results = yield* Effect.forEach(
-			requestEntries,
-			([, entry]) => runRequest(entry, inputParams),
+			subRequestEntries,
+			([, subRequest]) => runSubRequest(subRequest, inputParams),
 			{ concurrency: multiEndpoint.concurrency },
 		);
 
 		const combined = Object.fromEntries(
-			requestEntries.map(([id], i) => [id, results[i]]),
+			subRequestEntries.map(([id], i) => [id, results[i]]),
 		);
 
 		const responseData = JSON.stringify(combined);
@@ -296,7 +299,7 @@ export const handleMultiEndpointRequest = (
 				requestUrl: inputParams.request.url,
 			}),
 		),
-		// Per-request failures are captured per-id above; only proof/signing
+		// Per-sub-request failures are captured per-id above; only proof/signing
 		// errors surface on the outer effect.
 		Effect.catchTags({
 			VerifyProofError: (error) =>
