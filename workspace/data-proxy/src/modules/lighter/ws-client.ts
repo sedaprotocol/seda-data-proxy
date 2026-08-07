@@ -3,6 +3,7 @@ import {
 	Duration,
 	Effect,
 	type Fiber,
+	Metric,
 	MutableHashMap,
 	Option,
 	Runtime,
@@ -16,6 +17,24 @@ export interface LighterPriceFrame {
 	s: string;
 	[key: string]: unknown;
 }
+
+type OutboundMessageType = "subscribe" | "unsubscribe" | "ping" | "pong";
+
+/** Metrics for the Lighter WebSocket client. */
+const activeSubscriptions = Metric.gauge("lighter_active_subscriptions", {
+	description: "Number of active Lighter WebSocket market subscriptions",
+});
+
+const messagesSent = Metric.counter("lighter_messages_sent", {
+	description:
+		"Outbound Lighter WebSocket messages sent (subscribe/unsubscribe/ping/pong)",
+	incremental: true,
+});
+
+const connectionAttempts = Metric.counter("lighter_connection_attempts", {
+	description: "Lighter WebSocket connection attempts",
+	incremental: true,
+});
 
 /** The subset of the shared price cache the WS daemon writes to, keyed by market id. */
 interface PriceSink {
@@ -105,12 +124,31 @@ export const createLighterWS = (
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
 
-		const trySend = (frame: string) =>
+		const withModuleName = <Type, In, Out>(
+			metric: Metric.Metric<Type, In, Out>,
+		) => Metric.tagged(metric, "module", config.name);
+
+		const setActiveSubscriptions = () =>
+			Metric.set(
+				withModuleName(activeSubscriptions),
+				MutableHashMap.size(desiredMarkets),
+			);
+
+		const incrementMessagesSent = (type: OutboundMessageType) =>
+			Metric.increment(
+				Metric.tagged(withModuleName(messagesSent), "type", type),
+			);
+
+		const incrementConnectionAttempts = () =>
+			Metric.increment(withModuleName(connectionAttempts));
+
+		const trySend = (frame: string, type: OutboundMessageType) =>
 			Effect.gen(function* () {
 				const ws = currentWS;
 				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
 				try {
 					ws.send(frame);
+					yield* incrementMessagesSent(type);
 				} catch (err) {
 					yield* Effect.logWarning("Lighter WS send failed", {
 						error: String(err),
@@ -125,21 +163,31 @@ export const createLighterWS = (
 
 		const subscribe = (marketIds: number[]) =>
 			Effect.gen(function* () {
+				let added = false;
 				for (const marketId of marketIds) {
 					if (Option.isSome(MutableHashMap.get(desiredMarkets, marketId)))
 						continue;
 					MutableHashMap.set(desiredMarkets, marketId, true);
-					yield* trySend(buildSubscribeFrame(marketId));
+					added = true;
+					yield* trySend(buildSubscribeFrame(marketId), "subscribe");
+				}
+				if (added) {
+					yield* setActiveSubscriptions();
 				}
 			});
 
 		const unsubscribe = (marketIds: number[]) =>
 			Effect.gen(function* () {
+				let removed = false;
 				for (const marketId of marketIds) {
 					if (Option.isNone(MutableHashMap.get(desiredMarkets, marketId)))
 						continue;
 					MutableHashMap.remove(desiredMarkets, marketId);
-					yield* trySend(buildUnsubscribeFrame(marketId));
+					removed = true;
+					yield* trySend(buildUnsubscribeFrame(marketId), "unsubscribe");
+				}
+				if (removed) {
+					yield* setActiveSubscriptions();
 				}
 			});
 
@@ -148,7 +196,7 @@ export const createLighterWS = (
 				yield* Effect.logInfo("Lighter WS open", { name: config.name });
 				currentWS = ws;
 				for (const [marketId] of desiredMarkets) {
-					yield* trySend(buildSubscribeFrame(marketId));
+					yield* trySend(buildSubscribeFrame(marketId), "subscribe");
 				}
 			});
 
@@ -157,7 +205,7 @@ export const createLighterWS = (
 				const parsed = parseInboundFrame(raw);
 				if (!parsed) return;
 				if (parsed.kind === "ping") {
-					yield* trySend(PONG_FRAME);
+					yield* trySend(PONG_FRAME, "pong");
 					return;
 				}
 				// Drop frames with no parseable id, or for a market we have since
@@ -181,6 +229,7 @@ export const createLighterWS = (
 			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Lighter WS connecting", { name: config.name });
+			yield* incrementConnectionAttempts();
 
 			const ws = yield* Effect.acquireRelease(
 				Effect.sync(() => new WebSocket(config.wsUrl)),
@@ -229,7 +278,7 @@ export const createLighterWS = (
 
 		// Lighter closes a connection with no client frames for 2 minutes; ping on a
 		// shorter cadence. trySend no-ops while disconnected, so this is harmless then.
-		const keepaliveLoop = trySend(PING_FRAME).pipe(
+		const keepaliveLoop = trySend(PING_FRAME, "ping").pipe(
 			Effect.schedule(Schedule.spaced(config.keepaliveInterval)),
 		);
 

@@ -3,6 +3,7 @@ import {
 	Duration,
 	Effect,
 	type Fiber,
+	Metric,
 	MutableHashMap,
 	Option,
 	Runtime,
@@ -16,6 +17,24 @@ export interface BinancePriceFrame {
 	s: string;
 	[key: string]: unknown;
 }
+
+type OutboundMessageType = "subscribe" | "unsubscribe";
+
+/** Metrics for the Binance WebSocket client. */
+const activeSubscriptions = Metric.gauge("binance_active_subscriptions", {
+	description: "Number of active Binance WebSocket stream subscriptions",
+});
+
+const messagesSent = Metric.counter("binance_messages_sent", {
+	description:
+		"Outbound Binance WebSocket control messages sent (subscribe/unsubscribe)",
+	incremental: true,
+});
+
+const connectionAttempts = Metric.counter("binance_connection_attempts", {
+	description: "Binance WebSocket connection attempts",
+	incremental: true,
+});
 
 /** The subset of the shared price cache the WS daemon writes to. */
 interface PriceSink {
@@ -105,17 +124,36 @@ export const createBinanceWS = (
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
 
+		const withModuleName = <Type, In, Out>(
+			metric: Metric.Metric<Type, In, Out>,
+		) => Metric.tagged(metric, "module", config.name);
+
+		const setActiveSubscriptions = () =>
+			Metric.set(
+				withModuleName(activeSubscriptions),
+				MutableHashMap.size(desiredSymbols),
+			);
+
+		const incrementMessagesSent = (type: OutboundMessageType) =>
+			Metric.increment(
+				Metric.tagged(withModuleName(messagesSent), "type", type),
+			);
+
+		const incrementConnectionAttempts = () =>
+			Metric.increment(withModuleName(connectionAttempts));
+
 		const nextControlId = () => ++controlId;
 
 		const streamNamesFor = (symbols: string[]) =>
 			symbols.map((symbol) => buildStreamName(symbol, config.streamType));
 
-		const trySend = (frame: string) =>
+		const trySend = (frame: string, type: OutboundMessageType) =>
 			Effect.gen(function* () {
 				const ws = currentWS;
 				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
 				try {
 					ws.send(frame);
+					yield* incrementMessagesSent(type);
 				} catch (err) {
 					unhealthy = true;
 					yield* Effect.logWarning("Binance WS send failed", {
@@ -140,9 +178,11 @@ export const createBinanceWS = (
 					fresh.push(symbol);
 				}
 				if (fresh.length === 0) return;
+				yield* setActiveSubscriptions();
 				// Binance caps inbound control messages at 5/sec; one frame per batch stays under it.
 				yield* trySend(
 					buildSubscribeFrame(streamNamesFor(fresh), nextControlId()),
+					"subscribe",
 				);
 			});
 
@@ -157,8 +197,10 @@ export const createBinanceWS = (
 					removed.push(symbol);
 				}
 				if (removed.length === 0) return;
+				yield* setActiveSubscriptions();
 				yield* trySend(
 					buildUnsubscribeFrame(streamNamesFor(removed), nextControlId()),
+					"unsubscribe",
 				);
 			});
 
@@ -174,6 +216,7 @@ export const createBinanceWS = (
 				if (symbols.length > 0) {
 					yield* trySend(
 						buildSubscribeFrame(streamNamesFor(symbols), nextControlId()),
+						"subscribe",
 					);
 				}
 			});
@@ -205,6 +248,7 @@ export const createBinanceWS = (
 			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Binance WS connecting", { name: config.name });
+			yield* incrementConnectionAttempts();
 
 			const ws = yield* Effect.acquireRelease(
 				Effect.sync(() => new WebSocket(config.wsUrl)),
