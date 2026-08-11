@@ -79,12 +79,30 @@ describe("parseInboundFrame", () => {
 		).toBeNull();
 	});
 
-	it("returns null for an error frame", () => {
+	it("classifies a venue error frame", () => {
 		expect(
 			parseInboundFrame(
 				JSON.stringify({ error: { code: 30005, message: "Invalid Channel" } }),
 			),
-		).toBeNull();
+		).toEqual({
+			kind: "error",
+			code: 30005,
+			message: "Invalid Channel",
+		});
+	});
+
+	it("classifies rate-limit error frames", () => {
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					error: { code: 30010, message: "Too Many Inflight Messages!" },
+				}),
+			),
+		).toEqual({
+			kind: "error",
+			code: 30010,
+			message: "Too Many Inflight Messages!",
+		});
 	});
 
 	it("returns null for malformed JSON", () => {

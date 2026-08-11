@@ -73,11 +73,12 @@ const parseMarketId = (channel: unknown): number | null => {
 
 export type ParsedInbound =
 	| { kind: "ping" }
-	| { kind: "ticker"; marketId: number | null; frame: LighterPriceFrame };
+	| { kind: "ticker"; marketId: number | null; frame: LighterPriceFrame }
+	| { kind: "error"; code: number | null; message: string | null };
 
 /** Classifies an inbound message: a keepalive ping, a ticker payload (snapshot
- * `subscribed/ticker` or `update/ticker`, both carry `.ticker`), or null for
- * control frames like `{type:connected}`, error frames, and malformed input. */
+ * `subscribed/ticker` or `update/ticker`, both carry `.ticker`), a venue error
+ * frame, or null for control frames like `{type:connected}` and malformed input. */
 export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	let json: unknown;
 	try {
@@ -87,6 +88,15 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	}
 	if (!isRecord(json)) return null;
 	if (json.type === "ping") return { kind: "ping" };
+
+	const err = json.error;
+	if (isRecord(err)) {
+		return {
+			kind: "error",
+			code: typeof err.code === "number" ? err.code : null,
+			message: typeof err.message === "string" ? err.message : null,
+		};
+	}
 
 	const ticker = json.ticker;
 	if (isRecord(ticker) && typeof ticker.s === "string") {
@@ -230,6 +240,13 @@ export const createLighterWS = (
 				if (!parsed) return;
 				if (parsed.kind === "ping") {
 					yield* enqueue(PONG_FRAME, "pong");
+					return;
+				}
+				if (parsed.kind === "error") {
+					yield* Effect.logWarning("Lighter WS error frame", {
+						code: parsed.code,
+						message: parsed.message,
+					});
 					return;
 				}
 				// Drop frames with no parseable id, or for a market we have since
