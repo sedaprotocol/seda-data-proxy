@@ -74,6 +74,7 @@ const baseConfig: LighterModuleConfig = {
 	wsUrl: "wss://lighter.test/stream",
 	subscriptionMarketIds: [],
 	maxMarketsPerRequest: 100,
+	maxMessagesPerMinute: 180,
 	keepaliveInterval: Duration.seconds(60),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),

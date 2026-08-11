@@ -9,6 +9,16 @@ export const LighterModuleConfigSchema = v.strictObject({
 	// Lighter numeric market ids (e.g. 1 for BTC) to subscribe at startup.
 	subscriptionMarketIds: v.optional(v.array(v.number()), []),
 	maxMarketsPerRequest: v.optional(v.number(), 100),
+	// Lighter allows 200 client WS messages per minute.
+	maxMessagesPerMinute: v.optional(
+		v.pipe(
+			v.number(),
+			v.minValue(1, "maxMessagesPerMinute must be at least 1"),
+		),
+		180,
+	),
+	// Lighter closes a connection with no client frames for 2 minutes;
+	// ping on a shorter cadence.
 	keepaliveInterval: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "60 seconds"),
 		v.transform((value) =>

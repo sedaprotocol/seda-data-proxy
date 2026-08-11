@@ -152,6 +152,7 @@ const baseConfig: LighterModuleConfig = {
 	wsUrl: "wss://lighter.test/stream",
 	subscriptionMarketIds: [],
 	maxMarketsPerRequest: 100,
+	maxMessagesPerMinute: 180,
 	keepaliveInterval: Duration.seconds(60),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
@@ -375,6 +376,39 @@ describe("createLighterWS", () => {
 		await flush();
 
 		expect(ws2.sent).toEqual([buildSubscribeFrame(1)]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("paces outbound frames to stay under maxMessagesPerMinute", async () => {
+		const { fiber } = await Effect.runPromise(
+			startService(
+				{ ...baseConfig, maxMessagesPerMinute: 6 },
+				[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+			),
+		);
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame(1),
+			buildSubscribeFrame(2),
+			buildSubscribeFrame(3),
+			buildSubscribeFrame(4),
+			buildSubscribeFrame(5),
+			buildSubscribeFrame(6),
+		]);
+		await new Promise<void>((r) => setTimeout(r, 50));
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame(1),
+			buildSubscribeFrame(2),
+			buildSubscribeFrame(3),
+			buildSubscribeFrame(4),
+			buildSubscribeFrame(5),
+			buildSubscribeFrame(6),
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});

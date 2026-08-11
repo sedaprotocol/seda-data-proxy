@@ -1,4 +1,5 @@
 import {
+	Clock,
 	Deferred,
 	Duration,
 	Effect,
@@ -6,8 +7,10 @@ import {
 	Metric,
 	MutableHashMap,
 	Option,
+	Queue,
 	Runtime,
 	Schedule,
+	Stream,
 } from "effect";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
 
@@ -19,6 +22,11 @@ export interface LighterPriceFrame {
 }
 
 type OutboundMessageType = "subscribe" | "unsubscribe" | "ping" | "pong";
+
+type OutboundMessage = {
+	frame: string;
+	type: OutboundMessageType;
+};
 
 /** Metrics for the Lighter WebSocket client. */
 const activeSubscriptions = Metric.gauge("lighter_active_subscriptions", {
@@ -98,11 +106,14 @@ export const defaultReconnectSchedule = (config: LighterModuleConfig) =>
 	);
 
 export interface LighterWS {
-	/** Forks the WS daemon (reconnect with backoff, resubscribe on open) and the keepalive daemon. */
+	/** Forks the WS daemon (reconnect with backoff, resubscribe on open), the
+	 * paced outbound sender, and the keepalive daemon. */
 	start(): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never>;
-	/** Adds the market ids to the desired set and sends a subscribe frame for each new one if connected. Idempotent. */
+	/** Adds the market ids to the desired set and enqueues a subscribe frame for
+	 * each new one. Idempotent. Frames are paced by the outbound sender. */
 	subscribe(marketIds: number[]): Effect.Effect<void, never, never>;
-	/** Removes the market ids from the desired set and sends an unsubscribe frame for each removed one if connected. Idempotent. */
+	/** Removes the market ids from the desired set and enqueues an unsubscribe
+	 * frame for each removed one. Idempotent. Frames are paced by the outbound sender. */
 	unsubscribe(marketIds: number[]): Effect.Effect<void, never, never>;
 	/** True while there is no open connection, so cached prices may be stale. */
 	hasError(): Effect.Effect<boolean, never, never>;
@@ -123,6 +134,8 @@ export const createLighterWS = (
 		let currentWS: WebSocket | null = null;
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
+		// Outbound queue to enfore maxMessagesPerMinute rate limit.
+		const outbound = yield* Queue.unbounded<OutboundMessage>();
 
 		const withModuleName = <Type, In, Out>(
 			metric: Metric.Metric<Type, In, Out>,
@@ -134,21 +147,25 @@ export const createLighterWS = (
 				MutableHashMap.size(desiredMarkets),
 			);
 
-		const incrementMessagesSent = (type: OutboundMessageType) =>
-			Metric.increment(
-				Metric.tagged(withModuleName(messagesSent), "type", type),
-			);
+		const enqueue = (frame: string, type: OutboundMessageType) =>
+			Queue.offer(outbound, { frame, type }).pipe(Effect.asVoid);
 
-		const incrementConnectionAttempts = () =>
-			Metric.increment(withModuleName(connectionAttempts));
+		const clearOutbound = () => Queue.takeAll(outbound).pipe(Effect.asVoid);
 
-		const trySend = (frame: string, type: OutboundMessageType) =>
+		const sendOutbound = ({ frame, type }: OutboundMessage) =>
 			Effect.gen(function* () {
 				const ws = currentWS;
-				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+				if (ws === null || ws.readyState !== WebSocket.OPEN) {
+					// Drop; handleOpen re-enqueues current desiredMarkets on reconnect.
+					return;
+				}
+
 				try {
 					ws.send(frame);
-					yield* incrementMessagesSent(type);
+					yield* Metric.increment(
+						Metric.tagged(withModuleName(messagesSent), "type", type),
+					);
+					yield* Effect.sleep(Duration.decode(Duration.minutes(1)));
 				} catch (err) {
 					yield* Effect.logWarning("Lighter WS send failed", {
 						error: String(err),
@@ -161,6 +178,13 @@ export const createLighterWS = (
 				}
 			});
 
+		const sendLoop = Stream.fromQueue(outbound).pipe(
+			Stream.mapEffect(sendOutbound, {
+				concurrency: config.maxMessagesPerMinute,
+			}),
+			Stream.runDrain,
+		);
+
 		const subscribe = (marketIds: number[]) =>
 			Effect.gen(function* () {
 				let added = false;
@@ -169,7 +193,7 @@ export const createLighterWS = (
 						continue;
 					MutableHashMap.set(desiredMarkets, marketId, true);
 					added = true;
-					yield* trySend(buildSubscribeFrame(marketId), "subscribe");
+					yield* enqueue(buildSubscribeFrame(marketId), "subscribe");
 				}
 				if (added) {
 					yield* setActiveSubscriptions();
@@ -184,7 +208,7 @@ export const createLighterWS = (
 						continue;
 					MutableHashMap.remove(desiredMarkets, marketId);
 					removed = true;
-					yield* trySend(buildUnsubscribeFrame(marketId), "unsubscribe");
+					yield* enqueue(buildUnsubscribeFrame(marketId), "unsubscribe");
 				}
 				if (removed) {
 					yield* setActiveSubscriptions();
@@ -196,7 +220,7 @@ export const createLighterWS = (
 				yield* Effect.logInfo("Lighter WS open", { name: config.name });
 				currentWS = ws;
 				for (const [marketId] of desiredMarkets) {
-					yield* trySend(buildSubscribeFrame(marketId), "subscribe");
+					yield* enqueue(buildSubscribeFrame(marketId), "subscribe");
 				}
 			});
 
@@ -205,7 +229,7 @@ export const createLighterWS = (
 				const parsed = parseInboundFrame(raw);
 				if (!parsed) return;
 				if (parsed.kind === "ping") {
-					yield* trySend(PONG_FRAME, "pong");
+					yield* enqueue(PONG_FRAME, "pong");
 					return;
 				}
 				// Drop frames with no parseable id, or for a market we have since
@@ -222,6 +246,8 @@ export const createLighterWS = (
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
 				currentWS = null;
+				// Drop queued frames so a reconnect isn't preceded by a stale backlog.
+				yield* clearOutbound();
 				yield* Deferred.fail(closed, undefined);
 			});
 
@@ -229,7 +255,7 @@ export const createLighterWS = (
 			const deferred = yield* Deferred.make<void, void>();
 
 			yield* Effect.logInfo("Lighter WS connecting", { name: config.name });
-			yield* incrementConnectionAttempts();
+			yield* Metric.increment(withModuleName(connectionAttempts));
 
 			const ws = yield* Effect.acquireRelease(
 				Effect.sync(() => new WebSocket(config.wsUrl)),
@@ -276,14 +302,13 @@ export const createLighterWS = (
 			Effect.retry(schedule),
 		);
 
-		// Lighter closes a connection with no client frames for 2 minutes; ping on a
-		// shorter cadence. trySend no-ops while disconnected, so this is harmless then.
-		const keepaliveLoop = trySend(PING_FRAME, "ping").pipe(
+		const keepaliveLoop = enqueue(PING_FRAME, "ping").pipe(
 			Effect.schedule(Schedule.spaced(config.keepaliveInterval)),
 		);
 
 		const cachedStart = yield* Effect.cached(
 			Effect.gen(function* () {
+				yield* Effect.forkDaemon(sendLoop);
 				yield* Effect.forkDaemon(keepaliveLoop);
 				return yield* Effect.forkDaemon(loop);
 			}),
