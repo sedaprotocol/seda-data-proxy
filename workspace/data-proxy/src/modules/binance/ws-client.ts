@@ -57,25 +57,33 @@ export const buildUnsubscribeFrame = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
-/** Extracts {symbol, frame} from an inbound message, or null if it is not a
- * market-data payload (control acks like {result, id} and malformed frames). */
-export const parseInboundFrame = (
-	raw: string,
-): { symbol: string; frame: BinancePriceFrame } | null => {
+export type ParsedInbound =
+	| { kind: "ticker"; symbol: string; frame: BinancePriceFrame }
+	| { kind: "error"; code: number | null; message: string | null };
+
+/** Classifies an inbound message: a market-data payload, a venue error, or null
+ * for other messages. */
+export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	let json: unknown;
 	try {
 		json = JSON.parse(raw);
 	} catch {
 		return null;
 	}
+	if (!isRecord(json)) return null;
+
+	const err = json.error;
+	if (isRecord(err)) {
+		return {
+			kind: "error",
+			code: typeof err.code === "number" ? err.code : null,
+			message: typeof err.msg === "string" ? err.msg : null,
+		};
+	}
 
 	// Combined streams wrap the payload as { stream, data }; raw streams send it bare.
 	let payload: unknown = json;
-	if (
-		isRecord(json) &&
-		typeof json.stream === "string" &&
-		isRecord(json.data)
-	) {
+	if (typeof json.stream === "string" && isRecord(json.data)) {
 		payload = json.data;
 	}
 
@@ -84,6 +92,7 @@ export const parseInboundFrame = (
 	}
 
 	return {
+		kind: "ticker",
 		symbol: payload.s.toUpperCase(),
 		frame: payload as BinancePriceFrame,
 	};
@@ -224,6 +233,12 @@ export const createBinanceWS = (
 		const handleInboundMessage = (raw: string) => {
 			const parsed = parseInboundFrame(raw);
 			if (!parsed) return Effect.void;
+			if (parsed.kind === "error") {
+				return Effect.logWarning("Binance WS error frame", {
+					code: parsed.code,
+					message: parsed.message,
+				});
+			}
 			if (Option.isNone(MutableHashMap.get(desiredSymbols, parsed.symbol))) {
 				return Effect.void;
 			}

@@ -62,6 +62,7 @@ describe("parseInboundFrame", () => {
 	it("unwraps a combined-stream envelope", () => {
 		const raw = JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook });
 		expect(parseInboundFrame(raw)).toEqual({
+			kind: "ticker",
 			symbol: "BTCUSDT",
 			frame: btcBook,
 		});
@@ -69,6 +70,7 @@ describe("parseInboundFrame", () => {
 
 	it("accepts a bare (raw-stream) payload", () => {
 		expect(parseInboundFrame(JSON.stringify(ethBook))).toEqual({
+			kind: "ticker",
 			symbol: "ETHUSDT",
 			frame: ethBook,
 		});
@@ -76,13 +78,30 @@ describe("parseInboundFrame", () => {
 
 	it("uppercases the symbol so cache keys stay consistent", () => {
 		const result = parseInboundFrame(JSON.stringify({ s: "btcusdt", b: "1" }));
-		expect(result?.symbol).toBe("BTCUSDT");
+		expect(result).toMatchObject({ kind: "ticker", symbol: "BTCUSDT" });
 	});
 
 	it("returns null for a control ack with no symbol", () => {
 		expect(
 			parseInboundFrame(JSON.stringify({ result: null, id: 1 })),
 		).toBeNull();
+	});
+
+	it("classifies a venue error frame", () => {
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					error: {
+						code: 3,
+						msg: "Invalid JSON: key must be a string at line 1 column 2",
+					},
+				}),
+			),
+		).toEqual({
+			kind: "error",
+			code: 3,
+			message: "Invalid JSON: key must be a string at line 1 column 2",
+		});
 	});
 
 	it("returns null for malformed JSON", () => {
