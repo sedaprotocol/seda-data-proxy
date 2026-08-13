@@ -6,8 +6,10 @@ import {
 	Metric,
 	MutableHashMap,
 	Option,
+	Queue,
 	Runtime,
 	Schedule,
+	Stream,
 } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
 
@@ -19,6 +21,11 @@ export interface BinancePriceFrame {
 }
 
 type OutboundMessageType = "subscribe" | "unsubscribe";
+
+type OutboundMessage = {
+	frame: string;
+	type: OutboundMessageType;
+};
 
 /** Metrics for the Binance WebSocket client. */
 const activeSubscriptions = Metric.gauge("binance_active_subscriptions", {
@@ -107,9 +114,9 @@ export const defaultReconnectSchedule = (config: BinanceModuleConfig) =>
 export interface BinanceWS {
 	/** Forks the WS daemon. The daemon owns reconnect with backoff and resubscribes on each open. */
 	start(): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never>;
-	/** Adds the symbols to the desired set and sends one subscribe frame for the new ones if connected. Idempotent. */
+	/** Adds the symbols to the desired set and enqueues one subscribe frame for the new ones. Idempotent. */
 	subscribe(symbols: string[]): Effect.Effect<void, never, never>;
-	/** Removes the symbols from the desired set and sends one unsubscribe frame for the removed ones if connected. Idempotent. */
+	/** Removes the symbols from the desired set and enqueues one unsubscribe frame for the removed ones. Idempotent. */
 	unsubscribe(symbols: string[]): Effect.Effect<void, never, never>;
 	/** True while the socket is disconnected, errored, or has a pending send failure. */
 	hasError(): Effect.Effect<boolean, never, never>;
@@ -132,6 +139,8 @@ export const createBinanceWS = (
 		let controlId = 0;
 		const schedule =
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
+		// Outbound queue to enforce maxMessagesPerSecond rate limit.
+		const outbound = yield* Queue.unbounded<OutboundMessage>();
 
 		const withModuleName = <Type, In, Out>(
 			metric: Metric.Metric<Type, In, Out>,
@@ -156,13 +165,24 @@ export const createBinanceWS = (
 		const streamNamesFor = (symbols: string[]) =>
 			symbols.map((symbol) => buildStreamName(symbol, config.streamType));
 
-		const trySend = (frame: string, type: OutboundMessageType) =>
+		const enqueue = (frame: string, type: OutboundMessageType) =>
+			Queue.offer(outbound, { frame, type }).pipe(Effect.asVoid);
+
+		const clearOutbound = () => Queue.takeAll(outbound).pipe(Effect.asVoid);
+
+		const sendOutbound = ({ frame, type }: OutboundMessage) =>
 			Effect.gen(function* () {
 				const ws = currentWS;
-				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+				if (ws === null || ws.readyState !== WebSocket.OPEN) {
+					// Drop; handleOpen re-enqueues current desiredSymbols on reconnect.
+					return;
+				}
 				try {
 					ws.send(frame);
 					yield* incrementMessagesSent(type);
+					// Hold the concurrency slot for the rate-limit window so at most
+					// maxMessagesPerSecond frames leave per second.
+					yield* Effect.sleep(Duration.seconds(1));
 				} catch (err) {
 					unhealthy = true;
 					yield* Effect.logWarning("Binance WS send failed", {
@@ -176,6 +196,13 @@ export const createBinanceWS = (
 				}
 			});
 
+		const sendLoop = Stream.fromQueue(outbound).pipe(
+			Stream.mapEffect(sendOutbound, {
+				concurrency: config.maxMessagesPerSecond,
+			}),
+			Stream.runDrain,
+		);
+
 		const subscribe = (symbols: string[]) =>
 			Effect.gen(function* () {
 				const fresh: string[] = [];
@@ -188,8 +215,7 @@ export const createBinanceWS = (
 				}
 				if (fresh.length === 0) return;
 				yield* setActiveSubscriptions();
-				// Binance caps inbound control messages at 5/sec; one frame per batch stays under it.
-				yield* trySend(
+				yield* enqueue(
 					buildSubscribeFrame(streamNamesFor(fresh), nextControlId()),
 					"subscribe",
 				);
@@ -207,7 +233,7 @@ export const createBinanceWS = (
 				}
 				if (removed.length === 0) return;
 				yield* setActiveSubscriptions();
-				yield* trySend(
+				yield* enqueue(
 					buildUnsubscribeFrame(streamNamesFor(removed), nextControlId()),
 					"unsubscribe",
 				);
@@ -223,7 +249,7 @@ export const createBinanceWS = (
 				const symbols: string[] = [];
 				for (const [symbol] of desiredSymbols) symbols.push(symbol);
 				if (symbols.length > 0) {
-					yield* trySend(
+					yield* enqueue(
 						buildSubscribeFrame(streamNamesFor(symbols), nextControlId()),
 						"subscribe",
 					);
@@ -256,6 +282,8 @@ export const createBinanceWS = (
 			Effect.gen(function* () {
 				unhealthy = true;
 				currentWS = null;
+				// Drop queued frames so a reconnect isn't preceded by a stale backlog.
+				yield* clearOutbound();
 				yield* Deferred.fail(closed, undefined);
 			});
 
@@ -315,7 +343,12 @@ export const createBinanceWS = (
 			Effect.retry(schedule),
 		);
 
-		const cachedStart = yield* Effect.cached(Effect.forkDaemon(loop));
+		const cachedStart = yield* Effect.cached(
+			Effect.gen(function* () {
+				yield* Effect.forkDaemon(sendLoop);
+				return yield* Effect.forkDaemon(loop);
+			}),
+		);
 		const start = () => cachedStart;
 
 		return { start, subscribe, unsubscribe, hasError } satisfies BinanceWS;

@@ -19,6 +19,14 @@ export const BinanceModuleConfigSchema = v.strictObject({
 	streamType: v.optional(v.picklist(BINANCE_STREAM_TYPES), "bookTicker"),
 	subscriptionSymbols: v.optional(v.array(v.string()), []),
 	maxSymbolsPerRequest: v.optional(v.number(), 100),
+	// Binance allows 5 client messages per second.
+	maxMessagesPerSecond: v.optional(
+		v.pipe(
+			v.number(),
+			v.minValue(1, "maxMessagesPerSecond must be at least 1"),
+		),
+		5,
+	),
 	reconnectMaxBackoff: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
 		v.transform((value) =>

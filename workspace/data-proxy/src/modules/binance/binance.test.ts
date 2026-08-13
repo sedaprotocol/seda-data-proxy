@@ -34,6 +34,7 @@ const baseConfig: BinanceModuleConfig = {
 	streamType: "bookTicker",
 	subscriptionSymbols: [],
 	maxSymbolsPerRequest: 100,
+	maxMessagesPerSecond: 5,
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.minutes(2),

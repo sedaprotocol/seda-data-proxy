@@ -177,6 +177,7 @@ const baseConfig: BinanceModuleConfig = {
 	streamType: "bookTicker",
 	subscriptionSymbols: ["BTCUSDT", "ETHUSDT"],
 	maxSymbolsPerRequest: 100,
+	maxMessagesPerSecond: 5,
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.minutes(2),
@@ -467,6 +468,33 @@ describe("createBinanceWS", () => {
 
 		expect(parseControl(ws2.sent[0]).params).toEqual(["btcusdt@bookTicker"]);
 		expect(await Effect.runPromise(service.hasError())).toBe(false);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("paces outbound frames to stay under maxMessagesPerSecond", async () => {
+		const { ws: service, fiber } = await Effect.runPromise(
+			startService({ ...baseConfig, maxMessagesPerSecond: 4 }, []),
+		);
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		await Effect.runPromise(service.subscribe(["BTCUSDT"]));
+		await Effect.runPromise(service.subscribe(["ETHUSDT"]));
+		await Effect.runPromise(service.subscribe(["SOLUSDT"]));
+		await Effect.runPromise(service.subscribe(["DOGEUSDT"]));
+		await Effect.runPromise(service.subscribe(["XRPUSDT"]));
+		await Effect.runPromise(service.subscribe(["LINKUSDT"]));
+		await Effect.runPromise(service.subscribe(["AVAXUSDT"]));
+		await flush();
+
+		// First two frames send immediately; the third waits for a rate-limiter
+		// slot (held for one second), so it must not appear yet.
+		expect(ws.sent.length).toBe(4);
+		await new Promise<void>((r) => setTimeout(r, 50));
+		expect(ws.sent.length).toBe(4);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
