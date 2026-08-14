@@ -43,6 +43,28 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	// How often the consolidation pass consolidates individual subscriptions
+	// into one bulk subscription per channel.
+	bulkConsolidateInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "60 seconds"),
+		v.transform((interval) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(interval),
+				() => new Error("Invalid bulk consolidation interval"),
+			),
+		),
+	),
+	// How long to wait for the first tick on the new bulk subscription before
+	// giving up and leaving the old bulk subscriptions in place.
+	bulkConsolidateTimeout: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "3 seconds"),
+		v.transform((timeout) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(timeout),
+				() => new Error("Invalid bulk consolidation timeout"),
+			),
+		),
+	),
 	type: v.literal("pyth-lazer"),
 });
 

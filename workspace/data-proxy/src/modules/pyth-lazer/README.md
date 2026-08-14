@@ -7,13 +7,24 @@ Streams Pyth Lazer price feeds over a redundant WebSocket pool and serves the la
 On startup the module:
 
 1. Creates a `PythLazerClient` with a pool of WebSocket connections to Pyth Lazer.
-2. Subscribes to every entry in `priceFeedIds`. 
+2. Subscribes to every entry in `priceFeedIds` as an individual one-feed subscription.
 3. Caches inbound `streamUpdated` messages keyed by `(channel, priceFeedId)`.
 4. Idle-unsubscribes feeds that have not been requested within `priceFeedsCleanupTtl`.
+5. Periodically consolidates delivering individual subscriptions into one bulk subscription per channel (see [Bulk consolidation](#bulk-consolidation)).
 
 HTTP requests resolve `fetchFromModule` to one or more comma-separated feed IDs or symbols, subscribe on the route’s `channel` if needed, and return the latest cached price for each. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
 
 Subscriptions are isolated per channel: the same feed on `fixed_rate@200ms` and `real_time` are separate cache entries and WebSocket subscriptions.
+
+## Bulk consolidation
+
+Per-feed subscriptions make the upstream send one WebSocket frame per feed per channel tick. At production scale that could overwhelm inbound WebSocket bandwidth.
+
+To keep first-price latency low, a newly requested feed still gets an immediate individual subscription. A periodic pass then absorbs every individual subscription that has delivered at least one update into one bulk subscription per channel.
+
+Feeds that never deliver are never absorbed so that a single bad feed cannot poison the bulk subscription. If the new bulk subscription does not tick within `bulkConsolidateTimeout`, the old subscriptions are left in place.
+
+Idle cleanup does not unsubscribe a shared bulk subscription: removing the idle feed from the local map stops cache writes immediately, and the next consolidation pass rebuilds the bulk set without it.
 
 ## Configuration
 
@@ -28,6 +39,8 @@ Subscriptions are isolated per channel: the same feed on `fixed_rate@200ms` and 
 | `maxFeedsPerRequest` | no | `100` | Max feed IDs / symbols allowed in a single request. |
 | `priceFeedsCleanupTtl` | no | `"1 hour"` | Idle time before an unused subscription is cleaned up. |
 | `priceFeedsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |
+| `bulkConsolidateInterval` | no | `"60 seconds"` | How often individual subscriptions are folded into one bulk subscription per channel. The first pass waits one full interval so it does not race the initial config-seeded subscribes. |
+| `bulkConsolidateTimeout` | no | `"3 seconds"` | How long to wait for the first `streamUpdated` on a new bulk subscription before giving up and leaving the old subscriptions in place. |
 
 ### Route
 
