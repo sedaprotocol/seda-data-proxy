@@ -491,6 +491,148 @@ describe("proxy server", () => {
 		});
 	});
 
+	describe("route jsonPath path params", () => {
+		const assetCtxs = [{ markPx: "100" }, { markPx: "200" }, { markPx: "300" }];
+		const upstreamBody = [
+			{ universe: [{ name: "A" }, { name: "B" }, { name: "C" }] },
+			assetCtxs,
+		];
+
+		it("substitutes path params before applying jsonPath", async () => {
+			const { upstreamUrl, port } = registerHandler(
+				"post",
+				"/jsonpath-params-info",
+				async () => HttpResponse.json(upstreamBody),
+			);
+
+			await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						modules: [],
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
+						},
+						statusEndpoints: {
+							root: "status",
+						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxSubRequests: 20,
+							concurrency: 5,
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "POST",
+								path: "/mainnet/:index",
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								jsonPath: "$.[1][{:index}]",
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+						],
+						fastOnly: false,
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+					},
+				)
+					.pipe(Effect.scoped)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+			);
+
+			const response = await fetch(`http://localhost:${port}/mainnet/1`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: '{"type":"metaAndAssetCtxs","dex":"xyz"}',
+			});
+
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual(assetCtxs[1]);
+		});
+
+		it("includes the substituted jsonPath in QueryJsonError when the index is missing", async () => {
+			const { upstreamUrl, port } = registerHandler(
+				"post",
+				"/jsonpath-params-missing-index",
+				async () => HttpResponse.json(upstreamBody),
+			);
+
+			await Effect.runPromise(
+				startProxyServer(
+					{
+						verificationMaxRetries: 2,
+						verificationRetryDelay: 1000,
+						routeGroup: "",
+						modules: [],
+						sedaFast: {
+							enable: true,
+							maxProofAgeMs: 1000,
+							allowedClients: [],
+						},
+						statusEndpoints: {
+							root: "status",
+						},
+						multiEndpoint: {
+							enable: false,
+							path: "multi",
+							maxSubRequests: 20,
+							concurrency: 5,
+						},
+						baseURL: Maybe.nothing(),
+						routes: [
+							{
+								baseURL: Maybe.nothing(),
+								method: "POST",
+								path: "/mainnet/:index",
+								upstreamUrl,
+								forwardResponseHeaders: new Set([]),
+								headers: {},
+								jsonPath: "$.[1][{:index}]",
+								type: "upstream",
+								moduleName: "upstream",
+								useLegacyJsonPath: true,
+							},
+						],
+						fastOnly: false,
+					},
+					dataProxy,
+					{
+						disableProof: true,
+						port,
+					},
+				)
+					.pipe(Effect.scoped)
+					.pipe(Effect.provide(HttpClientService.Default()))
+					.pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+			);
+
+			const response = await fetch(`http://localhost:${port}/mainnet/99`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: '{"type":"metaAndAssetCtxs","dex":"xyz"}',
+			});
+
+			expect(response.status).toBe(500);
+			const raw = await response.text();
+			expect(raw).toContain("JSONPath $.[1][99] returned null");
+			expect(raw).not.toContain("{:index}");
+		});
+	});
+
 	it("when user-supplied JSON path is invalid, the result of operator-supplied JSON path should be returned with a 400 status", async () => {
 		const picked = "PICKED_BY_OPERATOR_SUPPLIED_JSON_PATH";
 		const notPicked = "NOT_PICKED_BY_OPERATOR_SUPPLIED_JSON_PATH";

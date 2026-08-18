@@ -9,6 +9,7 @@ import {
 import type { ModuleHandlers } from "../../modules/module";
 import { HttpClientService } from "../../services/http-client";
 import { queryJson } from "../../utils/query-json";
+import { replaceParams } from "../../utils/replace-params";
 import { createUrlSearchParams } from "../../utils/search-params";
 import { handleMultiRequest } from "./handle-multi-request";
 import { handleUpstreamRequest } from "./handle-upstream-request";
@@ -177,10 +178,11 @@ export const executeRoute = ({
 		}
 
 		if (route.jsonPath) {
-			yield* Effect.logDebug(`Applying route JSONpath ${route.jsonPath}`);
+			const jsonPath = replaceParams(route.jsonPath, params);
+			yield* Effect.logDebug(`Applying route JSONpath ${jsonPath}`);
 			const data = yield* queryJson(
 				upstreamTextResponse,
-				route.jsonPath,
+				jsonPath,
 				route.useLegacyJsonPath,
 			).pipe(
 				Effect.annotateSpans("type", "route-config"),
