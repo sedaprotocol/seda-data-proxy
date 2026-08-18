@@ -193,5 +193,5 @@ Requests with more feeds than `maxFeedsPerRequest` return HTTP 400.
 
 ## Notes
 
-- Numeric path tokens are treated as feed IDs; non-numeric tokens are resolved to IDs via the Pyth metadata service and cached in-process.
+- Numeric path tokens are treated as feed IDs; non-numeric tokens are resolved to IDs via the Pyth metadata service (concurrently per request) and cached in-process.
 - Pyth Lazer docs: https://docs.pyth.network/lazer

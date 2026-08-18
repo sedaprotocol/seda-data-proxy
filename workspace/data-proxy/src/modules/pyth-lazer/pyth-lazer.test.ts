@@ -101,6 +101,9 @@ const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 	};
 
 	const client = {
+		async getSymbols(_request: { query: string }) {
+			return [] as Array<{ symbol: string; pyth_lazer_id: number }>;
+		},
 		subscribe(request: {
 			type: string;
 			subscriptionId: number;
@@ -126,9 +129,6 @@ const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 		},
 		addAllConnectionsDownListener() {},
 		addConnectionTimeoutListener() {},
-		async getSymbols() {
-			return [];
-		},
 	};
 
 	return {
@@ -399,6 +399,37 @@ describe("bulk subscription consolidation", () => {
 					),
 				),
 			),
+		);
+	});
+});
+
+describe("handleRequest symbol resolution", () => {
+	it("resolves unknown symbols concurrently", async () => {
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const fake = makeFakeLazerClient({ autoDeliver: true });
+		fake.client.getSymbols = async ({ query }) => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, 40);
+			});
+			inFlight--;
+			const pyth_lazer_id = query === "Crypto.BTC/USD" ? 1 : 2;
+			return [{ symbol: query, pyth_lazer_id }];
+		};
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				const response = yield* module.handleRequest(
+					...requestSymbols("Crypto.BTC/USD,Crypto.ETH/USD"),
+				);
+				expect(response.status).toBe(200);
+				expect(maxInFlight).toBe(2);
+			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
 		);
 	});
 });

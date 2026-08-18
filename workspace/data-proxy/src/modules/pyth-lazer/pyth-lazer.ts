@@ -660,33 +660,27 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						);
 					}
 
-					const priceFeedIds: number[] = [];
-
-					// Normalize the ids or symbols to price feed ids
-					for (const symbolOrId of priceFeedIdsRaw) {
-						if (Number.isNaN(Number(symbolOrId))) {
-							// Let's check if the symbol exists otherwise
-							const cachedSymbolToPriceFeedId = MutableHashMap.get(
-								symbolToFeedId,
-								symbolOrId,
-							);
-
-							if (Option.isSome(cachedSymbolToPriceFeedId)) {
-								priceFeedIds.push(cachedSymbolToPriceFeedId.value);
-								continue;
-							}
-
-							const priceFeedId = yield* getPriceIdBySymbol(
-								symbolOrId,
-								lazerClient,
-							);
-
-							MutableHashMap.set(symbolToFeedId, symbolOrId, priceFeedId);
-							priceFeedIds.push(priceFeedId);
-						} else {
-							priceFeedIds.push(Number(symbolOrId));
-						}
-					}
+					// Normalize ids or symbols to price feed ids concurrently.
+					const priceFeedIds = yield* Effect.forEach(
+						priceFeedIdsRaw,
+						(symbolOrId) =>
+							Effect.gen(function* () {
+								if (!Number.isNaN(Number(symbolOrId))) {
+									return Number(symbolOrId);
+								}
+								const cached = MutableHashMap.get(symbolToFeedId, symbolOrId);
+								if (Option.isSome(cached)) {
+									return cached.value;
+								}
+								const priceFeedId = yield* getPriceIdBySymbol(
+									symbolOrId,
+									lazerClient,
+								);
+								MutableHashMap.set(symbolToFeedId, symbolOrId, priceFeedId);
+								return priceFeedId;
+							}),
+						{ concurrency: "unbounded" },
+					);
 
 					const prices: PriceFeedWithSymbol[] = [];
 					const now = yield* Clock.currentTimeMillis;
