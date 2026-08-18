@@ -582,41 +582,35 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						);
 					}
 
-					const priceFeedIds: number[] = [];
-
-					// Normalize the ids or symbols to price feed ids
-					for (const symbolOrId of priceFeedIdsRaw) {
-						const parsedId = Number(symbolOrId);
-						if (Number.isNaN(parsedId)) {
-							// Let's check if the symbol exists otherwise
-							const cachedSymbolToPriceFeedId = MutableHashMap.get(
-								symbolToFeedId,
-								symbolOrId,
-							);
-
-							if (Option.isSome(cachedSymbolToPriceFeedId)) {
-								priceFeedIds.push(cachedSymbolToPriceFeedId.value);
-								continue;
-							}
-
-							const priceFeedId = yield* getPriceIdBySymbol(
-								symbolOrId,
-								lazerClient,
-							);
-
-							MutableHashMap.set(symbolToFeedId, symbolOrId, priceFeedId);
-							priceFeedIds.push(priceFeedId);
-						} else {
-							if (!isU32PriceFeedId(parsedId)) {
-								return yield* Effect.fail(
-									new FailedToHandlePythLazerRequestError({
-										error: `Price feed ID is not a u32: ${symbolOrId}`,
-									}),
+					// Normalize ids or symbols to price feed ids concurrently.
+					const priceFeedIds = yield* Effect.forEach(
+						priceFeedIdsRaw,
+						(symbolOrId) =>
+							Effect.gen(function* () {
+								const parsedId = Number(symbolOrId);
+								if (!Number.isNaN(parsedId)) {
+									if (!isU32PriceFeedId(parsedId)) {
+										return yield* Effect.fail(
+											new FailedToHandlePythLazerRequestError({
+												error: `Price feed ID is not a u32: ${symbolOrId}`,
+											}),
+										);
+									}
+									return parsedId;
+								}
+								const cached = MutableHashMap.get(symbolToFeedId, symbolOrId);
+								if (Option.isSome(cached)) {
+									return cached.value;
+								}
+								const priceFeedId = yield* getPriceIdBySymbol(
+									symbolOrId,
+									lazerClient,
 								);
-							}
-							priceFeedIds.push(parsedId);
-						}
-					}
+								MutableHashMap.set(symbolToFeedId, symbolOrId, priceFeedId);
+								return priceFeedId;
+							}),
+						{ concurrency: "unbounded" },
+					);
 
 					const now = yield* Clock.currentTimeMillis;
 

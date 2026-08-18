@@ -72,7 +72,12 @@ const routeRealtime = v.parse(PythLazerModuleRouteSchema, {
 const requestOn = (route: typeof route200ms, symbols: string) =>
 	[route, { symbols }, new Request("http://localhost/")] as const;
 
-const makeFakeLazerClient = () => {
+interface FakeClientOptions {
+	/** Push a price for every feed id as soon as it is subscribed. */
+	autoDeliver?: boolean;
+}
+
+const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 	const subscribeCalls: Array<{
 		subscriptionId: number;
 		channel: string;
@@ -132,11 +137,15 @@ const makeFakeLazerClient = () => {
 			if (request.type !== "subscribe") {
 				return;
 			}
+			const priceFeedIds = request.priceFeedIds ?? [];
 			subscribeCalls.push({
 				subscriptionId: request.subscriptionId,
 				channel: request.channel,
-				priceFeedIds: request.priceFeedIds ?? [],
+				priceFeedIds,
 			});
+			if (options.autoDeliver) {
+				deliverTick(request.subscriptionId, priceFeedIds);
+			}
 		},
 		unsubscribe(subscriptionId: number) {
 			unsubscribeCalls.push(subscriptionId);
@@ -703,6 +712,37 @@ describe("bulk subscriptions", () => {
 				fake.deliverTick(fake.subscribeCalls[1].subscriptionId, [1]);
 				yield* Fiber.join(realtimeFiber);
 				yield* Fiber.join(msFiber);
+			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
+		);
+	});
+});
+
+describe("handleRequest symbol resolution", () => {
+	it("resolves unknown symbols concurrently", async () => {
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const fake = makeFakeLazerClient({ autoDeliver: true });
+		fake.client.getSymbols = async ({ query }) => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, 40);
+			});
+			inFlight--;
+			const pyth_lazer_id = query === "Crypto.BTC/USD" ? 1 : 2;
+			return [{ symbol: query, pyth_lazer_id }];
+		};
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				const response = yield* module.handleRequest(
+					...requestOn(route200ms, "Crypto.BTC/USD,Crypto.ETH/USD"),
+				);
+				expect(response.status).toBe(200);
+				expect(maxInFlight).toBe(2);
 			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
 		);
 	});
