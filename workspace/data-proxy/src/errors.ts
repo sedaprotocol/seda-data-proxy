@@ -52,5 +52,5 @@ export class QueryJsonError extends Data.TaggedError("QueryJsonError")<{
 	type?: "config" | "header";
 	status?: number;
 }> {
-	message = `Query JSON (originator: ${this.type ?? "unknown"}) error: ${this.error} `;
+	message = `Query JSON (originator: ${this.type ?? "unknown"}) error: ${this.error}`;
 }

@@ -628,7 +628,10 @@ describe("proxy server", () => {
 
 			expect(response.status).toBe(500);
 			const raw = await response.text();
-			expect(raw).toContain("JSONPath $.[1][99] returned null");
+			expect(raw).toContain(
+				"Query JSON (originator: config) error: JSONPath $.[1][99] returned null",
+			);
+			expect(raw).not.toContain("originator: unknown");
 			expect(raw).not.toContain("{:index}");
 		});
 	});
@@ -710,7 +713,10 @@ describe("proxy server", () => {
 
 		expect(parsed).not.toHaveProperty("data");
 		expect(parsed._tag).toBe("QueryJsonError");
-		expect(raw).toContain(invalidPath);
+		expect(raw).toContain(
+			`Query JSON (originator: header) error: JSONPath ${invalidPath} returned null`,
+		);
+		expect(raw).not.toContain("originator: unknown");
 		expect(raw).toContain(picked);
 		expect(raw).not.toContain(notPicked);
 	});

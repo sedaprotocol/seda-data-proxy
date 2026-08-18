@@ -189,7 +189,7 @@ export const executeRoute = ({
 				Effect.mapError(
 					(error) =>
 						new QueryJsonError({
-							error: error.message,
+							error: error.error,
 							data: error.data,
 							type: "config",
 							status: 500,
