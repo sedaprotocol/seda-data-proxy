@@ -7,13 +7,13 @@ Streams Pyth Lazer price feeds over a redundant WebSocket pool and serves the la
 On startup the module:
 
 1. Creates a `PythLazerClient` with a pool of WebSocket connections to Pyth Lazer.
-2. Subscribes to every entry in `priceFeedIds`. 
-3. Caches inbound `streamUpdated` messages keyed by `(channel, priceFeedId)`.
-4. Idle-unsubscribes feeds that have not been requested within `priceFeedsCleanupTtl`.
+2. Adds every entry in `priceFeedIds` to the per-channel desired set and sends one subscribe per channel.
+3. Caches inbound `streamUpdated` messages keyed by `(channel, priceFeedId)`. Ticks for feeds that are no longer in the desired set are ignored.
+4. A forked cleanup daemon removes from the desired set feeds that have not been requested within `priceFeedsCleanupTtl`. It deletes their cache entries and updates the desired set.
 
-HTTP requests resolve `fetchFromModule` to one or more comma-separated feed IDs or symbols, subscribe on the route’s `channel` if needed, and return the latest cached price for each. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
+HTTP requests resolve `fetchFromModule` to one or more comma-separated feed IDs or symbols, add any new feeds to the desired set, send a subscribe of the full set for that channel if it grew, and return the latest cached price for each. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
 
-Subscriptions are isolated per channel: the same feed on `fixed_rate@200ms` and `real_time` are separate cache entries and WebSocket subscriptions.
+Pyth cannot append feeds to an existing subscription id, so a grow sends a **new** subscribe with a new id and the full desired set for that channel. Each channel has at most one **active** (acked) subscription, plus any in-flight ids still waiting for an ack. The module promotes an id only after Pyth acks it (`subscribed` or `subscribedWithInvalidFeedIdsIgnored`) and only if it is higher than the channel’s current active id; older outstanding ids on that channel are then unsubscribed.
 
 ## Configuration
 
@@ -24,9 +24,9 @@ Subscriptions are isolated per channel: the same feed on `fixed_rate@200ms` and 
 | `type` | yes | — | Must be `"pyth-lazer"`. |
 | `name` | yes | — | Module name referenced by routes as `moduleName`. |
 | `pythLazerApiKeyEnvKey` | yes | — | Env var that holds the Pyth Lazer API token. |
-| `priceFeedIds` | yes | — | Feeds to subscribe to on start. Each entry: `name`, `id`, optional `channel` (defaults to `fixed_rate@200ms`). |
+| `priceFeedIds` | yes | — | Feeds to subscribe to on start. Each entry: `name`, `id`, optional `channel` (`fixed_rate@200ms` if omitted). |
 | `maxFeedsPerRequest` | no | `100` | Max feed IDs / symbols allowed in a single request. |
-| `priceFeedsCleanupTtl` | no | `"1 hour"` | Idle time before an unused subscription is cleaned up. |
+| `priceFeedsCleanupTtl` | no | `"1 hour"` | Idle time before an unused price feed is cleaned up. |
 | `priceFeedsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |
 
 ### Route
@@ -38,7 +38,7 @@ Subscriptions are isolated per channel: the same feed on `fixed_rate@200ms` and 
 | `path` | yes | — | Proxy path (supports `{:param}` path params). |
 | `method` | no | `GET` | HTTP method(s). |
 | `fetchFromModule` | yes | — | Template producing one or more comma-separated feed IDs or symbols. |
-| `channel` | no | `fixed_rate@200ms` | Channel used for this route’s subscriptions and cache lookups. |
+| `channel` | no | `fixed_rate@200ms` | Channel for this route’s subscriptions and cache lookups (`real_time`, `fixed_rate@50ms`, `fixed_rate@200ms`, `fixed_rate@1000ms`). |
 
 ### Multi-route fetch
 
@@ -66,7 +66,7 @@ When a `multi` route targets this module, each fetch may set its own `channel` (
 }
 ```
 
-### Example Configuration 
+### Example Configuration
 
 ```jsonc
 {
@@ -180,5 +180,5 @@ Requests with more feeds than `maxFeedsPerRequest` return HTTP 400.
 
 ## Notes
 
-- Numeric path tokens are treated as feed IDs; non-numeric tokens are resolved to IDs via the Pyth metadata service and cached in-process.
+- Numeric request tokens are treated as feed IDs; non-numeric tokens are resolved to IDs via the Pyth metadata service and cached in-process.
 - Pyth Lazer docs: https://docs.pyth.network/lazer

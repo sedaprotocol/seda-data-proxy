@@ -14,7 +14,6 @@ import {
 	MetricBoundaries,
 	MutableHashMap,
 	Option,
-	Queue,
 	Runtime,
 } from "effect";
 import type { Route } from "../../config/config-parser";
@@ -43,11 +42,6 @@ type PriceFeedId = number;
 type PriceFeedSymbol = string;
 type PriceFeedSubscriptionKey = `${Channel}:${PriceFeedId}`;
 
-interface PriceFeedSubscription {
-	channel: Channel;
-	priceFeedId: PriceFeedId;
-}
-
 export const priceFeedSubscriptionKey = (
 	priceFeedId: PriceFeedId,
 	channel: Channel,
@@ -56,6 +50,26 @@ export const priceFeedSubscriptionKey = (
 const priceFeedIdFromSubscriptionKey = (
 	key: PriceFeedSubscriptionKey,
 ): PriceFeedId => Number(key.slice(key.lastIndexOf(":") + 1));
+
+export const channelFromSubscriptionKey = (
+	key: PriceFeedSubscriptionKey,
+): Channel => key.slice(0, key.lastIndexOf(":")) as Channel;
+
+const PYTH_LAZER_SUBSCRIBE_PROPERTIES = [
+	"bestAskPrice",
+	"bestBidPrice",
+	"confidence",
+	"emaConfidence",
+	"emaPrice",
+	"exponent",
+	"feedUpdateTimestamp",
+	"fundingRate",
+	"fundingRateInterval",
+	"fundingTimestamp",
+	"marketSession",
+	"price",
+	"publisherCount",
+] as const;
 
 interface PriceFeedWithSymbol extends ParsedFeedPayload {
 	symbol?: string;
@@ -93,8 +107,8 @@ const messageHandleDurationMs = Metric.timerWithBoundaries(
 	"Duration in ms of the Pyth Lazer addMessageListener callback",
 );
 
-const activeSubscriptions = Metric.gauge("pyth_lazer_active_subscriptions", {
-	description: "Number of active Pyth Lazer price feed subscriptions",
+const desiredFeeds = Metric.gauge("pyth_lazer_desired_feeds", {
+	description: "Number of desired price feeds per channel",
 });
 
 export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
@@ -112,15 +126,17 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				PriceFeedSubscriptionKey,
 				number
 			>();
-			const newPriceFeedRequests =
-				yield* Queue.unbounded<PriceFeedSubscription>();
-			// channel + price feed id -> subscription id
-			const subscriptions = MutableHashMap.empty<
-				PriceFeedSubscriptionKey,
-				number
-			>();
+			// Desired feeds per channel. Grows on startup and requests, shrinks
+			// only in idle cleanup. Matches the latest subscribe sent on that
+			// channel, not necessarily the acked active subscription yet.
+			const subscriptions = new Map<Channel, Set<PriceFeedId>>();
 			// subscription id -> channel, used to route incoming updates to the correct cache
 			const subscriptionChannels = MutableHashMap.empty<number, Channel>();
+			// Highest successfully acked subscription id per channel
+			const activeSubscriptionByChannel = new Map<Channel, number>();
+			// Subscription ids sent for a channel that are still awaiting ack or
+			// are the current active subscription.
+			const outstandingIdsByChannel = new Map<Channel, Set<number>>();
 			// symbol -> price feed id, to support requests with symbols
 			const symbolToFeedId = MutableHashMap.empty<
 				PriceFeedSymbol,
@@ -139,7 +155,63 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				return Option.none();
 			};
 
-			let subscriptionId = 0;
+			const hasDesiredFeed = (
+				channel: Channel,
+				priceFeedId: PriceFeedId,
+			): boolean => subscriptions.get(channel)?.has(priceFeedId) ?? false;
+
+			const setDesiredFeeds = (channel: Channel, count: number) => {
+				Runtime.runSync(
+					runtime,
+					Metric.set(Metric.tagged(desiredFeeds, "channel", channel), count),
+				);
+			};
+
+			const addDesiredFeed = (
+				channel: Channel,
+				priceFeedId: PriceFeedId,
+			): boolean => {
+				let feeds = subscriptions.get(channel);
+				if (feeds === undefined) {
+					feeds = new Set<PriceFeedId>();
+					subscriptions.set(channel, feeds);
+				}
+				if (feeds.has(priceFeedId)) {
+					return false;
+				}
+				feeds.add(priceFeedId);
+				setDesiredFeeds(channel, feeds.size);
+				return true;
+			};
+
+			const removeDesiredFeed = (
+				channel: Channel,
+				priceFeedId: PriceFeedId,
+			) => {
+				const feeds = subscriptions.get(channel);
+				if (feeds === undefined || !feeds.has(priceFeedId)) {
+					return;
+				}
+				feeds.delete(priceFeedId);
+				if (feeds.size === 0) {
+					subscriptions.delete(channel);
+					setDesiredFeeds(channel, 0);
+					return;
+				}
+				setDesiredFeeds(channel, feeds.size);
+			};
+
+			const outstandingFor = (channel: Channel): Set<number> => {
+				const existing = outstandingIdsByChannel.get(channel);
+				if (existing !== undefined) {
+					return existing;
+				}
+				const created = new Set<number>();
+				outstandingIdsByChannel.set(channel, created);
+				return created;
+			};
+
+			let nextSubscriptionId = 0;
 
 			const lazerClient = yield* Effect.tryPromise({
 				try: () =>
@@ -176,10 +248,13 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 
 									Runtime.runSync(
 										runtime,
-										Effect.forEach(subscriptions, ([key]) =>
-											priceFeedIdFromSubscriptionKey(key) === priceFeedId.value
+										Effect.forEach(subscriptions, ([channel]) =>
+											hasDesiredFeed(channel, priceFeedId.value)
 												? priceCache.setPriceToError(
-														key,
+														priceFeedSubscriptionKey(
+															priceFeedId.value,
+															channel,
+														),
 														`(${Option.getOrElse(symbol, () => "Unknown/Symbol")}) ${safeMessage}`,
 													)
 												: Effect.void,
@@ -204,6 +279,18 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				catch: (error) => new FailedToCreateLazerClientError({ error }),
 			});
 
+			const unsubscribeSubscription = (subscriptionId: number) => {
+				Runtime.runSync(
+					runtime,
+					Effect.logInfo("Unsubscribing subscription", {
+						subscriptionId,
+					}),
+				);
+
+				lazerClient.unsubscribe(subscriptionId);
+				MutableHashMap.remove(subscriptionChannels, subscriptionId);
+			};
+
 			lazerClient.addAllConnectionsDownListener(() =>
 				Runtime.runSync(
 					runtime,
@@ -223,6 +310,83 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				),
 			);
 
+			const sendSubscriptionForChannel = (channel: Channel) => {
+				const priceFeedIds = subscriptions.get(channel);
+				const outstanding = outstandingFor(channel);
+
+				if (priceFeedIds === undefined || priceFeedIds.size === 0) {
+					for (const subscriptionId of outstanding) {
+						unsubscribeSubscription(subscriptionId);
+					}
+					outstanding.clear();
+					activeSubscriptionByChannel.delete(channel);
+					return;
+				}
+
+				const newSubscriptionId = nextSubscriptionId++;
+				outstanding.add(newSubscriptionId);
+				MutableHashMap.set(subscriptionChannels, newSubscriptionId, channel);
+
+				Runtime.runSync(
+					runtime,
+					Effect.logInfo("Sending subscription request", {
+						subscriptionId: newSubscriptionId,
+						channel,
+					}),
+				);
+
+				lazerClient.subscribe({
+					type: "subscribe",
+					channel,
+					formats: [],
+					properties: [...PYTH_LAZER_SUBSCRIBE_PROPERTIES],
+					subscriptionId: newSubscriptionId,
+					priceFeedIds: [...priceFeedIds],
+					// Recommended by Pyth case a previously valid feed id becomes invalid (delisting, id changed, etc.)
+					ignoreInvalidFeedIds: true,
+				});
+			};
+
+			const handleSuccessfulSubscriptionAck = (subscriptionId: number) => {
+				const channel = MutableHashMap.get(
+					subscriptionChannels,
+					subscriptionId,
+				);
+				if (Option.isNone(channel)) {
+					return;
+				}
+
+				const active = activeSubscriptionByChannel.get(channel.value);
+				const outstanding = outstandingFor(channel.value);
+
+				// Unsubscribe if its ID is lower than the currently active subscription's.
+				if (active !== undefined && subscriptionId < active) {
+					unsubscribeSubscription(subscriptionId);
+					outstanding.delete(subscriptionId);
+					return;
+				}
+
+				// Promote to active and unsubscribe any lower outstanding IDs on
+				// this channel as a precaution for acks that never arrive.
+				for (const outstandingId of [...outstanding]) {
+					if (outstandingId < subscriptionId) {
+						const wasPresent = outstanding.delete(outstandingId);
+						if (wasPresent) {
+							unsubscribeSubscription(outstandingId);
+						}
+					}
+				}
+
+				Runtime.runSync(
+					runtime,
+					Effect.logInfo("Promoting subscription to active", {
+						currentActiveId: activeSubscriptionByChannel.get(channel.value),
+						newActiveId: subscriptionId,
+					}),
+				);
+				activeSubscriptionByChannel.set(channel.value, subscriptionId);
+			};
+
 			lazerClient.addMessageListener((message) => {
 				Runtime.runSync(
 					runtime,
@@ -232,19 +396,59 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							message,
 						);
 
-						if (message.type === "json") {
-							if (message.value.type === "streamUpdated") {
-								if (!message.value.parsed) {
-									return yield* Effect.logWarning("No parsed message found", {
-										message,
-									});
-								}
+						if (message.type !== "json") {
+							return;
+						}
 
-								yield* handleStreamUpdatedMessage(
-									message.value.subscriptionId,
-									message.value.parsed,
-								);
+						const value = message.value;
+						if (value.type === "streamUpdated") {
+							if (!value.parsed) {
+								return yield* Effect.logWarning("No parsed message found", {
+									message,
+								});
 							}
+
+							yield* handleStreamUpdatedMessage(
+								value.subscriptionId,
+								value.parsed,
+							);
+							return;
+						}
+
+						if (
+							value.type === "subscribed" ||
+							value.type === "subscribedWithInvalidFeedIdsIgnored"
+						) {
+							yield* Effect.logInfo("Pyth Lazer successfully subscribed", {
+								message: value,
+							});
+							handleSuccessfulSubscriptionAck(value.subscriptionId);
+							return;
+						}
+
+						if (value.type === "subscriptionError") {
+							const channel = MutableHashMap.get(
+								subscriptionChannels,
+								value.subscriptionId,
+							);
+							MutableHashMap.remove(subscriptionChannels, value.subscriptionId);
+							if (Option.isSome(channel)) {
+								outstandingFor(channel.value).delete(value.subscriptionId);
+							}
+							yield* Effect.logWarning(
+								"Pyth Lazer subscription error; leaving the active subscription in place",
+								{
+									subscriptionId: value.subscriptionId,
+									error: value.error,
+								},
+							);
+							return;
+						}
+
+						if (value.type === "error") {
+							yield* Effect.logWarning("Pyth Lazer error", {
+								error: value.error,
+							});
 						}
 					}).pipe(Metric.trackDuration(messageHandleDurationMs)),
 				);
@@ -277,7 +481,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						);
 						// To make sure that we don't set the price for a price feed that we are not subscribed to
 						// otherwise requests may get an outdated price
-						if (!MutableHashMap.has(subscriptions, key)) {
+						if (!hasDesiredFeed(channel.value, priceFeed.priceFeedId)) {
 							continue;
 						}
 
@@ -291,78 +495,23 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 
 					const now = yield* Clock.currentTimeMillis;
 					for (const priceFeed of config.priceFeedIds) {
-						const subscription = {
-							channel: priceFeed.channel,
-							priceFeedId: priceFeed.id,
-						};
 						const key = priceFeedSubscriptionKey(
-							subscription.priceFeedId,
-							subscription.channel,
+							priceFeed.id,
+							priceFeed.channel,
 						);
-						yield* newPriceFeedRequests.offer(subscription);
-						// Add a request timestamp so it is tracked in the cleanup interval
+						addDesiredFeed(priceFeed.channel, priceFeed.id);
 						MutableHashMap.set(lastRequestToPriceFeed, key, now);
 					}
 
-					yield* Effect.forkDaemon(
-						Effect.gen(function* () {
-							const newPriceFeed = yield* newPriceFeedRequests.take;
-							const key = priceFeedSubscriptionKey(
-								newPriceFeed.priceFeedId,
-								newPriceFeed.channel,
-							);
-
-							if (MutableHashMap.has(subscriptions, key)) {
-								yield* Effect.logDebug(
-									`Price feed ${newPriceFeed.priceFeedId} is already subscribed to ${newPriceFeed.channel}`,
-								);
-								return;
-							}
-
-							yield* Effect.logInfo(
-								`Subscribing to price feed ${newPriceFeed.priceFeedId} on ${newPriceFeed.channel}`,
-							);
-
-							const newSubscriptionId = subscriptionId++;
-
-							MutableHashMap.set(subscriptions, key, newSubscriptionId);
-							MutableHashMap.set(
-								subscriptionChannels,
-								newSubscriptionId,
-								newPriceFeed.channel,
-							);
-
-							yield* Metric.set(
-								activeSubscriptions,
-								MutableHashMap.size(subscriptions),
-							);
-
-							lazerClient.subscribe({
-								type: "subscribe",
-								channel: newPriceFeed.channel,
-								formats: [],
-								properties: [
-									"bestAskPrice",
-									"bestBidPrice",
-									"confidence",
-									"emaConfidence",
-									"emaPrice",
-									"exponent",
-									"feedUpdateTimestamp",
-									"fundingRate",
-									"fundingRateInterval",
-									"fundingTimestamp",
-									"marketSession",
-									"price",
-									"publisherCount",
-								],
-								subscriptionId: newSubscriptionId,
-								priceFeedIds: [newPriceFeed.priceFeedId],
-								// Recommended by Pyth case a previously valid feed id becomes invalid (delisting, id changed, etc.)
-								ignoreInvalidFeedIds: true,
-							});
-						}).pipe(Effect.forever),
-					);
+					for (const [channel, feeds] of subscriptions) {
+						if (feeds.size === 0) {
+							continue;
+						}
+						yield* Effect.logInfo(
+							`Subscribing to ${feeds.size} price feed(s) on ${channel}`,
+						);
+						sendSubscriptionForChannel(channel);
+					}
 
 					yield* forkIdleCleanup({
 						lastRequest: lastRequestToPriceFeed,
@@ -371,39 +520,28 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						onExpire: (key) =>
 							Effect.gen(function* () {
 								const priceFeedId = priceFeedIdFromSubscriptionKey(key);
+								const channel = channelFromSubscriptionKey(key);
+
+								// Note we wait until the next request that grows the desired set
+								// to re-subscribe without this price feed.
+								removeDesiredFeed(channel, priceFeedId);
+
+								let hasOtherRate = false;
+								for (const otherChannel of subscriptions.keys()) {
+									if (hasDesiredFeed(otherChannel, priceFeedId)) {
+										hasOtherRate = true;
+										break;
+									}
+								}
+								if (!hasOtherRate) {
+									const symbol = getSymbolByPriceFeedId(priceFeedId);
+									if (Option.isSome(symbol)) {
+										MutableHashMap.remove(symbolToFeedId, symbol.value);
+									}
+								}
+
 								yield* Effect.logInfo(`Cleaning up price feed ${key}`);
 								yield* priceCache.deletePrice(key);
-
-								const subscriptionId = MutableHashMap.get(subscriptions, key);
-								if (Option.isSome(subscriptionId)) {
-									lazerClient.unsubscribe(subscriptionId.value);
-									MutableHashMap.remove(subscriptions, key);
-									MutableHashMap.remove(
-										subscriptionChannels,
-										subscriptionId.value,
-									);
-
-									yield* Metric.set(
-										activeSubscriptions,
-										MutableHashMap.size(subscriptions),
-									);
-
-									// If there are no other subscriptions to this price feed id under
-									// different channels, then remove the symbol to price feed id mapping.
-									const hasOtherRate = Array.from(subscriptions).some(
-										([subscriptionKey]) =>
-											priceFeedIdFromSubscriptionKey(subscriptionKey) ===
-											priceFeedId,
-									);
-									if (!hasOtherRate) {
-										const symbol = getSymbolByPriceFeedId(priceFeedId);
-										if (Option.isSome(symbol)) {
-											MutableHashMap.remove(symbolToFeedId, symbol.value);
-										}
-									}
-
-									yield* Effect.logInfo(`Unsubscribed from price feed ${key}`);
-								}
 							}),
 					});
 				}).pipe(Effect.annotateLogs("_name", "pyth-lazer"));
@@ -466,20 +604,20 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						}
 					}
 
-					const prices: PriceFeedWithSymbol[] = [];
 					const now = yield* Clock.currentTimeMillis;
 
-					// First subscribe to all the symbols that we have not subscribed to yet
+					let desiredSetGrew = false;
 					for (const priceFeedId of priceFeedIds) {
 						const key = priceFeedSubscriptionKey(priceFeedId, route.channel);
-						if (!MutableHashMap.has(lastRequestToPriceFeed, key)) {
-							yield* newPriceFeedRequests.offer({
-								channel: route.channel,
-								priceFeedId,
-							});
+						if (addDesiredFeed(route.channel, priceFeedId)) {
+							desiredSetGrew = true;
 						}
 
 						MutableHashMap.set(lastRequestToPriceFeed, key, now);
+					}
+
+					if (desiredSetGrew) {
+						sendSubscriptionForChannel(route.channel);
 					}
 
 					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
@@ -494,6 +632,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						{ concurrency: "unbounded" },
 					);
 
+					const prices: PriceFeedWithSymbol[] = [];
 					for (let i = 0; i < priceFeedIds.length; i++) {
 						const priceFeedId = priceFeedIds[i];
 						const price = results[i];
