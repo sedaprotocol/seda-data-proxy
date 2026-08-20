@@ -33,6 +33,7 @@ mock.module("@pythnetwork/pyth-lazer-sdk", () => ({
 
 const {
 	channelFromSubscriptionKey,
+	isU32PriceFeedId,
 	lagMsFromTimestampUs,
 	priceFeedSubscriptionKey,
 	PythLazerModuleService,
@@ -185,6 +186,22 @@ describe("lagMsFromTimestampUs", () => {
 	it("returns undefined for missing or invalid timestamps", () => {
 		expect(lagMsFromTimestampUs(1_000, undefined)).toBeUndefined();
 		expect(lagMsFromTimestampUs(1_000, "not-a-number")).toBeUndefined();
+	});
+});
+
+describe("isU32PriceFeedId", () => {
+	it("accepts integers from 0 through 2^32 - 1", () => {
+		expect(isU32PriceFeedId(0)).toBe(true);
+		expect(isU32PriceFeedId(1)).toBe(true);
+		expect(isU32PriceFeedId(0xffff_ffff)).toBe(true);
+	});
+
+	it("rejects negatives, fractions, and values above 2^32 - 1", () => {
+		expect(isU32PriceFeedId(-1)).toBe(false);
+		expect(isU32PriceFeedId(1.5)).toBe(false);
+		expect(isU32PriceFeedId(0x1_0000_0000)).toBe(false);
+		expect(isU32PriceFeedId(Number.POSITIVE_INFINITY)).toBe(false);
+		expect(isU32PriceFeedId(Number.NaN)).toBe(false);
 	});
 });
 
@@ -589,6 +606,40 @@ describe("bulk subscriptions", () => {
 							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
 							priceFeedsCleanupTtl: "1 minute",
 							priceFeedsCleanupInterval: "30 seconds",
+						}),
+					),
+				),
+			),
+		);
+	});
+
+	it("rejects a non-u32 numeric id with 400 and does not subscribe", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				expect(fake.subscribeCalls).toHaveLength(1);
+
+				for (const token of ["-1", "1.5", "4294967296"]) {
+					const response = yield* module.handleRequest(
+						...requestOn(route200ms, `1,${token}`),
+					);
+					expect(response.status).toBe(400);
+					const body = yield* Effect.promise(() => response.json());
+					expect(body.data_proxy_error).toContain("not a u32");
+					expect(body.data_proxy_error).toContain(token);
+				}
+
+				expect(fake.subscribeCalls).toHaveLength(1);
+				expect(sorted(fake.subscribeCalls[0].priceFeedIds)).toEqual([1]);
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
 						}),
 					),
 				),

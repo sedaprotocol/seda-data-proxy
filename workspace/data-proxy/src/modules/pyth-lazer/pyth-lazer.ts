@@ -42,6 +42,12 @@ type PriceFeedId = number;
 type PriceFeedSymbol = string;
 type PriceFeedSubscriptionKey = `${Channel}:${PriceFeedId}`;
 
+const U32_MAX = 0xffff_ffff;
+
+/** Pyth Lazer feed IDs are unsigned 32-bit integers (0 through 2^32 - 1). */
+export const isU32PriceFeedId = (id: number): boolean =>
+	Number.isInteger(id) && id >= 0 && id <= U32_MAX;
+
 export const priceFeedSubscriptionKey = (
 	priceFeedId: PriceFeedId,
 	channel: Channel,
@@ -580,7 +586,8 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 
 					// Normalize the ids or symbols to price feed ids
 					for (const symbolOrId of priceFeedIdsRaw) {
-						if (Number.isNaN(Number(symbolOrId))) {
+						const parsedId = Number(symbolOrId);
+						if (Number.isNaN(parsedId)) {
 							// Let's check if the symbol exists otherwise
 							const cachedSymbolToPriceFeedId = MutableHashMap.get(
 								symbolToFeedId,
@@ -600,7 +607,14 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							MutableHashMap.set(symbolToFeedId, symbolOrId, priceFeedId);
 							priceFeedIds.push(priceFeedId);
 						} else {
-							priceFeedIds.push(Number(symbolOrId));
+							if (!isU32PriceFeedId(parsedId)) {
+								return yield* Effect.fail(
+									new FailedToHandlePythLazerRequestError({
+										error: `Price feed ID is not a u32: ${symbolOrId}`,
+									}),
+								);
+							}
+							priceFeedIds.push(parsedId);
 						}
 					}
 

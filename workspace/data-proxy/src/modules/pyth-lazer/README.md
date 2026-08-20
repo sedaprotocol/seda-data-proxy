@@ -175,10 +175,10 @@ On a wait timeout, the entry still appears with `__sedaHasPrice: false` and with
 | Pyth feed fields | `__sedaHasPrice: true` | Fields from the stream (`price`, `bestBidPrice`, `bestAskPrice`, `exponent`, `confidence`, funding / EMA fields, etc.). |
 | `__sedaHasPrice` | always | `true` when a cached price was returned; `false` on wait timeout / miss. |
 
-Requests with more feeds than `maxFeedsPerRequest` return HTTP 400.
+Requests with more feeds than `maxFeedsPerRequest`, or a numeric token that is not a u32, return HTTP 400.
 
 
 ## Notes
 
-- Numeric request tokens are treated as feed IDs; non-numeric tokens are resolved to IDs via the Pyth metadata service and cached in-process.
+- Numeric request tokens are treated as feed IDs and must be a u32; non-numeric tokens are resolved to IDs via the Pyth metadata service and cached in-process until the feed idles out on every channel.
 - Pyth Lazer docs: https://docs.pyth.network/lazer
