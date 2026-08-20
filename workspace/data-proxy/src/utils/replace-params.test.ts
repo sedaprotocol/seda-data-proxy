@@ -38,8 +38,7 @@ describe("replaceParams", () => {
 				coinB: "usd",
 			},
 		);
-		process.env.MY_ENV_VARIABLE = undefined;
-
+		delete process.env.MY_ENV_VARIABLE;
 		expect(result).toBe("price/eth/usd?myparam=test");
 	});
 });

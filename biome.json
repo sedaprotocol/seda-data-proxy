@@ -11,5 +11,17 @@
 		"rules": {
 			"recommended": true
 		}
-	}
+	},
+	"overrides": [
+		{
+			"include": ["**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"noDelete": "off"
+					}
+				}
+			}
+		}
+	]
 }

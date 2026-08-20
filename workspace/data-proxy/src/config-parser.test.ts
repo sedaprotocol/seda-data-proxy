@@ -45,7 +45,7 @@ describe("parseConfig", () => {
 		expect(result.value.config.routes[0].headers).toEqual({
 			"x-secret": "api_key_shhh",
 		});
-		process.env.MY_SECRET = undefined;
+		delete process.env.MY_SECRET;
 	});
 
 	it("should error when a path arg has been used in the headers but was not set in the path", async () => {
@@ -101,7 +101,7 @@ describe("parseConfig", () => {
 		);
 
 		expect(result2).toBeOkResult();
-		process.env.MY_SECRET = undefined;
+		delete process.env.MY_SECRET;
 	});
 
 	it("should check if route header is using env variables and if they exist", async () => {
@@ -210,8 +210,7 @@ describe("parseConfig", () => {
 
 	describe("module validation", () => {
 		it("should reject a pyth-lazer module whose API key env var is unset", () => {
-			process.env.PYTH_API_KEY = undefined;
-
+			delete process.env.PYTH_API_KEY;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -254,7 +253,7 @@ describe("parseConfig", () => {
 				throw new Error(`expected pyth-lazer, got ${module.type}`);
 			}
 			expect(module.pythLazerApiKey).toBe("pyth-secret");
-			process.env.PYTH_API_KEY = undefined;
+			delete process.env.PYTH_API_KEY;
 		});
 
 		it("should resolve a dxfeed module without an auth token env key", () => {
@@ -281,8 +280,7 @@ describe("parseConfig", () => {
 		});
 
 		it("should reject a dxfeed module when its auth token env var is unset", () => {
-			process.env.DXFEED_TOKEN = undefined;
-
+			delete process.env.DXFEED_TOKEN;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -327,12 +325,11 @@ describe("parseConfig", () => {
 				throw new Error(`expected dxfeed, got ${module.type}`);
 			}
 			expect(module.dxfeedAuthToken).toBe("dxfeed-secret");
-			process.env.DXFEED_TOKEN = undefined;
+			delete process.env.DXFEED_TOKEN;
 		});
 
 		it("should reject a lo-tech module whose API key env var is unset", () => {
-			process.env.LOTECH_API_KEY = undefined;
-
+			delete process.env.LOTECH_API_KEY;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -383,7 +380,7 @@ describe("parseConfig", () => {
 			expect(module.loTechApiKey).toBe("lo-tech-secret");
 			expect(module.priceFeeds[0]?.exchange).toBe("us_equities");
 			expect(module.supportedExchanges).toEqual(["us_equities", "futures"]);
-			process.env.LOTECH_API_KEY = undefined;
+			delete process.env.LOTECH_API_KEY;
 		});
 
 		it("should reject a lo-tech module with an unsupported exchange", () => {
@@ -413,7 +410,7 @@ describe("parseConfig", () => {
 			expect(result).toBeErrResult(
 				'Unsupported LO:TECH exchange "binance". Supported exchanges: us_equities, futures',
 			);
-			process.env.LOTECH_API_KEY = undefined;
+			delete process.env.LOTECH_API_KEY;
 		});
 
 		it("should resolve per-feed exchanges for a lo-tech module", () => {
@@ -454,7 +451,7 @@ describe("parseConfig", () => {
 				{ symbol: "NVDA", exchange: "us_equities", dataType: "PRICE" },
 				{ symbol: "BTC-USDT:SPOT", exchange: "futures", dataType: "PRICE" },
 			]);
-			process.env.LOTECH_API_KEY = undefined;
+			delete process.env.LOTECH_API_KEY;
 		});
 
 		it("should reject a lo-tech module without exchange on each price feed", () => {
@@ -478,12 +475,11 @@ describe("parseConfig", () => {
 			expect(result).toBeErrResult(
 				'.modules.0.priceFeeds.0.exchange: Invalid key: Expected "exchange" but received undefined',
 			);
-			process.env.LOTECH_API_KEY = undefined;
+			delete process.env.LOTECH_API_KEY;
 		});
 
 		it("should reject a volmex module whose API key env var is unset", () => {
-			process.env.VOLMEX_API_KEY = undefined;
-
+			delete process.env.VOLMEX_API_KEY;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -524,7 +520,7 @@ describe("parseConfig", () => {
 				throw new Error(`expected volmex, got ${module.type}`);
 			}
 			expect(Redacted.value(module.volmexApiKey)).toBe("volmex-api-key");
-			process.env.VOLMEX_API_KEY = undefined;
+			delete process.env.VOLMEX_API_KEY;
 		});
 
 		it("should accept a volmex REST route with upstreamPath", () => {
@@ -568,11 +564,11 @@ describe("parseConfig", () => {
 			}
 			expect(module.wsBaseUrl).toBe("wss://ws.volmex.finance");
 			expect(module.restBaseUrl).toBe("https://www.volmex.finance");
-			process.env.VOLMEX_API_KEY = undefined;
+			delete process.env.VOLMEX_API_KEY;
 		});
 
 		it("should reject a pm-insights module when the email env var is unset", () => {
-			process.env.PM_INSIGHTS_EMAIL = undefined;
+			delete process.env.PM_INSIGHTS_EMAIL;
 			process.env.PM_INSIGHTS_PASSWORD = "pw";
 
 			const [result] = Effect.runSync(
@@ -596,8 +592,7 @@ describe("parseConfig", () => {
 
 		it("should reject a pm-insights module when the password env var is unset", () => {
 			process.env.PM_INSIGHTS_EMAIL = "user@example.com";
-			process.env.PM_INSIGHTS_PASSWORD = undefined;
-
+			delete process.env.PM_INSIGHTS_PASSWORD;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -616,7 +611,7 @@ describe("parseConfig", () => {
 				"Module pm-insights requires PM_INSIGHTS_PASSWORD to be set",
 			);
 
-			process.env.PM_INSIGHTS_EMAIL = undefined;
+			delete process.env.PM_INSIGHTS_EMAIL;
 		});
 
 		it("should resolve a pm-insights module and track email and password as secrets", () => {
@@ -649,8 +644,8 @@ describe("parseConfig", () => {
 			expect(result.value.envSecrets.has("user@example.com")).toBe(true);
 			expect(result.value.envSecrets.has("secret-password")).toBe(true);
 
-			process.env.PM_INSIGHTS_EMAIL = undefined;
-			process.env.PM_INSIGHTS_PASSWORD = undefined;
+			delete process.env.PM_INSIGHTS_EMAIL;
+			delete process.env.PM_INSIGHTS_PASSWORD;
 		});
 
 		it.each([
@@ -674,8 +669,16 @@ describe("parseConfig", () => {
 		])(
 			"should reject a chainlink-streams module when the $missing env var is unset",
 			({ env, expected }) => {
-				process.env.CHAINLINK_KEY = env.CHAINLINK_KEY;
-				process.env.CHAINLINK_SECRET = env.CHAINLINK_SECRET;
+				if (env.CHAINLINK_KEY === undefined) {
+					delete process.env.CHAINLINK_KEY;
+				} else {
+					process.env.CHAINLINK_KEY = env.CHAINLINK_KEY;
+				}
+				if (env.CHAINLINK_SECRET === undefined) {
+					delete process.env.CHAINLINK_SECRET;
+				} else {
+					process.env.CHAINLINK_SECRET = env.CHAINLINK_SECRET;
+				}
 
 				const [result] = Effect.runSync(
 					parseConfig({
@@ -694,8 +697,8 @@ describe("parseConfig", () => {
 
 				expect(result).toBeErrResult(expected);
 
-				process.env.CHAINLINK_KEY = undefined;
-				process.env.CHAINLINK_SECRET = undefined;
+				delete process.env.CHAINLINK_KEY;
+				delete process.env.CHAINLINK_SECRET;
 			},
 		);
 
@@ -728,13 +731,12 @@ describe("parseConfig", () => {
 			expect(result.value.envSecrets.has("key")).toBe(true);
 			expect(result.value.envSecrets.has("secret")).toBe(true);
 
-			process.env.CHAINLINK_KEY = undefined;
-			process.env.CHAINLINK_SECRET = undefined;
+			delete process.env.CHAINLINK_KEY;
+			delete process.env.CHAINLINK_SECRET;
 		});
 
 		it("should reject a hydromancer module whose API key env var is unset", () => {
-			process.env.HYDROMANCER_API_KEY = undefined;
-
+			delete process.env.HYDROMANCER_API_KEY;
 			const [result] = Effect.runSync(
 				parseConfig({
 					routes: [],
@@ -781,7 +783,7 @@ describe("parseConfig", () => {
 			expect(module.hydromancerApiKey).toBe("hydromancer-secret");
 			expect(result.value.envSecrets.has("hydromancer-secret")).toBe(true);
 
-			process.env.HYDROMANCER_API_KEY = undefined;
+			delete process.env.HYDROMANCER_API_KEY;
 		});
 	});
 
