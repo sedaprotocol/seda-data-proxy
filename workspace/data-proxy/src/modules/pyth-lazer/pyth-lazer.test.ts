@@ -33,7 +33,6 @@ mock.module("@pythnetwork/pyth-lazer-sdk", () => ({
 
 const {
 	channelFromSubscriptionKey,
-	isU32PriceFeedId,
 	lagMsFromTimestampUs,
 	priceFeedSubscriptionKey,
 	PythLazerModuleService,
@@ -45,7 +44,7 @@ const makeConfig = (
 	...v.parse(PythLazerModuleConfigSchema, {
 		name: "pyth",
 		type: "pyth-lazer",
-		priceFeedIds: [],
+		priceFeedIds: [{ name: "BTC/USD", id: 1 }],
 		pythLazerApiKeyEnvKey: "PYTH_LAZER_API_KEY",
 		...overrides,
 	}),
@@ -195,22 +194,6 @@ describe("lagMsFromTimestampUs", () => {
 	it("returns undefined for missing or invalid timestamps", () => {
 		expect(lagMsFromTimestampUs(1_000, undefined)).toBeUndefined();
 		expect(lagMsFromTimestampUs(1_000, "not-a-number")).toBeUndefined();
-	});
-});
-
-describe("isU32PriceFeedId", () => {
-	it("accepts integers from 0 through 2^32 - 1", () => {
-		expect(isU32PriceFeedId(0)).toBe(true);
-		expect(isU32PriceFeedId(1)).toBe(true);
-		expect(isU32PriceFeedId(0xffff_ffff)).toBe(true);
-	});
-
-	it("rejects negatives, fractions, and values above 2^32 - 1", () => {
-		expect(isU32PriceFeedId(-1)).toBe(false);
-		expect(isU32PriceFeedId(1.5)).toBe(false);
-		expect(isU32PriceFeedId(0x1_0000_0000)).toBe(false);
-		expect(isU32PriceFeedId(Number.POSITIVE_INFINITY)).toBe(false);
-		expect(isU32PriceFeedId(Number.NaN)).toBe(false);
 	});
 });
 
@@ -692,27 +675,43 @@ describe("bulk subscriptions", () => {
 			Effect.gen(function* () {
 				const module = yield* ModuleService;
 				yield* module.start();
-				expect(fake.subscribeCalls).toHaveLength(0);
+				// Seed feed is on a third channel so 200ms/realtime start empty.
+				expect(fake.subscribeCalls).toHaveLength(1);
+				expect(fake.subscribeCalls[0].channel).toBe("fixed_rate@1000ms");
 
 				const realtimeFiber = yield* Effect.fork(
 					module.handleRequest(...requestOn(routeRealtime, "1")),
 				);
 				yield* TestClock.adjust(Duration.millis(0));
-				expect(fake.subscribeCalls[0].channel).toBe("real_time");
-				expect(fake.subscribeCalls[0].priceFeedIds).toEqual([1]);
+				expect(fake.subscribeCalls[1].channel).toBe("real_time");
+				expect(fake.subscribeCalls[1].priceFeedIds).toEqual([1]);
 
 				const msFiber = yield* Effect.fork(
 					module.handleRequest(...requestOn(route200ms, "1")),
 				);
 				yield* TestClock.adjust(Duration.millis(0));
-				expect(fake.subscribeCalls[1].channel).toBe("fixed_rate@200ms");
-				expect(fake.subscribeCalls[1].priceFeedIds).toEqual([1]);
+				expect(fake.subscribeCalls[2].channel).toBe("fixed_rate@200ms");
+				expect(fake.subscribeCalls[2].priceFeedIds).toEqual([1]);
 
-				fake.deliverTick(fake.subscribeCalls[0].subscriptionId, [1]);
 				fake.deliverTick(fake.subscribeCalls[1].subscriptionId, [1]);
+				fake.deliverTick(fake.subscribeCalls[2].subscriptionId, [1]);
 				yield* Fiber.join(realtimeFiber);
 				yield* Fiber.join(msFiber);
-			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [
+								{
+									name: "SEED/USD",
+									id: 99,
+									channel: "fixed_rate@1000ms",
+								},
+							],
+						}),
+					),
+				),
+			),
 		);
 	});
 });

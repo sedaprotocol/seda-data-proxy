@@ -21,6 +21,7 @@ import type { PythLazerModuleConfig } from "../../config/pyth-lazer-module-confi
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
+import { isU32 } from "../../utils/number";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
@@ -41,12 +42,6 @@ export class FailedToCreateLazerClientError extends Data.TaggedError(
 type PriceFeedId = number;
 type PriceFeedSymbol = string;
 type PriceFeedSubscriptionKey = `${Channel}:${PriceFeedId}`;
-
-const U32_MAX = 0xffff_ffff;
-
-/** Pyth Lazer feed IDs are unsigned 32-bit integers (0 through 2^32 - 1). */
-export const isU32PriceFeedId = (id: number): boolean =>
-	Number.isInteger(id) && id >= 0 && id <= U32_MAX;
 
 export const priceFeedSubscriptionKey = (
 	priceFeedId: PriceFeedId,
@@ -589,7 +584,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							Effect.gen(function* () {
 								const parsedId = Number(symbolOrId);
 								if (!Number.isNaN(parsedId)) {
-									if (!isU32PriceFeedId(parsedId)) {
+									if (!isU32(parsedId)) {
 										return yield* Effect.fail(
 											new FailedToHandlePythLazerRequestError({
 												error: `Price feed ID is not a u32: ${symbolOrId}`,

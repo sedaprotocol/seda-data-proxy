@@ -24,7 +24,7 @@ Pyth cannot append feeds to an existing subscription id, so a grow sends a **new
 | `type` | yes | — | Must be `"pyth-lazer"`. |
 | `name` | yes | — | Module name referenced by routes as `moduleName`. |
 | `pythLazerApiKeyEnvKey` | yes | — | Env var that holds the Pyth Lazer API token. |
-| `priceFeedIds` | yes | — | Feeds to subscribe to on start. Each entry: `name`, `id`, optional `channel` (`fixed_rate@200ms` if omitted). |
+| `priceFeedIds` | no | `[{ name: "BTC/USD", id: 1 }]` on `fixed_rate@200ms` | Non-empty list of feeds to subscribe to on start. Each entry: `name`, `id` (u32), optional `channel` (`fixed_rate@200ms` if omitted). Omit to use the default BTC feed so the WebSocket pool stays active; an explicit empty list is rejected. |
 | `maxFeedsPerRequest` | no | `100` | Max feed IDs / symbols allowed in a single request. |
 | `priceFeedsCleanupTtl` | no | `"1 hour"` | Idle time before an unused price feed is cleaned up. |
 | `priceFeedsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |

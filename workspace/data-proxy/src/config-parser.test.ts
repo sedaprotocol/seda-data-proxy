@@ -256,6 +256,77 @@ describe("parseConfig", () => {
 			delete process.env.PYTH_API_KEY;
 		});
 
+		it("should reject a pyth-lazer module with an empty priceFeedIds list", () => {
+			process.env.PYTH_API_KEY = "pyth-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pyth-lazer",
+							name: "pyth",
+							pythLazerApiKeyEnvKey: "PYTH_API_KEY",
+							priceFeedIds: [],
+						},
+					],
+				}),
+			);
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain("at least one feed");
+			delete process.env.PYTH_API_KEY;
+		});
+
+		it("should default priceFeedIds to BTC/USD when omitted", () => {
+			process.env.PYTH_API_KEY = "pyth-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pyth-lazer",
+							name: "pyth",
+							pythLazerApiKeyEnvKey: "PYTH_API_KEY",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "pyth-lazer") {
+				throw new Error(`expected pyth-lazer, got ${module.type}`);
+			}
+			expect(module.priceFeedIds).toEqual([
+				{ name: "BTC/USD", id: 1, channel: "fixed_rate@200ms" },
+			]);
+			delete process.env.PYTH_API_KEY;
+		});
+
+		it("should reject a pyth-lazer module with a non-u32 price feed id", () => {
+			process.env.PYTH_API_KEY = "pyth-secret";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "pyth-lazer",
+							name: "pyth",
+							pythLazerApiKeyEnvKey: "PYTH_API_KEY",
+							priceFeedIds: [{ name: "BAD/USD", id: -1 }],
+						},
+					],
+				}),
+			);
+
+			assertIsErrorResult(result);
+			expect(result.error).toContain("u32");
+			delete process.env.PYTH_API_KEY;
+		});
+
 		it("should resolve a dxfeed module without an auth token env key", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
