@@ -381,6 +381,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				Runtime.runSync(
 					runtime,
 					Effect.logInfo("Promoting subscription to active", {
+						channel: channel.value,
 						currentActiveId: activeSubscriptionByChannel.get(channel.value),
 						newActiveId: subscriptionId,
 					}),
