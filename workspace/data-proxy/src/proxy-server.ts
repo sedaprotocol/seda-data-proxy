@@ -192,12 +192,6 @@ export const startProxyServer = (
 					? multiEndpoint.path
 					: `/${multiEndpoint.path}`;
 
-				// Legacy multi routes are not valid targets.
-				// TODO(#162): Adjust once legacy multi routes are deprecated.
-				const eligibleRoutes = config.routes.filter(
-					(route) => route.type !== "multi",
-				);
-
 				app.route("OPTIONS", multiPath, optionsHandler);
 
 				app.route(
@@ -225,7 +219,7 @@ export const startProxyServer = (
 									config,
 									dataProxy,
 									moduleHandlers,
-									eligibleRoutes,
+									routes: config.routes,
 									multiEndpoint,
 								});
 							}).pipe(

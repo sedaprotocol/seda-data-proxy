@@ -110,7 +110,7 @@ const hydromancerRoute = {
 const runMultiEndpoint = async (
 	body: unknown,
 	moduleHandlers: Map<string, ModuleHandlers>,
-	eligibleRoutes: Config["routes"],
+	routes: Config["routes"],
 	multiEndpoint: MultiEndpoint = {
 		enable: true,
 		path: DEFAULT_MULTI_ENDPOINT_PATH,
@@ -140,7 +140,7 @@ const runMultiEndpoint = async (
 			body: bodyText,
 		}),
 		moduleHandlers,
-		eligibleRoutes,
+		routes,
 		multiEndpoint,
 	};
 
@@ -287,7 +287,7 @@ describe("handleMultiEndpointRequest", () => {
 					body: "{not-json",
 				}),
 				moduleHandlers: new Map(),
-				eligibleRoutes: [],
+				routes: [],
 				multiEndpoint: {
 					enable: true,
 					path: DEFAULT_MULTI_ENDPOINT_PATH,

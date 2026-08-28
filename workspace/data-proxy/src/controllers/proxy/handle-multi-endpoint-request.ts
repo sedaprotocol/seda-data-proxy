@@ -26,7 +26,7 @@ export type HandleMultiEndpointRequestParams = {
 	config: Config;
 	request: Request;
 	moduleHandlers: ReadonlyMap<string, ModuleHandlers>;
-	eligibleRoutes: Readonly<Config["routes"]>;
+	routes: Readonly<Config["routes"]>;
 	multiEndpoint: MultiEndpoint;
 };
 
@@ -118,27 +118,12 @@ const runSubRequest = (
 ) =>
 	Effect.gen(function* () {
 		const method = subRequest.method.toUpperCase();
-		const matched = findMatchingRoute(
-			params.eligibleRoutes,
-			subRequest.path,
-			method,
-		);
+		const matched = findMatchingRoute(params.routes, subRequest.path, method);
 
 		if (!matched) {
 			return {
 				error: `No configured route matches ${method} ${subRequest.path}`,
 				status: 404,
-			};
-		}
-
-		// Defense in depth: eligibleRoutes already excludes type "multi", but
-		// nesting a multi route would re-enter fan-out without a clear bound.
-		// TODO(#162): Adjust once legacy multi routes are deprecated.
-		if (matched.route.type === "multi") {
-			return {
-				error:
-					"Nesting a multi route in the multi endpoint is not supported; reference the underlying module routes instead",
-				status: 400,
 			};
 		}
 

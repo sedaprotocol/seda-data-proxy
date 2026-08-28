@@ -40,32 +40,6 @@ Pyth cannot append feeds to an existing subscription id, so a grow sends a **new
 | `fetchFromModule` | yes | — | Template producing one or more comma-separated feed IDs or symbols. |
 | `channel` | no | `fixed_rate@200ms` | Channel for this route’s subscriptions and cache lookups (`real_time`, `fixed_rate@50ms`, `fixed_rate@200ms`, `fixed_rate@1000ms`). |
 
-### Multi-route fetch
-
-When a `multi` route targets this module, each fetch may set its own `channel` (defaults to `fixed_rate@200ms` if omitted):
-
-```jsonc
-{
-  "type": "multi",
-  "path": "/:symbol",
-  "fetches": [
-    {
-      "name": "pyth_200ms",
-      "moduleName": "pyth",
-      "type": "pyth-lazer",
-      "fetchFromModule": "{:symbol}" // default (fixed_rate@200ms)
-    },
-    {
-      "name": "pyth_realtime",
-      "moduleName": "pyth",
-      "type": "pyth-lazer",
-      "fetchFromModule": "{:symbol}",
-      "channel": "real_time" // overrides the default
-    }
-  ]
-}
-```
-
 ### Example Configuration
 
 ```jsonc

@@ -380,85 +380,6 @@ Lighter example — numeric market ids (for example `1` for BTC on mainnet):
 
 Module responses include a per-item `__sedaHasPrice` flag (`true` when a price was resolved, `false` on timeout or invalid input). The first request for a new symbol may need a retry while the WebSocket subscription warms up.
 
-#### Multi routes (To be deprecated)
-
-A **multi** route fans out to several module handlers in one request. Each entry in `fetches` runs concurrently; results are merged into a single JSON object keyed by fetch `name`.
-
-- **`fetchFromModule`** — forwarded to modules that read symbols or ids from a template (Binance, Lighter, Pyth, and so on).
-- **`body`** — forwarded to modules that expect a request body (for example Hydromancer `assetContext`).
-- Sub-fetch failures are **non-fatal**: the failing source appears as an `{ "error": "...", "status": ... }` entry; other sources still resolve. The multi route itself returns HTTP `200`.
-- Fetch `name` values must be **unique** within a route (validated at startup).
-- A path element of **`_`** means "no asset for this source" and is dropped before templates are filled, so `/multi/BTC,_,SOL/1,2,3/BTC,ETH,SOL` asks the first source for BTC and SOL only. Only whole elements count, so `BTC_USD` is unaffected.
-- A fetch whose param is left **entirely empty** is skipped without calling its module; its entry is `[]` for the price modules, `{}` for Hydromancer, `null` for `pm-insights` and `chainlink-streams`. `_` and `sources` compose: `sources` selects, `_` subtracts.
-
-Example — Binance spot, Lighter perp ticker, and Hydromancer asset context in one call:
-
-```jsonc
-{
-  "routeGroup": "proxy",
-  "modules": [
-    { "name": "bin", "type": "binance" },
-    { "name": "lig", "type": "lighter" },
-    {
-      "name": "hydro",
-      "type": "hydromancer",
-      "wsUrl": "wss://api.hydromancer.xyz/ws",
-      "restBaseUrl": "https://api.hydromancer.xyz",
-      "hydromancerApiKeyEnvKey": "HYDROMANCER_API_KEY_MAINNET"
-    }
-  ],
-  "routes": [
-    {
-      "type": "multi",
-      "path": "/multi/:symbol/:market/:hydroTicker",
-      "method": ["GET"],
-      "fetches": [
-        {
-          "name": "binance",
-          "moduleName": "bin",
-          "type": "binance",
-          "fetchFromModule": "{:symbol}USDT"
-        },
-        {
-          "name": "lighter",
-          "moduleName": "lig",
-          "type": "lighter",
-          "fetchFromModule": "{:market}"
-        },
-        {
-          "name": "hydromancer",
-          "moduleName": "hydro",
-          "type": "hydromancer",
-          "body": "{\"type\":\"assetContext\",\"coin\":\"{:hydroTicker}\"}"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Test locally (disable proof verification for easier debugging):
-
-```bash
-curl -s "http://127.0.0.1:5384/proxy/multi/BTC/1/BTC" | jq .
-
-# Skip Binance for this request
-curl -s "http://127.0.0.1:5384/proxy/multi/_/1/BTC" | jq .
-```
-
-Example response shape:
-
-```jsonc
-{
-  "binance": [{ "symbol": "BTC", "__sedaHasPrice": true, "s": "BTCUSDT", "b": "...", "a": "..." }],
-  "lighter": [{ "marketId": "1", "__sedaHasPrice": true, "s": "BTC", "b": { "price": "..." } }],
-  "hydromancer": { "coin": "BTC", "markPx": "...", "..." }
-}
-```
-
-> [!NOTE]
-> Multi routes skip the global `__sedaHasPrice` gate used on single-source routes, because a partial miss on one source is expected and reported inside the combined payload.
-
 ### Multi endpoint
 
 The **multi endpoint** allows clients to send multiple sub-requests to configured routes (module or upstream) in a single `POST`. Clients specify those sub-requests in the body (see below).
@@ -540,7 +461,6 @@ Behavior notes:
 - Sub-request failures are **non-fatal**: a failing id appears as `{ "error": "...", "status": ... }`; other ids still resolve. The outer response is still signed as HTTP `200`.
 - Path params are filled the same way as a direct call (`/binance/:symbols` + `/binance/BTC` → `{ symbols: "BTC" }`).
 - Parent request headers are **not** forwarded to sub-requests. Use the per-sub-request `headers` field when a sub-request needs headers (route-configured headers still apply as usual).
-- Legacy `type: "multi"` routes are **not** valid targets (nesting is rejected).
 - Invalid JSON, schema errors, empty body, or exceeding `maxSubRequests` return HTTP `400`.
 
 ### Status Endpoint

@@ -11,7 +11,6 @@ import { HttpClientService } from "../../services/http-client";
 import { queryJson } from "../../utils/query-json";
 import { replaceParams } from "../../utils/replace-params";
 import { createUrlSearchParams } from "../../utils/search-params";
-import { handleMultiRequest } from "./handle-multi-request";
 import { handleUpstreamRequest } from "./handle-upstream-request";
 
 export type ExecuteRouteParams = {
@@ -51,18 +50,6 @@ export const executeRoute = ({
 		);
 
 		const upstreamResponse = yield* Match.value(route).pipe(
-			// TODO(#162): To be deprecated
-			Match.when({ type: "multi" }, (multiModuleRoute) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Handling legacy multi request");
-					return yield* handleMultiRequest(
-						multiModuleRoute,
-						params,
-						request,
-						moduleHandlers,
-					);
-				}),
-			),
 			Match.when({ type: "upstream" }, (upstreamRoute) =>
 				handleUpstreamRequest({
 					route: upstreamRoute,
@@ -165,7 +152,7 @@ export const executeRoute = ({
 		// we should remove this once all ops have updated to the new response format.
 		// Multi routes return arbitrary per-source payloads where a per-source miss
 		// is expected, so the price gate does not apply.
-		if (route.type !== "multi" && !requestSearchParams.has("skipPriceErrors")) {
+		if (!requestSearchParams.has("skipPriceErrors")) {
 			if (upstreamTextResponse.includes(`"${HAS_PRICE_KEY}":false`)) {
 				return yield* Effect.fail(
 					new NotOkUpstreamResponseError({

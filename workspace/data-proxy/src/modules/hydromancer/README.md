@@ -101,31 +101,6 @@ curl -s "http://127.0.0.1:5384/proxy/hydro" \
   -d '{"type":"assetContext","coins":"BTC,ETH"}' | jq .
 ```
 
-### Multi-route fetch
-
-On a `multi` route, set `body` to an `assetContext` template. Path params are substituted with `{:param}`:
-
-```jsonc
-{
-  "type": "multi",
-  "path": "/multi/:symbols/:markets/:hydroTickers",
-  "method": ["GET"],
-  "fetches": [
-    {
-      "name": "hydromancer",
-      "moduleName": "hydro",
-      "type": "hydromancer",
-      "body": "{\"type\":\"assetContext\",\"coins\":\"{:hydroTickers}\"}"
-    }
-  ]
-}
-```
-
-```bash
-# hydroTickers becomes coins:"BTC,ETH", then expanded to BTC and ETH
-curl -s "http://127.0.0.1:5384/proxy/multi/BTCUSDT,ETHUSDT/1,2/BTC,ETH" | jq .
-```
-
 ## Request body
 
 | Shape | Behavior |

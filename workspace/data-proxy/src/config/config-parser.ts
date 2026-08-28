@@ -52,10 +52,6 @@ import {
 	MultiEndpointSchema,
 } from "./multi-endpoint-config";
 import {
-	type MultiModuleRoute,
-	MultiModuleRouteSchema,
-} from "./multi-module-config";
-import {
 	type PmInsightsModuleRoute,
 	PmInsightsModuleRouteSchema,
 	validatePmInsightsModuleRoute,
@@ -159,7 +155,6 @@ const ConfigSchema = v.strictObject(
 				PmInsightsModuleRouteSchema,
 				BinanceModuleRouteSchema,
 				LighterModuleRouteSchema,
-				MultiModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -204,8 +199,7 @@ export type Route =
 	| VolmexModuleRoute
 	| PmInsightsModuleRoute
 	| BinanceModuleRoute
-	| LighterModuleRoute
-	| MultiModuleRoute;
+	| LighterModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -349,57 +343,6 @@ export const parseConfig = (
 
 			if (route.type === "lighter") {
 				yield* validateLighterModuleRoute(route);
-				continue;
-			}
-
-			if (route.type === "multi") {
-				const seenFetchNames = new Set<string>();
-				for (const fetch of route.fetches) {
-					// Fetch names key the combined response, so a duplicate silently overwrites an earlier fetch.
-					if (seenFetchNames.has(fetch.name)) {
-						return [
-							Result.err(
-								`Multi route ${route.path} has a duplicate fetch name "${fetch.name}"; fetch names must be unique`,
-							),
-							hasWarnings,
-						];
-					}
-					seenFetchNames.add(fetch.name);
-
-					const target = config.modules.find(
-						(m) => m.name === fetch.moduleName,
-					);
-					if (!target) {
-						return [
-							Result.err(
-								`Multi route fetch "${fetch.name}" references unknown module "${fetch.moduleName}"`,
-							),
-							hasWarnings,
-						];
-					}
-					if (target.type !== fetch.type) {
-						return [
-							Result.err(
-								`Multi route fetch "${fetch.name}" has type "${fetch.type}" but module "${fetch.moduleName}" is "${target.type}"`,
-							),
-							hasWarnings,
-						];
-					}
-					// Every {:var} used by a fetch template must be provided by the path.
-					for (const template of [fetch.fetchFromModule, fetch.body]) {
-						if (!template) continue;
-						for (const match of template.matchAll(varRegex)) {
-							if (!route.path.includes(match[1])) {
-								return [
-									Result.err(
-										`Multi route fetch "${fetch.name}" requires ${match[1]}, but it is not given in route ${route.path}`,
-									),
-									hasWarnings,
-								];
-							}
-						}
-					}
-				}
 				continue;
 			}
 
