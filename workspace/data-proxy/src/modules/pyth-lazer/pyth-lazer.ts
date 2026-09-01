@@ -367,6 +367,11 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					return;
 				}
 
+				// Ignore duplicate acks for the already-active subscription.
+				if (active !== undefined && subscriptionId === active) {
+					return;
+				}
+
 				// Promote to active and unsubscribe any lower outstanding IDs on
 				// this channel as a precaution for acks that never arrive.
 				for (const outstandingId of [...outstanding]) {

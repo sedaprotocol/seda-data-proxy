@@ -456,6 +456,31 @@ describe("bulk subscriptions", () => {
 		);
 	});
 
+	it("ignores duplicate ack for the already-active subscription", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				const first = fake.subscribeCalls[0].subscriptionId;
+
+				fake.ack(first);
+				fake.ackWithInvalidIgnored(first);
+				expect(fake.unsubscribeCalls).toEqual([]);
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						}),
+					),
+				),
+			),
+		);
+	});
+
 	it("treats subscribedWithInvalidFeedIdsIgnored as a successful ack", async () => {
 		const fake = makeFakeLazerClient();
 		fakeHolder.current = fake;
