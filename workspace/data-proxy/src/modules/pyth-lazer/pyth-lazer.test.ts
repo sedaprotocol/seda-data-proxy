@@ -92,17 +92,33 @@ const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 		messageListener?.({ type: "json", value } as JsonOrBinaryResponse);
 	};
 
-	const deliverTick = (subscriptionId: number, priceFeedIds: number[]) => {
+	const deliverTick = (
+		subscriptionId: number,
+		priceFeedIds: number[],
+		timestampUs = "0",
+	) => {
 		emitJson({
 			type: "streamUpdated",
 			subscriptionId,
 			parsed: {
-				timestampUs: "0",
+				timestampUs,
 				priceFeeds: priceFeedIds.map((priceFeedId) => ({
 					priceFeedId,
 					price: `${priceFeedId * 100}`,
 				})),
 			},
+		});
+	};
+
+	const deliverParsed = (
+		subscriptionId: number,
+		timestampUs: string,
+		priceFeeds: Array<Record<string, unknown> & { priceFeedId: number }>,
+	) => {
+		emitJson({
+			type: "streamUpdated",
+			subscriptionId,
+			parsed: { timestampUs, priceFeeds },
 		});
 	};
 
@@ -161,6 +177,7 @@ const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 		subscribeCalls,
 		unsubscribeCalls,
 		deliverTick,
+		deliverParsed,
 		ack,
 		ackWithInvalidIgnored,
 		ackError,
@@ -767,6 +784,269 @@ describe("handleRequest symbol resolution", () => {
 				);
 				expect(response.status).toBe(200);
 				expect(maxInFlight).toBe(2);
+			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
+		);
+	});
+});
+
+const latestPriceRoute = v.parse(PythLazerModuleRouteSchema, {
+	type: "pyth-lazer",
+	moduleName: "pyth",
+	path: "/v1/latest_price",
+	method: ["POST"],
+	channel: "fixed_rate@200ms",
+});
+
+const latestPriceBody = (feeds: {
+	priceFeedIds?: number[];
+	priceFeedSymbols?: string[];
+	channel?: string;
+}) =>
+	JSON.stringify({
+		formats: [],
+		jsonBinaryEncoding: "base64",
+		parsed: true,
+		properties: ["price", "exponent", "feedUpdateTimestamp"],
+		...feeds,
+	});
+
+describe("handleRequest latest_price surface (POST body)", () => {
+	it("returns the parsed Pro shape with null-filled optional fields", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				fake.deliverParsed(fake.subscribeCalls[0].subscriptionId, "100", [
+					{
+						priceFeedId: 1,
+						price: "111",
+						exponent: -8,
+						feedUpdateTimestamp: 1_700_000_000_000_000,
+					},
+				]);
+
+				const response = yield* module.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					latestPriceBody({ priceFeedIds: [1] }),
+				);
+
+				expect(response.status).toBe(200);
+				const body = (yield* Effect.promise(() => response.json())) as {
+					parsed: {
+						timestampUs: string;
+						priceFeeds: Record<string, unknown>[];
+					};
+				};
+				expect(body.parsed.timestampUs).toBe("100");
+				expect(body.parsed.priceFeeds[0]).toEqual({
+					priceFeedId: 1,
+					exponent: -8,
+					feedUpdateTimestamp: 1_700_000_000_000_000,
+					bestAskPrice: null,
+					bestBidPrice: null,
+					confidence: null,
+					emaConfidence: null,
+					emaPrice: null,
+					fundingRate: null,
+					fundingRateInterval: null,
+					fundingTimestamp: null,
+					marketSession: null,
+					price: "111",
+					publisherCount: null,
+				});
+				expect(JSON.stringify(body)).not.toContain(HAS_PRICE_KEY);
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						}),
+					),
+				),
+			),
+		);
+	});
+
+	it("uses the channel from the request body when provided", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				expect(fake.subscribeCalls[0].channel).toBe("fixed_rate@200ms");
+
+				const fiber = yield* Effect.fork(
+					module.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({
+							priceFeedIds: [1],
+							channel: "real_time",
+						}),
+					),
+				);
+				yield* TestClock.adjust(Duration.millis(0));
+
+				const realtimeId = fake.subscribeCalls.find(
+					(call) => call.channel === "real_time",
+				)?.subscriptionId;
+				expect(realtimeId).toBeDefined();
+				if (realtimeId === undefined) {
+					throw new Error("expected real_time subscription id");
+				}
+				fake.deliverTick(realtimeId, [1], "200");
+
+				const response = yield* Fiber.join(fiber);
+				expect(response.status).toBe(200);
+				const body = (yield* Effect.promise(() => response.json())) as {
+					parsed: { timestampUs: string; priceFeeds: { price: string }[] };
+				};
+				expect(body.parsed.timestampUs).toBe("200");
+				expect(body.parsed.priceFeeds[0].price).toBe("100");
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						}),
+					),
+				),
+			),
+		);
+	});
+
+	it("does not serve a real_time price for a fixed_rate@200ms body request", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				fake.deliverTick(fake.subscribeCalls[0].subscriptionId, [1], "111");
+
+				const fiber = yield* Effect.fork(
+					module.handleRequest(
+						latestPriceRoute,
+						{},
+						new Request("http://proxy.local/v1/latest_price", {
+							method: "POST",
+						}),
+						latestPriceBody({
+							priceFeedIds: [1],
+							channel: "real_time",
+						}),
+					),
+				);
+				yield* TestClock.adjust(Duration.millis(0));
+
+				const realtimeId = fake.subscribeCalls.find(
+					(call) => call.channel === "real_time",
+				)?.subscriptionId;
+				expect(realtimeId).toBeDefined();
+				if (realtimeId === undefined) {
+					throw new Error("expected real_time subscription id");
+				}
+				fake.deliverTick(realtimeId, [1], "999");
+
+				const response = yield* Fiber.join(fiber);
+				const body = (yield* Effect.promise(() => response.json())) as {
+					parsed: { timestampUs: string; priceFeeds: { price: string }[] };
+				};
+				expect(body.parsed.timestampUs).toBe("999");
+				expect(body.parsed.priceFeeds[0].price).toBe("100");
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						}),
+					),
+				),
+			),
+		);
+	});
+
+	it("falls back to the route channel when the body omits one", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				yield* module.start();
+				fake.deliverTick(fake.subscribeCalls[0].subscriptionId, [1], "50");
+
+				const response = yield* module.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					JSON.stringify({ priceFeedIds: [1] }),
+				);
+
+				expect(response.status).toBe(200);
+				expect(
+					fake.subscribeCalls.every(
+						(call) => call.channel === "fixed_rate@200ms",
+					),
+				).toBe(true);
+			}).pipe(
+				Effect.provide(
+					PythLazerModuleService(
+						makeConfig({
+							priceFeedIds: [{ name: "BTC/USD", id: 1 }],
+						}),
+					),
+				),
+			),
+		);
+	});
+
+	it("rejects a body with neither priceFeedIds nor priceFeedSymbols", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				const response = yield* module.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					JSON.stringify({ channel: "real_time" }),
+				);
+				expect(response.status).toBe(400);
+			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
+		);
+	});
+
+	it("rejects an invalid channel in the body", async () => {
+		const fake = makeFakeLazerClient();
+		fakeHolder.current = fake;
+
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const module = yield* ModuleService;
+				const response = yield* module.handleRequest(
+					latestPriceRoute,
+					{},
+					new Request("http://proxy.local/v1/latest_price", { method: "POST" }),
+					JSON.stringify({
+						priceFeedIds: [1],
+						channel: "fixed_rate@9999ms",
+					}),
+				);
+				expect(response.status).toBe(400);
 			}).pipe(Effect.provide(PythLazerModuleService(makeConfig()))),
 		);
 	});
