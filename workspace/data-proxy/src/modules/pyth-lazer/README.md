@@ -11,7 +11,10 @@ On startup the module:
 3. Caches inbound `streamUpdated` messages keyed by `(channel, priceFeedId)`. Ticks for feeds that are no longer in the desired set are ignored.
 4. A forked cleanup daemon removes from the desired set feeds that have not been requested within `priceFeedsCleanupTtl`. It deletes their cache entries and updates the desired set.
 
-HTTP requests resolve `fetchFromModule` to one or more comma-separated feed IDs or symbols, add any new feeds to the desired set, send a subscribe of the full set for that channel if it grew, and return the latest cached price for each. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
+This module supports two different types of HTTP requests:
+
+- **Standard Request** (`fetchFromModule` set): resolve the template to one or more comma-separated feed IDs or symbols, add any new feeds to the desired set for the route channel, send a subscribe of the full set for that channel if it grew, and return the latest cached price for each as a JSON array. If a price is not yet available, the handler waits briefly for an update (shared price-cache timeout: 3 seconds).
+- **POST Body-Based Request** (`fetchFromModule` omitted): parse a JSON body (`priceFeedIds` / `priceFeedSymbols`, optional `channel`), subscribe on the selected channel (body overrides route default), and return `{ parsed: { timestampUs, priceFeeds } }`. All-or-fail if any feed misses.
 
 Pyth cannot append feeds to an existing subscription id, so a grow sends a **new** subscribe with a new id and the full desired set for that channel. Each channel has at most one **active** (acked) subscription, plus any in-flight ids still waiting for an ack. The module promotes an id only after Pyth acks it (`subscribed` or `subscribedWithInvalidFeedIdsIgnored`) and only if it is higher than the channel’s current active id; older outstanding ids on that channel are then unsubscribed.
 
@@ -37,8 +40,8 @@ Pyth cannot append feeds to an existing subscription id, so a grow sends a **new
 | `moduleName` | yes | — | Name of a configured Pyth Lazer module. |
 | `path` | yes | — | Proxy path (supports `{:param}` path params). |
 | `method` | no | `GET` | HTTP method(s). |
-| `fetchFromModule` | yes | — | Template producing one or more comma-separated feed IDs or symbols. |
-| `channel` | no | `fixed_rate@200ms` | Channel for this route’s subscriptions and cache lookups (`real_time`, `fixed_rate@50ms`, `fixed_rate@200ms`, `fixed_rate@1000ms`). |
+| `fetchFromModule` | no | — | When set: Template producing one or more comma-separated feed IDs or symbols. When omitted: `POST` body is expected instead. |
+| `channel` | no | `fixed_rate@200ms` | Default channel for this route’s subscriptions and cache lookups (`real_time`, `fixed_rate@50ms`, `fixed_rate@200ms`, `fixed_rate@1000ms`). On the Pro body surface, a request may override this with a `channel` field. |
 
 ### Example Configuration
 
@@ -71,6 +74,13 @@ Pyth cannot append feeds to an existing subscription id, so a grow sends a **new
       "method": "GET",
       "fetchFromModule": "{:symbol}",
       "channel": "real_time"
+    },
+    {
+      "type": "pyth-lazer",
+      "moduleName": "pyth",
+      "path": "/v1/latest_price",
+      "method": "POST",
+      "channel": "fixed_rate@200ms"
     }
   ]
 }
@@ -150,6 +160,21 @@ On a wait timeout, the entry still appears with `__sedaHasPrice: false` and with
 | `__sedaHasPrice` | always | `true` when a cached price was returned; `false` on wait timeout / miss. |
 
 Requests with more feeds than `maxFeedsPerRequest`, or a numeric token that is not a u32, return HTTP 400.
+
+### POST Body-Based Request
+
+When a route omits `fetchFromModule`, the module accepts a JSON body (extra Pyth Pro fields such as `formats` / `properties` are ignored):
+
+```json
+{
+  "priceFeedIds": [1, 2],
+  "channel": "real_time"
+}
+```
+
+Use `priceFeedSymbols` instead of `priceFeedIds` when requesting by symbol. `channel` is optional and falls back to the route’s `channel`.
+
+The response matches Pyth Pro’s `{ parsed: { timestampUs, priceFeeds } }` envelope. Missing optional feed fields are emitted as `null`. Unlike the path surface, this surface is all-or-fail: if any requested feed never produces a price, the whole request errors.
 
 
 ## Notes
