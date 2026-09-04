@@ -75,7 +75,8 @@ export interface PythLazerModuleConfig
 export const PythLazerModuleRouteSchema = v.strictObject({
 	...RouteSchema.entries,
 	moduleName: v.string(),
-	fetchFromModule: v.string(),
+	// Present: path template. Omitted: POST body is expected instead.
+	fetchFromModule: v.optional(v.string()),
 	channel: v.optional(PythLazerChannelSchema, PYTH_LAZER_DEFAULT_CHANNEL),
 	type: v.literal("pyth-lazer"),
 });

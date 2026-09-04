@@ -4,6 +4,7 @@ import {
 	type ParsedPayload,
 	PythLazerClient,
 } from "@pythnetwork/pyth-lazer-sdk";
+import { tryParseSync } from "@seda-protocol/utils";
 import {
 	Clock,
 	Data,
@@ -16,8 +17,12 @@ import {
 	Option,
 	Runtime,
 } from "effect";
+import * as v from "valibot";
 import type { Route } from "../../config/config-parser";
-import type { PythLazerModuleConfig } from "../../config/pyth-lazer-module-config";
+import {
+	PythLazerChannelSchema,
+	type PythLazerModuleConfig,
+} from "../../config/pyth-lazer-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
@@ -56,6 +61,16 @@ export const channelFromSubscriptionKey = (
 	key: PriceFeedSubscriptionKey,
 ): Channel => key.slice(0, key.lastIndexOf(":")) as Channel;
 
+interface CachedPriceFeed {
+	priceFeed: ParsedFeedPayload;
+	timestampUs: string;
+}
+
+interface PriceFeedWithSymbol extends ParsedFeedPayload {
+	symbol?: string;
+	[HAS_PRICE_KEY]: boolean;
+}
+
 const PYTH_LAZER_SUBSCRIBE_PROPERTIES = [
 	"bestAskPrice",
 	"bestBidPrice",
@@ -72,10 +87,33 @@ const PYTH_LAZER_SUBSCRIBE_PROPERTIES = [
 	"publisherCount",
 ] as const;
 
-interface PriceFeedWithSymbol extends ParsedFeedPayload {
-	symbol?: string;
-	[HAS_PRICE_KEY]: boolean;
-}
+const LATEST_PRICE_REQUEST_FIELDS = [
+	"bestAskPrice",
+	"bestBidPrice",
+	"confidence",
+	"emaConfidence",
+	"emaPrice",
+	"fundingRate",
+	"fundingRateInterval",
+	"fundingTimestamp",
+	"marketSession",
+	"price",
+	"publisherCount",
+] as const;
+
+const LatestPriceRequestBodySchema = v.pipe(
+	v.looseObject({
+		priceFeedIds: v.optional(v.array(v.number())),
+		priceFeedSymbols: v.optional(v.array(v.string())),
+		channel: v.optional(PythLazerChannelSchema),
+	}),
+	v.check(
+		(body) =>
+			(body.priceFeedIds?.length ?? 0) > 0 ||
+			(body.priceFeedSymbols?.length ?? 0) > 0,
+		"Request body must include a non-empty priceFeedIds or priceFeedSymbols array",
+	),
+);
 
 /** Pyth Lazer timestamps are Unix microseconds; returns lag in ms, or undefined if missing/invalid. */
 export const lagMsFromTimestampUs = (
@@ -120,7 +158,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			const runtime = yield* Effect.runtime();
 			const priceCache = yield* createPriceCache<
 				PriceFeedSubscriptionKey,
-				ParsedFeedPayload
+				CachedPriceFeed
 			>();
 			// The timestamp of the last request to the price feed
 			const lastRequestToPriceFeed = MutableHashMap.empty<
@@ -492,7 +530,10 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							continue;
 						}
 
-						yield* priceCache.setPrice(key, priceFeed);
+						yield* priceCache.setPrice(key, {
+							priceFeed,
+							timestampUs: message.timestampUs,
+						});
 					}
 				});
 
@@ -553,39 +594,22 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					});
 				}).pipe(Effect.annotateLogs("_name", "pyth-lazer"));
 
-			const handleRequest = (
-				route: Route,
-				params: Record<string, string>,
-				request: Request,
-			) =>
+			/**
+			 * Shared pipeline: resolve tokens → grow subscriptions → wait on cache.
+			 * Returns Either per feed so callers choose soft-miss vs all-or-fail.
+			 */
+			const resolveAndFetch = (tokens: string[], channel: Channel) =>
 				Effect.gen(function* () {
-					if (route.type !== "pyth-lazer") {
+					if (tokens.length > config.maxFeedsPerRequest) {
 						return yield* Effect.fail(
-							new FailedToHandleRequest({
-								msg: "Route is not a Pyth Lazer module",
+							new FailedToHandlePythLazerRequestError({
+								error: `Too many price feeds, max is ${config.maxFeedsPerRequest} but got ${tokens.length}`,
 							}),
 						);
 					}
 
-					const priceFeedIdsRaw = replaceParams(
-						route.fetchFromModule,
-						params,
-					).split(",");
-
-					if (priceFeedIdsRaw.length > config.maxFeedsPerRequest) {
-						return yield* Effect.succeed(
-							createErrorResponse(
-								new FailedToHandlePythLazerRequestError({
-									error: `Too many price feed IDs, max is ${config.maxFeedsPerRequest} but got ${priceFeedIdsRaw.length}`,
-								}),
-								400,
-							),
-						);
-					}
-
-					// Normalize ids or symbols to price feed ids concurrently.
 					const priceFeedIds = yield* Effect.forEach(
-						priceFeedIdsRaw,
+						tokens,
 						(symbolOrId) =>
 							Effect.gen(function* () {
 								const parsedId = Number(symbolOrId);
@@ -614,55 +638,161 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					);
 
 					const now = yield* Clock.currentTimeMillis;
-
 					let desiredSetGrew = false;
 					for (const priceFeedId of priceFeedIds) {
-						const key = priceFeedSubscriptionKey(priceFeedId, route.channel);
-						if (addDesiredFeed(route.channel, priceFeedId)) {
+						const key = priceFeedSubscriptionKey(priceFeedId, channel);
+						if (addDesiredFeed(channel, priceFeedId)) {
 							desiredSetGrew = true;
 						}
-
 						MutableHashMap.set(lastRequestToPriceFeed, key, now);
 					}
 
 					if (desiredSetGrew) {
-						sendSubscriptionForChannel(route.channel);
+						sendSubscriptionForChannel(channel);
 					}
 
-					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
 					const results = yield* Effect.forEach(
 						priceFeedIds,
 						(priceFeedId) =>
 							Effect.either(
 								priceCache.getOrWaitPrice(
-									priceFeedSubscriptionKey(priceFeedId, route.channel),
+									priceFeedSubscriptionKey(priceFeedId, channel),
 								),
 							),
 						{ concurrency: "unbounded" },
 					);
 
-					const prices: PriceFeedWithSymbol[] = [];
-					for (let i = 0; i < priceFeedIds.length; i++) {
-						const priceFeedId = priceFeedIds[i];
-						const price = results[i];
+					return { priceFeedIds, results };
+				});
 
-						if (Either.isLeft(price)) {
-							prices.push({
-								priceFeedId,
-								symbol: priceFeedIdsRaw.at(i),
-								[HAS_PRICE_KEY]: false,
-							});
-						} else {
-							prices.push({
-								...price.right,
-								symbol: priceFeedIdsRaw.at(i),
-								[HAS_PRICE_KEY]: true,
-							});
-						}
+			const handleRequest = (
+				route: Route,
+				params: Record<string, string>,
+				_request: Request,
+				body?: string,
+			) =>
+				Effect.gen(function* () {
+					if (route.type !== "pyth-lazer") {
+						return yield* Effect.fail(
+							new FailedToHandleRequest({
+								msg: "Route is not a Pyth Lazer module",
+							}),
+						);
 					}
 
+					// Standard request
+					if (route.fetchFromModule !== undefined) {
+						const priceFeedIdsRaw = replaceParams(
+							route.fetchFromModule,
+							params,
+						).split(",");
+
+						const { priceFeedIds, results } = yield* resolveAndFetch(
+							priceFeedIdsRaw,
+							route.channel,
+						);
+
+						const prices: PriceFeedWithSymbol[] = [];
+						for (let i = 0; i < priceFeedIds.length; i++) {
+							const priceFeedId = priceFeedIds[i];
+							const price = results[i];
+
+							if (Either.isLeft(price)) {
+								prices.push({
+									priceFeedId,
+									symbol: priceFeedIdsRaw.at(i),
+									[HAS_PRICE_KEY]: false,
+								});
+							} else {
+								prices.push({
+									...price.right.priceFeed,
+									symbol: priceFeedIdsRaw.at(i),
+									[HAS_PRICE_KEY]: true,
+								});
+							}
+						}
+
+						return yield* Effect.succeed(
+							new Response(JSON.stringify(prices), { status: 200 }),
+						);
+					}
+
+					// POST body-based request
+					const parsedJson = yield* Effect.try({
+						try: () =>
+							JSON.parse(body && body.length > 0 ? body : "{}") as unknown,
+						catch: () =>
+							new FailedToHandlePythLazerRequestError({
+								error: "Request body must be valid JSON",
+							}),
+					});
+
+					const parsedRequest = tryParseSync(
+						LatestPriceRequestBodySchema,
+						parsedJson,
+					);
+					if (parsedRequest.isErr) {
+						return yield* Effect.fail(
+							new FailedToHandlePythLazerRequestError({
+								error: parsedRequest.error
+									.map((issue) => issue.message)
+									.join(", "),
+							}),
+						);
+					}
+
+					const requestBody = parsedRequest.value;
+					const requestedFeeds =
+						requestBody.priceFeedIds !== undefined &&
+						requestBody.priceFeedIds.length > 0
+							? requestBody.priceFeedIds.map(String)
+							: (requestBody.priceFeedSymbols ?? []);
+					const channel = requestBody.channel ?? route.channel;
+
+					const { results } = yield* resolveAndFetch(requestedFeeds, channel);
+
+					const cachedFeeds: CachedPriceFeed[] = [];
+					for (const result of results) {
+						if (Either.isLeft(result)) {
+							return yield* Effect.fail(result.left);
+						}
+						cachedFeeds.push(result.right);
+					}
+
+					const timestampUs = cachedFeeds
+						.map((feed) => feed.timestampUs)
+						.reduce((latest, timestamp) =>
+							BigInt(timestamp) > BigInt(latest) ? timestamp : latest,
+						);
+
+					const priceFeeds = cachedFeeds.map(
+						({ priceFeed, timestampUs: ts }) => {
+							const rawFeed = priceFeed as Record<string, unknown>;
+							const out: Record<string, unknown> = {
+								priceFeedId: priceFeed.priceFeedId,
+								exponent: priceFeed.exponent ?? null,
+								feedUpdateTimestamp:
+									priceFeed.feedUpdateTimestamp ?? Number.parseInt(ts, 10),
+							};
+
+							for (const field of LATEST_PRICE_REQUEST_FIELDS) {
+								out[field] = rawFeed[field] ?? null;
+							}
+
+							return out;
+						},
+					);
+
 					return yield* Effect.succeed(
-						new Response(JSON.stringify(prices), { status: 200 }),
+						new Response(
+							JSON.stringify({
+								parsed: {
+									timestampUs,
+									priceFeeds,
+								},
+							}),
+							{ status: 200 },
+						),
 					);
 				}).pipe(
 					Effect.withSpan("handlePythLazerRequest"),
