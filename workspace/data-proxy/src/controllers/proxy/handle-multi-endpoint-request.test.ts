@@ -118,6 +118,7 @@ const runMultiEndpoint = async (
 		concurrency: DEFAULT_MULTI_CONCURRENCY,
 	},
 	headers: Record<string, string | undefined> = {},
+	requestUrl = "http://localhost/proxy/multi",
 ) => {
 	const bodyText = JSON.stringify(body);
 	const params: HandleMultiEndpointRequestParams = {
@@ -131,7 +132,7 @@ const runMultiEndpoint = async (
 		body: Option.some(bodyText),
 		path: "/multi",
 		config: baseConfig(),
-		request: new Request("http://localhost/proxy/multi", {
+		request: new Request(requestUrl, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -327,5 +328,126 @@ describe("handleMultiEndpointRequest", () => {
 		expect(seen?.get("content-type")).toBeNull();
 		expect(seen?.get("user-agent")).toBeNull();
 		expect(seen?.get("x-custom")).toBe("from-body");
+	});
+
+	it("forwards parent query params to every sub-request", async () => {
+		const seenSearches: URLSearchParams[] = [];
+		const capturing = handlers((_route, _params, request) => {
+			seenSearches.push(new URL(request.url).searchParams);
+			return Effect.succeed(
+				new Response(JSON.stringify({ ok: true }), { status: 200 }),
+			);
+		});
+
+		const response = await runMultiEndpoint(
+			{
+				binance: { path: "/binance/BTC" },
+				lighter: { path: "/lighter/1" },
+			},
+			new Map([
+				["bin", capturing],
+				["lig", capturing],
+			]),
+			[binanceRoute, lighterRoute] as Config["routes"],
+			undefined,
+			{},
+			"http://localhost/proxy/multi?skipPriceErrors=true&foo=bar",
+		);
+
+		expect(response.status).toBe(200);
+		expect(seenSearches).toHaveLength(2);
+		for (const seenSearch of seenSearches) {
+			expect(seenSearch.get("skipPriceErrors")).toBe("true");
+			expect(seenSearch.get("foo")).toBe("bar");
+		}
+	});
+
+	it("lets sub-request query params override parent query params", async () => {
+		let seenSearch: URLSearchParams | undefined;
+		const capturing = handlers((_route, _params, request) => {
+			seenSearch = new URL(request.url).searchParams;
+			return Effect.succeed(
+				new Response(JSON.stringify({ ok: true }), { status: 200 }),
+			);
+		});
+
+		const response = await runMultiEndpoint(
+			{
+				binance: {
+					path: "/binance/BTC",
+					query: { foo: "from-body", extra: "1" },
+				},
+			},
+			new Map([["bin", capturing]]),
+			[binanceRoute] as Config["routes"],
+			undefined,
+			{},
+			"http://localhost/proxy/multi?foo=from-parent&keep=yes",
+		);
+
+		expect(response.status).toBe(200);
+		expect(seenSearch?.get("foo")).toBe("from-body");
+		expect(seenSearch?.get("keep")).toBe("yes");
+		expect(seenSearch?.get("extra")).toBe("1");
+	});
+
+	it("lets sub-request query params remove parent query params", async () => {
+		const seenSearch: { [source: string]: URLSearchParams | undefined } = {};
+		const capturing = handlers((route, _params, request) => {
+			const searchParams = new URL(request.url).searchParams;
+			seenSearch[route.type] = searchParams;
+			return Effect.succeed(
+				new Response(JSON.stringify({ ok: true }), { status: 200 }),
+			);
+		});
+
+		const response = await runMultiEndpoint(
+			{
+				binance: {
+					path: "/binance/BTC",
+					query: { source: "from-body", delete: null },
+				},
+				lighter: {
+					path: "/lighter/1",
+					query: { keep: "no" },
+				},
+			},
+			new Map([
+				["bin", capturing],
+				["lig", capturing],
+			]),
+			[binanceRoute, lighterRoute] as Config["routes"],
+			undefined,
+			{},
+			"http://localhost/proxy/multi?source=from-parent&keep=yes&delete=me",
+		);
+
+		expect(response.status).toBe(200);
+		const binanceSearch = seenSearch.binance;
+		expect(
+			binanceSearch?.get("source"),
+			"Binance search source was not overridden",
+		).toBe("from-body");
+		expect(
+			binanceSearch?.get("keep"),
+			"Binance search keep was not preserved",
+		).toBe("yes");
+		expect(
+			binanceSearch?.get("delete"),
+			"Binance search delete was not removed",
+		).toBeNull();
+		const lighterSearch = seenSearch.lighter;
+		expect(
+			lighterSearch?.get("source"),
+			"Lighter search source was overridden",
+		).toBe("from-parent");
+		expect(
+			lighterSearch?.get("keep"),
+			"Lighter search keep was not overridden",
+		).toBe("no");
+		expect(
+			lighterSearch?.get("delete"),
+			"Lighter search delete was removed",
+		).toBe("me");
 	});
 });

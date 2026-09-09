@@ -34,7 +34,7 @@ export const MultiEndpointSubRequestSchema = v.strictObject({
 	path: v.pipe(v.string(), v.minLength(1, "path must not be empty")),
 	method: v.optional(v.string(), "GET"),
 	query: v.optional(
-		v.record(v.string(), v.union([v.string(), v.array(v.string())])),
+		v.record(v.string(), v.union([v.null(), v.string(), v.array(v.string())])),
 	),
 	// Optional headers for the sub-request.
 	headers: v.optional(v.record(v.string(), v.string()), {}),

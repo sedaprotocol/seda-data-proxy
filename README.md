@@ -460,6 +460,7 @@ Behavior notes:
 
 - Sub-request failures are **non-fatal**: a failing id appears as `{ "error": "...", "status": ... }`; other ids still resolve. The outer response is still signed as HTTP `200`.
 - Path params are filled the same way as a direct call (`/binance/:symbols` + `/binance/BTC` → `{ symbols: "BTC" }`).
+- Query params on the multi endpoint URL are forwarded to every sub-request and merged with per-sub-request `query`. Explicit `query` values override the parent for the same key.
 - Parent request headers are **not** forwarded to sub-requests. Use the per-sub-request `headers` field when a sub-request needs headers (route-configured headers still apply as usual).
 - Invalid JSON, schema errors, empty body, or exceeding `maxSubRequests` return HTTP `400`.
 

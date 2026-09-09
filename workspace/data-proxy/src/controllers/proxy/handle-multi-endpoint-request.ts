@@ -81,15 +81,22 @@ const buildSubRequest = (
 ): Request => {
 	const url = new URL(parent.url);
 	// Sub-request paths are route paths (e.g. /binance/BTC), not including the
-	// outer multi endpoint path. Keep the parent origin; replace path + query.
+	// outer multi endpoint path. Keep the parent origin and query; replace path.
 	const pathname = subRequest.path.startsWith("/")
 		? subRequest.path
 		: `/${subRequest.path}`;
 	url.pathname = pathname;
-	url.search = "";
 
+	// Parent query params are forwarded to every child. Explicit per-sub-request
+	// query values override the same key on the multi endpoint URL.
 	if (subRequest.query) {
 		for (const [key, value] of Object.entries(subRequest.query)) {
+			url.searchParams.delete(key);
+			// Null values allow for deletion of the key from the parent query.
+			if (value === null) {
+				continue;
+			}
+
 			if (Array.isArray(value)) {
 				for (const valueEntry of value) {
 					url.searchParams.append(key, valueEntry);
