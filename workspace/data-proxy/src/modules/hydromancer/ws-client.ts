@@ -15,8 +15,8 @@ import {
 	AssetCtxSchema,
 	type HydromancerModuleConfig,
 } from "../../config/hydromancer-module-config";
+import type { FreshnessCache } from "../shared/freshness-cache";
 import { recordTickHandle } from "../shared/tick-metrics";
-import type { AssetCache } from "./asset-cache";
 
 const InboundFrameSchema = v.object({
 	channel: v.string(),
@@ -85,7 +85,7 @@ export interface CreateHydromancerWSOptions {
 
 export const createHydromancerWS = (
 	config: HydromancerModuleConfig,
-	cache: AssetCache,
+	cache: FreshnessCache<string, AssetCtx>,
 	options?: CreateHydromancerWSOptions,
 ): Effect.Effect<HydromancerWS, never, never> =>
 	Effect.gen(function* () {

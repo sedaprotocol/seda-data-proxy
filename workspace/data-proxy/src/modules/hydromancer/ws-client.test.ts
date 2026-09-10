@@ -9,7 +9,7 @@ import {
 	Schedule,
 } from "effect";
 import type { HydromancerModuleConfig } from "../../config/hydromancer-module-config";
-import { createAssetCache } from "./asset-cache";
+import { createFreshnessCache } from "../shared/freshness-cache";
 import {
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
@@ -194,7 +194,7 @@ const startService = (
 	options?: Parameters<typeof createHydromancerWS>[2],
 ) =>
 	Effect.gen(function* () {
-		const cache = yield* createAssetCache();
+		const cache = yield* createFreshnessCache<string, typeof validCtx>();
 		const ws = yield* createHydromancerWS(
 			config,
 			cache,
@@ -246,10 +246,10 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		const entry = await Effect.runPromise(cache.get("BTC"));
+		const entry = cache.get("BTC", Number.MAX_SAFE_INTEGER, 0);
 		expect(Option.isSome(entry)).toBe(true);
 		if (Option.isSome(entry)) {
-			expect(entry.value.ctx).toEqual(validCtx);
+			expect(entry.value).toEqual(validCtx);
 		}
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -273,7 +273,9 @@ describe("createHydromancerWS", () => {
 		);
 		await flush();
 
-		expect(Option.isNone(await Effect.runPromise(cache.get("ETH")))).toBe(true);
+		expect(Option.isNone(cache.get("ETH", Number.MAX_SAFE_INTEGER, 0))).toBe(
+			true,
+		);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -307,7 +309,7 @@ describe("createHydromancerWS", () => {
 		ws.triggerMessage("not json");
 		await flush();
 
-		const entry = await Effect.runPromise(cache.get("BTC"));
+		const entry = cache.get("BTC", Number.MAX_SAFE_INTEGER, 0);
 		expect(Option.isNone(entry)).toBe(true);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
