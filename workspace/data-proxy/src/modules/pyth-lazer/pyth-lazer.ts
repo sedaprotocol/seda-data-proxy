@@ -1,5 +1,6 @@
 import {
 	type Channel,
+	type JsonOrBinaryResponse,
 	type ParsedFeedPayload,
 	type ParsedPayload,
 	PythLazerClient,
@@ -24,7 +25,9 @@ import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { isU32 } from "../../utils/number";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { forkInboundControl } from "../shared/inbound-control";
 import { createPriceCache } from "../shared/price-cache";
+import { recordTickHandle } from "../shared/tick-metrics";
 import {
 	FailedToHandlePythLazerRequestError,
 	extractPriceFeedIdFromErrorMessage,
@@ -100,13 +103,7 @@ const messageLagMs = Metric.histogram(
 		1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000,
 	]),
 	"Lag in ms between Pyth Lazer update timestampUs and local receive time",
-);
-
-const messageHandleDurationMs = Metric.timerWithBoundaries(
-	"pyth_lazer_message_handle_duration_ms",
-	[0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000],
-	"Duration in ms of the Pyth Lazer addMessageListener callback",
-);
+).register();
 
 const desiredFeeds = Metric.gauge("pyth_lazer_desired_feeds", {
 	description: "Number of desired price feeds per channel",
@@ -390,107 +387,108 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				activeSubscriptionByChannel.set(channel.value, subscriptionId);
 			};
 
-			lazerClient.addMessageListener((message) => {
-				Runtime.runSync(
-					runtime,
-					Effect.gen(function* () {
-						yield* Effect.logTrace(
-							"Received message from Pyth Lazer client",
-							message,
-						);
-
-						if (message.type !== "json") {
-							return;
-						}
-
-						const value = message.value;
-						if (value.type === "streamUpdated") {
-							if (!value.parsed) {
-								return yield* Effect.logWarning("No parsed message found", {
-									message,
-								});
-							}
-
-							yield* handleStreamUpdatedMessage(
-								value.subscriptionId,
-								value.parsed,
-							);
-							return;
-						}
-
-						if (
-							value.type === "subscribed" ||
-							value.type === "subscribedWithInvalidFeedIdsIgnored"
-						) {
-							yield* Effect.logInfo("Pyth Lazer successfully subscribed", {
-								message: value,
-							});
-							handleSuccessfulSubscriptionAck(value.subscriptionId);
-							return;
-						}
-
-						if (value.type === "subscriptionError") {
-							const channel = MutableHashMap.get(
-								subscriptionChannels,
-								value.subscriptionId,
-							);
-							MutableHashMap.remove(subscriptionChannels, value.subscriptionId);
-							if (Option.isSome(channel)) {
-								outstandingFor(channel.value).delete(value.subscriptionId);
-							}
-							yield* Effect.logWarning(
-								"Pyth Lazer subscription error; leaving the active subscription in place",
-								{
-									subscriptionId: value.subscriptionId,
-									error: value.error,
-								},
-							);
-							return;
-						}
-
-						if (value.type === "error") {
-							yield* Effect.logWarning("Pyth Lazer error", {
-								error: value.error,
-							});
-						}
-					}).pipe(Metric.trackDuration(messageHandleDurationMs)),
-				);
-			});
-
 			const handleStreamUpdatedMessage = (
 				subscriptionId: number,
 				message: ParsedPayload,
-			) =>
-				Effect.gen(function* () {
+			): void => {
+				const started = performance.now();
+				const channel = MutableHashMap.get(
+					subscriptionChannels,
+					subscriptionId,
+				);
+				if (Option.isNone(channel)) {
+					return;
+				}
+
+				const lagMs = lagMsFromTimestampUs(Date.now(), message.timestampUs);
+				if (lagMs !== undefined) {
+					messageLagMs.unsafeUpdate(lagMs, []);
+				}
+
+				let applied = 0;
+				for (const priceFeed of message.priceFeeds) {
+					const key = priceFeedSubscriptionKey(
+						priceFeed.priceFeedId,
+						channel.value,
+					);
+					if (!hasDesiredFeed(channel.value, priceFeed.priceFeedId)) {
+						continue;
+					}
+
+					priceCache.setPriceSync(key, priceFeed);
+					applied += 1;
+				}
+				recordTickHandle(
+					"pyth",
+					config.name,
+					performance.now() - started,
+					applied,
+				);
+			};
+
+			type PythJsonMessage = Extract<JsonOrBinaryResponse, { type: "json" }>;
+
+			const inboundControl = yield* forkInboundControl(
+				(message: PythJsonMessage) => {
+					const value = message.value;
+					if (value.type === "streamUpdated") {
+						return Effect.logWarning("No parsed message found", { message });
+					}
+					if (
+						value.type === "subscribed" ||
+						value.type === "subscribedWithInvalidFeedIdsIgnored"
+					) {
+						return Effect.logInfo("Pyth Lazer successfully subscribed", {
+							message: value,
+						});
+					}
+					if (value.type === "subscriptionError") {
+						return Effect.logWarning(
+							"Pyth Lazer subscription error; leaving the active subscription in place",
+							{
+								subscriptionId: value.subscriptionId,
+								error: value.error,
+							},
+						);
+					}
+					if (value.type === "error") {
+						return Effect.logWarning("Pyth Lazer error", {
+							error: value.error,
+						});
+					}
+					return Effect.void;
+				},
+			);
+
+			lazerClient.addMessageListener((message) => {
+				if (message.type !== "json") {
+					return;
+				}
+
+				const value = message.value;
+				if (value.type === "streamUpdated" && value.parsed) {
+					handleStreamUpdatedMessage(value.subscriptionId, value.parsed);
+					return;
+				}
+
+				if (
+					value.type === "subscribed" ||
+					value.type === "subscribedWithInvalidFeedIdsIgnored"
+				) {
+					handleSuccessfulSubscriptionAck(value.subscriptionId);
+				} else if (value.type === "subscriptionError") {
 					const channel = MutableHashMap.get(
 						subscriptionChannels,
-						subscriptionId,
+						value.subscriptionId,
 					);
-					if (Option.isNone(channel)) {
-						return;
+					MutableHashMap.remove(subscriptionChannels, value.subscriptionId);
+					if (Option.isSome(channel)) {
+						outstandingFor(channel.value).delete(value.subscriptionId);
 					}
+				}
 
-					const nowMs = yield* Clock.currentTimeMillis;
-					const lagMs = lagMsFromTimestampUs(nowMs, message.timestampUs);
-
-					if (lagMs !== undefined) {
-						yield* Metric.update(messageLagMs, lagMs);
-					}
-
-					for (const priceFeed of message.priceFeeds) {
-						const key = priceFeedSubscriptionKey(
-							priceFeed.priceFeedId,
-							channel.value,
-						);
-						// To make sure that we don't set the price for a price feed that we are not subscribed to
-						// otherwise requests may get an outdated price
-						if (!hasDesiredFeed(channel.value, priceFeed.priceFeedId)) {
-							continue;
-						}
-
-						yield* priceCache.setPrice(key, priceFeed);
-					}
-				});
+				inboundControl.offer(message);
+			});
 
 			const start = () =>
 				Effect.gen(function* () {

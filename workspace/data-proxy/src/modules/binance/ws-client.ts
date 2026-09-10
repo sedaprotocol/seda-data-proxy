@@ -12,6 +12,8 @@ import {
 	Stream,
 } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
+import { forkInboundControl } from "../shared/inbound-control";
+import { recordTickHandle } from "../shared/tick-metrics";
 
 /** A raw Binance market-data payload. Always carries the symbol in `s`; the rest
  * of the fields depend on the configured stream type and are relayed verbatim. */
@@ -45,7 +47,7 @@ const connectionAttempts = Metric.counter("binance_connection_attempts", {
 
 /** The subset of the shared price cache the WS daemon writes to. */
 interface PriceSink {
-	setPrice: (key: string, price: BinancePriceFrame) => Effect.Effect<void>;
+	setPriceSync: (key: string, price: BinancePriceFrame) => void;
 }
 
 export const buildStreamName = (symbol: string, streamType: string): string =>
@@ -141,6 +143,14 @@ export const createBinanceWS = (
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
 		// Outbound queue to enforce maxMessagesPerSecond rate limit.
 		const outbound = yield* Queue.unbounded<OutboundMessage>();
+
+		const inboundControl = yield* forkInboundControl(
+			(event: Extract<ParsedInbound, { kind: "error" }>) =>
+				Effect.logWarning("Binance WS error frame", {
+					code: event.code,
+					message: event.message,
+				}),
+		);
 
 		const withModuleName = <Type, In, Out>(
 			metric: Metric.Metric<Type, In, Out>,
@@ -256,26 +266,20 @@ export const createBinanceWS = (
 				}
 			});
 
-		const handleInboundMessage = (raw: string) => {
+		const handleInboundMessage = (raw: string): void => {
+			const started = performance.now();
 			const parsed = parseInboundFrame(raw);
-			if (!parsed) return Effect.void;
+			if (!parsed) return;
 			if (parsed.kind === "error") {
-				return Effect.logWarning("Binance WS error frame", {
-					code: parsed.code,
-					message: parsed.message,
-				});
+				inboundControl.offer(parsed);
+				return;
 			}
 			if (Option.isNone(MutableHashMap.get(desiredSymbols, parsed.symbol))) {
-				return Effect.void;
+				return;
 			}
 
-			return Effect.gen(function* () {
-				yield* cache.setPrice(parsed.symbol, parsed.frame);
-			}).pipe(
-				Effect.withSpan("binance.ws.handleInboundMessage", {
-					attributes: { symbol: parsed.symbol },
-				}),
-			);
+			cache.setPriceSync(parsed.symbol, parsed.frame);
+			recordTickHandle("binance", config.name, performance.now() - started);
 		};
 
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
@@ -308,7 +312,7 @@ export const createBinanceWS = (
 			});
 			ws.addEventListener("message", (event) => {
 				if (typeof event.data !== "string") return;
-				Runtime.runSync(runtime, handleInboundMessage(event.data));
+				handleInboundMessage(event.data);
 			});
 			ws.addEventListener("error", () => {
 				unhealthy = true;

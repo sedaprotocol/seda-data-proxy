@@ -1,5 +1,9 @@
 # Developing
 
+## Effect & WebSocket ingest
+
+Turns out that Effect is too expensive for the inbound message processing path, so we've removed most of Effect from that path. We've kept it for handling errors and logging for 'uncommon' events like errors and subscription confirmations. This is a balance between performance and operational simplicity.
+
 ## Multi-venue performance benchmark
 
 The performance bench starts mock WSS venue backends on the host, builds the production Docker image (bundled Node, same as deploy), points the container at those mocks, and drives `POST /proxy/multi`.

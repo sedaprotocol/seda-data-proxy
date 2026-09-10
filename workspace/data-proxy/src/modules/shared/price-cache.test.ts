@@ -38,11 +38,25 @@ describe("createPriceCache", () => {
 			Effect.gen(function* () {
 				const cache = yield* createPriceCache<string, SampleValue>();
 				const entry = sample({ n: 123, label: "a" });
-				yield* cache.setPrice("k1", entry);
+				cache.setPriceSync("k1", entry);
 				const got = yield* cache.getOrWaitPrice("k1");
 				expect(got).toEqual(entry);
 				expect(got.n).toBe(123);
 				expect(got.label).toBe("a");
+			}),
+		);
+	});
+
+	it("should resolve a waiter when setPriceSync is called", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				const entry = sample({ n: 500, label: "sync" });
+				const waiter = yield* Effect.fork(cache.getOrWaitPrice("k-sync"));
+				yield* Effect.sleep("1 millis");
+				cache.setPriceSync("k-sync", entry);
+				const result = yield* Fiber.join(waiter);
+				expect(result).toEqual(entry);
 			}),
 		);
 	});
@@ -53,7 +67,7 @@ describe("createPriceCache", () => {
 				const cache = yield* createPriceCache<string, SampleValue>();
 				const entry = sample({ n: 300, label: "wait" });
 				const waiter = yield* Effect.fork(cache.getOrWaitPrice("k2"));
-				yield* cache.setPrice("k2", entry);
+				cache.setPriceSync("k2", entry);
 				const result = yield* Fiber.join(waiter);
 				expect(result).toEqual(entry);
 			}),
@@ -67,7 +81,7 @@ describe("createPriceCache", () => {
 				const entry = sample({ n: 400, label: "multi" });
 				const waiterA = yield* Effect.fork(cache.getOrWaitPrice("k3"));
 				const waiterB = yield* Effect.fork(cache.getOrWaitPrice("k3"));
-				yield* cache.setPrice("k3", entry);
+				cache.setPriceSync("k3", entry);
 				const [a, b] = yield* Effect.all([
 					Fiber.join(waiterA),
 					Fiber.join(waiterB),
@@ -83,11 +97,11 @@ describe("createPriceCache", () => {
 			Effect.gen(function* () {
 				const cache = yield* createPriceCache<string, SampleValue>();
 				const key = "k4";
-				yield* cache.setPrice(key, sample({ n: 100, label: "first" }));
+				cache.setPriceSync(key, sample({ n: 100, label: "first" }));
 				const first = yield* cache.getOrWaitPrice(key);
 				expect(first.n).toBe(100);
 
-				yield* cache.setPrice(key, sample({ n: 200, label: "second" }));
+				cache.setPriceSync(key, sample({ n: 200, label: "second" }));
 				const latest = yield* cache.getOrWaitPrice(key);
 				expect(latest.n).toBe(200);
 				expect(latest.label).toBe("second");
@@ -99,8 +113,8 @@ describe("createPriceCache", () => {
 		await run(
 			Effect.gen(function* () {
 				const cache = yield* createPriceCache<string, SampleValue>();
-				yield* cache.setPrice("a", sample({ n: 1, label: "a" }));
-				yield* cache.setPrice("b", sample({ n: 2, label: "b" }));
+				cache.setPriceSync("a", sample({ n: 1, label: "a" }));
+				cache.setPriceSync("b", sample({ n: 2, label: "b" }));
 				const [p1, p2] = yield* Effect.all([
 					cache.getOrWaitPrice("a"),
 					cache.getOrWaitPrice("b"),
@@ -115,7 +129,7 @@ describe("createPriceCache", () => {
 		await run(
 			Effect.gen(function* () {
 				const cache = yield* createPriceCache<number, SampleValue>();
-				yield* cache.setPrice(42, sample({ n: 42, label: "id" }));
+				cache.setPriceSync(42, sample({ n: 42, label: "id" }));
 				const got = yield* cache.getOrWaitPrice(42);
 				expect(got.n).toBe(42);
 			}),
@@ -131,7 +145,7 @@ describe("createPriceCache", () => {
 
 				const fiber = yield* Effect.fork(cache.getOrWaitPrice(1));
 				yield* Effect.sleep("1 millis");
-				yield* cache.setPrice(1, stale);
+				cache.setPriceSync(1, stale);
 
 				const first = yield* Fiber.join(fiber);
 				expect(first.n).toBe(100);
@@ -197,7 +211,7 @@ describe("createPriceCache with LoTech-shaped payloads", () => {
 					price: 123.45,
 					spread: 0.02,
 				});
-				yield* cache.setPrice("ETH-USDT", entry);
+				cache.setPriceSync("ETH-USDT", entry);
 				const got = yield* cache.getOrWaitPrice("ETH-USDT");
 				expect(got).toEqual(entry);
 				expect(got.symbol).toBe("ETH-USDT");
@@ -217,7 +231,7 @@ describe("createPriceCache with Pyth Lazer-shaped payloads", () => {
 					feedUpdateTimestamp: 1000,
 					priceFeedId: 1,
 				};
-				yield* cache.setPrice(1, entry);
+				cache.setPriceSync(1, entry);
 				const got = yield* cache.getOrWaitPrice(1);
 				expect(got.price).toBe("100");
 				expect(got.exponent).toBe(18);

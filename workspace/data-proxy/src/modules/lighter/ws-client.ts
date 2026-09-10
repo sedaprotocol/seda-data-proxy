@@ -1,5 +1,4 @@
 import {
-	Clock,
 	Deferred,
 	Duration,
 	Effect,
@@ -13,6 +12,8 @@ import {
 	Stream,
 } from "effect";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
+import { forkInboundControl } from "../shared/inbound-control";
+import { recordTickHandle } from "../shared/tick-metrics";
 
 /** A Lighter `ticker` payload. Always carries the symbol in `s`; the best
  * bid/ask sit in `b`/`a` and are relayed verbatim. */
@@ -46,7 +47,7 @@ const connectionAttempts = Metric.counter("lighter_connection_attempts", {
 
 /** The subset of the shared price cache the WS daemon writes to, keyed by market id. */
 interface PriceSink {
-	setPrice: (key: number, price: LighterPriceFrame) => Effect.Effect<void>;
+	setPriceSync: (key: number, price: LighterPriceFrame) => void;
 }
 
 const PING_FRAME = JSON.stringify({ type: "ping" });
@@ -146,6 +147,13 @@ export const createLighterWS = (
 			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
 		// Outbound queue to enfore maxMessagesPerMinute rate limit.
 		const outbound = yield* Queue.unbounded<OutboundMessage>();
+		const inboundControl = yield* forkInboundControl(
+			(event: Extract<ParsedInbound, { kind: "error" }>) =>
+				Effect.logWarning("Lighter WS error frame", {
+					code: event.code,
+					message: event.message,
+				}),
+		);
 
 		const withModuleName = <Type, In, Out>(
 			metric: Metric.Metric<Type, In, Out>,
@@ -234,31 +242,29 @@ export const createLighterWS = (
 				}
 			});
 
-		const handleInboundMessage = (raw: string) =>
-			Effect.gen(function* () {
-				const parsed = parseInboundFrame(raw);
-				if (!parsed) return;
-				if (parsed.kind === "ping") {
-					yield* enqueue(PONG_FRAME, "pong");
-					return;
-				}
-				if (parsed.kind === "error") {
-					yield* Effect.logWarning("Lighter WS error frame", {
-						code: parsed.code,
-						message: parsed.message,
-					});
-					return;
-				}
-				// Drop frames with no parseable id, or for a market we have since
-				// unsubscribed (post-unsubscribe race).
-				if (
-					parsed.marketId === null ||
-					Option.isNone(MutableHashMap.get(desiredMarkets, parsed.marketId))
-				) {
-					return;
-				}
-				yield* cache.setPrice(parsed.marketId, parsed.frame);
-			});
+		const handleInboundMessage = (raw: string): void => {
+			const started = performance.now();
+			const parsed = parseInboundFrame(raw);
+			if (!parsed) return;
+			if (parsed.kind === "ping") {
+				outbound.unsafeOffer({ frame: PONG_FRAME, type: "pong" });
+				return;
+			}
+			if (parsed.kind === "error") {
+				inboundControl.offer(parsed);
+				return;
+			}
+			// Drop frames with no parseable id, or for a market we have since
+			// unsubscribed (post-unsubscribe race).
+			if (
+				parsed.marketId === null ||
+				Option.isNone(MutableHashMap.get(desiredMarkets, parsed.marketId))
+			) {
+				return;
+			}
+			cache.setPriceSync(parsed.marketId, parsed.frame);
+			recordTickHandle("lighter", config.name, performance.now() - started);
+		};
 
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
@@ -289,7 +295,7 @@ export const createLighterWS = (
 			});
 			ws.addEventListener("message", (event) => {
 				if (typeof event.data !== "string") return;
-				Runtime.runSync(runtime, handleInboundMessage(event.data));
+				handleInboundMessage(event.data);
 			});
 			ws.addEventListener("error", () => {
 				Runtime.runSync(
