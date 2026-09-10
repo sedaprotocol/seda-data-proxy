@@ -249,7 +249,9 @@ describe("createBinanceWS", () => {
 		);
 		await flush();
 
-		const price = await Effect.runPromise(cache.getOrWaitPrice("BTCUSDT"));
+		const price = await Effect.runPromise(
+			cache.getOrWaitPriceOrNull("BTCUSDT"),
+		);
 		expect(price).toEqual(btcBook);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

@@ -1,4 +1,4 @@
-import { Clock, Effect, Either, Layer, MutableHashMap } from "effect";
+import { Clock, Effect, Layer, MutableHashMap } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
 import type { Route } from "../../config/config-parser";
 import { HAS_PRICE_KEY } from "../../constants";
@@ -107,8 +107,7 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 					// Subscriptions are in-flight; resolve every requested symbol concurrently.
 					const results = yield* Effect.forEach(
 						requestedSymbols,
-						(requested) =>
-							Effect.either(cache.getOrWaitPrice(requested.toUpperCase())),
+						(requested) => cache.getOrWaitPriceOrNull(requested.toUpperCase()),
 						{ concurrency: "unbounded" },
 					);
 
@@ -117,12 +116,12 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 						const requested = requestedSymbols[i];
 						const result = results[i];
 
-						if (Either.isLeft(result) || !socketHealthy) {
+						if (result === null || !socketHealthy) {
 							prices.push({ symbol: requested, [HAS_PRICE_KEY]: false });
 						} else {
 							prices.push({
 								symbol: requested,
-								...result.right,
+								...result,
 								[HAS_PRICE_KEY]: true,
 							});
 						}
