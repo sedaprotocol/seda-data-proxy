@@ -16,7 +16,7 @@ import {
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { createAssetCache } from "./asset-cache";
+import { createFreshnessCache } from "../shared/freshness-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
 import {
 	executeHydromancerRestRequest,
@@ -34,7 +34,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				restBaseUrl: config.restBaseUrl,
 			});
 
-			const cache = yield* createAssetCache();
+			const cache = yield* createFreshnessCache<string, AssetCtx>();
 			const ws = yield* createHydromancerWS(config, cache);
 			const staleAfterMillis = Duration.toMillis(config.staleAfter);
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();
@@ -58,7 +58,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						onExpire: (coin) =>
 							Effect.gen(function* () {
 								yield* Effect.logInfo("Cleaning up idle coin", { coin });
-								yield* cache.remove(coin);
+								cache.remove(coin);
 								yield* ws.unsubscribe(coin);
 							}),
 					});
@@ -144,13 +144,10 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					const toFetch: string[] = [];
 
 					for (const coin of assetRequest.coins) {
-						if (
-							socketHealthy &&
-							(yield* cache.isFresh(coin, staleAfterMillis, now))
-						) {
-							const entry = yield* cache.get(coin);
-							if (Option.isSome(entry)) {
-								resolved[coin] = entry.value.ctx;
+						if (socketHealthy) {
+							const fresh = cache.get(coin, staleAfterMillis, now);
+							if (Option.isSome(fresh)) {
+								resolved[coin] = fresh.value;
 								continue;
 							}
 						}
@@ -170,7 +167,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						for (const coin of toFetch) {
 							const ctx = restBatch[coin];
 							if (ctx) {
-								yield* cache.set(coin, ctx, now);
+								cache.set(coin, ctx, now);
 								resolved[coin] = ctx;
 							}
 						}
