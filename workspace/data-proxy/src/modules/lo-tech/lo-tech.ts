@@ -1,27 +1,25 @@
 import {
 	Clock,
-	Duration,
 	Effect,
 	Either,
 	Layer,
-	Match,
 	MutableHashMap,
 	Option,
 	Queue,
-	Schedule,
 } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
-	LO_TECH_DATA_TYPE_PRICE,
 	LO_TECH_EXCHANGE_PATH_PARAM,
 	type LoTechModuleConfig,
 	assertSupportedLoTechExchange,
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
+import { recordTickHandle } from "../shared/tick-metrics";
 import { FailedToHandleLoTechRequestError } from "./errors";
 import type {
 	LoTechAck,
@@ -112,25 +110,17 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				Effect.Effect.Success<ReturnType<typeof makeLoTechWebSocketService>>
 			>();
 
-			const updatePrice = (exchange: string, data: LoTechDataPrice) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Received message from LO:TECH client", data);
-
+			const handleDataMessage =
+				(exchange: string) =>
+				(data: LoTechParsedData): void => {
+					const started = performance.now();
 					const key = priceFeedKey(exchange, data.symbol);
 					if (!MutableHashMap.has(priceFeeds, key)) {
 						return;
 					}
-					yield* priceCache.setPrice(key, data);
-				});
-
-			const makeHandleDataMessage =
-				(exchange: string) => (data: LoTechParsedData) =>
-					Match.value(data).pipe(
-						Match.discriminatorsExhaustive("type")({
-							[LO_TECH_DATA_TYPE_PRICE]: (priceData) =>
-								updatePrice(exchange, priceData),
-						}),
-					);
+					priceCache.setPriceSync(key, data);
+					recordTickHandle("lo-tech", config.name, performance.now() - started);
+				};
 
 			const handleAckMessage = (msg: LoTechAck) =>
 				Effect.gen(function* () {
@@ -179,7 +169,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						config,
 						exchange,
 						runtime,
-						handleDataMessage: makeHandleDataMessage(exchange),
+						handleDataMessage: handleDataMessage(exchange),
 						handleAckMessage,
 						handleErrorMessage,
 					});
@@ -255,58 +245,32 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						}),
 					);
 
-					// Background fiber for cleaning up price feeds subscriptions
-					yield* Effect.forkDaemon(
-						Effect.gen(function* () {
-							const now = yield* Clock.currentTimeMillis;
-							yield* Effect.logDebug(
-								`Cleaning up price feeds (currently running ${priceCache.size()} price feeds)..`,
-							);
+					yield* forkIdleCleanup({
+						lastRequest: lastRequestToPriceFeed,
+						ttl: config.priceFeedsCleanupTtl,
+						interval: config.priceFeedsCleanupInterval,
+						onExpire: (key) =>
+							Effect.gen(function* () {
+								const { exchange, symbol } = parsePriceFeedKey(key);
+								yield* Effect.logInfo("Cleaning up idle price feed", {
+									symbol,
+									exchange,
+								});
+								yield* priceCache.deletePrice(key);
 
-							for (const [
-								key,
-								lastRequestTimestamp,
-							] of lastRequestToPriceFeed) {
-								const cleanupInterval = Duration.toMillis(
-									config.priceFeedsCleanupTtl,
-								);
-								const timeSinceLastRequest = now - lastRequestTimestamp;
-
-								yield* Effect.logDebug(
-									`Time since last request for price feed ${key}: ${Duration.format(Duration.decode(timeSinceLastRequest))}`,
-								);
-
-								if (timeSinceLastRequest > cleanupInterval) {
-									const { exchange, symbol } = parsePriceFeedKey(key);
-									yield* Effect.logInfo(
-										`Cleaning up price feed ${symbol} on ${exchange}`,
+								const priceFeedId = MutableHashMap.get(priceFeeds, key);
+								if (Option.isSome(priceFeedId)) {
+									yield* unsubscribePriceOnExchange(exchange, symbol);
+									MutableHashMap.remove(priceFeeds, key);
+									MutableHashMap.remove(priceFeedIds, priceFeedId.value);
+								} else {
+									yield* Effect.logError(
+										"Failed to find price feed ID for symbol",
+										{ symbol, exchange },
 									);
-									MutableHashMap.remove(lastRequestToPriceFeed, key);
-									yield* priceCache.deletePrice(key);
-
-									const priceFeedId = MutableHashMap.get(priceFeeds, key);
-
-									if (Option.isSome(priceFeedId)) {
-										yield* unsubscribePriceOnExchange(exchange, symbol);
-										MutableHashMap.remove(priceFeeds, key);
-										MutableHashMap.remove(priceFeedIds, priceFeedId.value);
-									} else {
-										yield* Effect.logError(
-											"Failed to find price feed ID for symbol",
-											{
-												symbol,
-												exchange,
-											},
-										);
-									}
 								}
-							}
-						}).pipe(
-							Effect.schedule(
-								Schedule.spaced(config.priceFeedsCleanupInterval),
-							),
-						),
-					);
+							}),
+					});
 				}).pipe(Effect.annotateLogs("_name", "lo-tech"));
 
 			const handleRequest = (

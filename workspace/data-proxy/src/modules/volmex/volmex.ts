@@ -6,6 +6,7 @@ import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
+import { recordTickHandle } from "../shared/tick-metrics";
 import { FailedToHandleVolmexRequestError } from "./errors";
 import { proxyVolmexRestRequest } from "./rest-client";
 import type { VolmexDataPrice, VolmexResponse } from "./schema";
@@ -20,11 +21,11 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 			const runtime = yield* Effect.runtime();
 			const priceCache = yield* createPriceCache<string, VolmexDataPrice>();
 
-			const updatePrice = (data: VolmexDataPrice) =>
-				Effect.gen(function* () {
-					yield* Effect.logDebug("Received message from Volmex client", data);
-					yield* priceCache.setPrice(data.symbol, data);
-				});
+			const updatePrice = (data: VolmexDataPrice): void => {
+				const started = performance.now();
+				priceCache.setPriceSync(data.symbol, data);
+				recordTickHandle("volmex", config.name, performance.now() - started);
+			};
 
 			const ws = yield* makeVolmexWebSocketService({
 				config,

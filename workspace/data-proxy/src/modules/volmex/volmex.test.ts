@@ -178,6 +178,7 @@ describe("VolmexModuleService.handleRequest", () => {
 		await completeHandshake(socket);
 		socket.trigger("indices-messages-stream-private", evivPrice);
 		socket.trigger("indices-messages-stream-private", bvivPrice);
+		await new Promise<void>((r) => setTimeout(r, 0));
 
 		const response = await resultPromise;
 		expect(response.status).toBe(200);
@@ -206,6 +207,7 @@ describe("VolmexModuleService.handleRequest", () => {
 		const socket = FakeSocket.instances[0];
 		await completeHandshake(socket);
 		socket.trigger("indices-messages-stream-private", bvivPrice);
+		await new Promise<void>((r) => setTimeout(r, 0));
 
 		const [first, second] = await resultPromise;
 		expect(first.status).toBe(200);

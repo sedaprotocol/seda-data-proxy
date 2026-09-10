@@ -1,7 +1,8 @@
-import { Duration, Effect, Runtime, Schedule } from "effect";
+import { Duration, Effect, Match, Runtime, Schedule } from "effect";
 import * as v from "valibot";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
+import { forkInboundControl } from "../shared/inbound-control";
 import {
 	type LoTechAck,
 	LoTechAckSchema,
@@ -46,9 +47,85 @@ export type LoTechWebSocketServiceDeps = {
 	runtime: Runtime.Runtime<never>;
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
-	handleDataMessage: (data: LoTechParsedData) => Effect.Effect<void>;
+	handleDataMessage: (data: LoTechParsedData) => void;
 	handleAckMessage: (data: LoTechAck) => Effect.Effect<void>;
 	handleErrorMessage: (data: LoTechErrorMessage) => Effect.Effect<void>;
+};
+
+export type LoTechInboundControl =
+	| { kind: "ack"; msg: LoTechAck }
+	| { kind: "error"; msg: LoTechErrorMessage }
+	| { kind: "pong" }
+	| { kind: "unexpected"; parsed: unknown }
+	| { kind: "invalid-json"; error: unknown; text: string }
+	| { kind: "bad-format"; parsed: unknown }
+	| { kind: "schema"; label: string; issues: unknown; raw: unknown };
+
+export type ParsedInbound =
+	| { kind: "data"; data: LoTechParsedData }
+	| LoTechInboundControl;
+
+const parseWithSchema = <T>(
+	schema: v.GenericSchema<unknown, T>,
+	label: string,
+	raw: unknown,
+	onOk: (value: T) => ParsedInbound,
+): ParsedInbound => {
+	const result = v.safeParse(schema, raw);
+	if (!result.success) {
+		return {
+			kind: "schema",
+			label,
+			issues: v.flatten(result.issues),
+			raw,
+		};
+	}
+	return onOk(result.output);
+};
+
+export const parseInboundFrame = (raw: string): ParsedInbound => {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (error) {
+		return {
+			kind: "invalid-json",
+			error,
+			text: raw.slice(0, 500),
+		};
+	}
+
+	if (typeof parsed !== "object" || parsed === null) {
+		return { kind: "bad-format", parsed };
+	}
+
+	if ("data" in parsed) {
+		return parseWithSchema(LoTechDataMessageSchema, "data", parsed, (msg) => ({
+			kind: "data",
+			data: msg.data,
+		}));
+	}
+	if ("ack" in parsed) {
+		return parseWithSchema(LoTechAckSchema, "ack", parsed, (msg) => ({
+			kind: "ack",
+			msg,
+		}));
+	}
+	if ("error" in parsed) {
+		return parseWithSchema(
+			LoTechErrorMessageSchema,
+			"error",
+			parsed,
+			(msg) => ({
+				kind: "error",
+				msg,
+			}),
+		);
+	}
+	if ("pong" in parsed) {
+		return { kind: "pong" };
+	}
+	return { kind: "unexpected", parsed };
 };
 
 export const makeLoTechWebSocketService = (
@@ -67,6 +144,46 @@ export const makeLoTechWebSocketService = (
 
 		let activeSocket: WebSocket | null = null;
 		const pendingOutbound: string[] = [];
+
+		const inboundControl = yield* forkInboundControl(
+			(event: LoTechInboundControl) =>
+				Match.value(event).pipe(
+					Match.discriminatorsExhaustive("kind")({
+						ack: ({ msg }) =>
+							handleAckMessage(msg).pipe(
+								Effect.catchAll((err) =>
+									Effect.logError("Failed to handle ack message from LO:TECH", {
+										err,
+									}),
+								),
+							),
+						error: ({ msg }) =>
+							handleErrorMessage(msg).pipe(
+								Effect.catchAll((err) =>
+									Effect.logError(
+										"Failed to handle error message from LO:TECH",
+										{ err },
+									),
+								),
+							),
+						pong: () => Effect.logInfo("Received pong from LO:TECH"),
+						unexpected: ({ parsed }) =>
+							Effect.logWarning("Unexpected LO:TECH message received", parsed),
+						"invalid-json": ({ error, text }) =>
+							Effect.logWarning("LO:TECH invalid JSON message", {
+								error,
+								text,
+							}),
+						"bad-format": ({ parsed }) =>
+							Effect.logError("Unexpected LO:TECH message format", parsed),
+						schema: ({ label, issues, raw }) =>
+							Effect.logError(`Unexpected LO:TECH ${label} message (schema)`, {
+								issues,
+								raw,
+							}),
+					}),
+				),
+		);
 
 		function send(text: string): Effect.Effect<void> {
 			return Effect.gen(function* () {
@@ -112,6 +229,15 @@ export const makeLoTechWebSocketService = (
 					}),
 				);
 			}
+		};
+
+		const handleInboundMessage = (raw: string): void => {
+			const parsed = parseInboundFrame(raw);
+			if (parsed.kind === "data") {
+				handleDataMessage(parsed.data);
+				return;
+			}
+			inboundControl.offer(parsed);
 		};
 
 		const runWebSocketSession = (): Promise<void> =>
@@ -161,61 +287,7 @@ export const makeLoTechWebSocketService = (
 
 				socket.on("message", (raw) => {
 					const text = typeof raw === "string" ? raw : raw.toString();
-
-					try {
-						const parsed: unknown = JSON.parse(text);
-
-						Runtime.runSync(
-							runtime,
-							Effect.gen(function* () {
-								if (typeof parsed !== "object" || parsed === null) {
-									yield* Effect.logError(
-										"Unexpected LO:TECH message format",
-										parsed,
-									);
-									return;
-								}
-
-								if ("data" in parsed) {
-									yield* parseAndHandle(
-										LoTechDataMessageSchema,
-										"data",
-										parsed,
-										(msg) => handleDataMessage(msg.data),
-									);
-								} else if ("ack" in parsed) {
-									yield* parseAndHandle(
-										LoTechAckSchema,
-										"ack",
-										parsed,
-										handleAckMessage,
-									);
-								} else if ("error" in parsed) {
-									yield* parseAndHandle(
-										LoTechErrorMessageSchema,
-										"error",
-										parsed,
-										handleErrorMessage,
-									);
-								} else if ("pong" in parsed) {
-									yield* Effect.logInfo("Received pong from LO:TECH");
-								} else {
-									yield* Effect.logWarning(
-										"Unexpected LO:TECH message received",
-										parsed,
-									);
-								}
-							}),
-						);
-					} catch (error) {
-						Runtime.runSync(
-							runtime,
-							Effect.logWarning("LO:TECH invalid JSON message", {
-								error,
-								text: text.slice(0, 500),
-							}),
-						);
-					}
+					handleInboundMessage(text);
 				});
 
 				socket.on("close", () => {
@@ -265,28 +337,4 @@ export const makeLoTechWebSocketService = (
 		yield* Effect.forkDaemon(Effect.repeat(runSession, reconnectSchedule));
 
 		return api;
-	});
-
-const parseAndHandle = <T>(
-	schema: v.GenericSchema<unknown, T>,
-	label: string,
-	raw: unknown,
-	handler: (value: T) => Effect.Effect<void>,
-) =>
-	Effect.gen(function* () {
-		const result = v.safeParse(schema, raw);
-		if (!result.success) {
-			yield* Effect.logError(`Unexpected LO:TECH ${label} message (schema)`, {
-				issues: v.flatten(result.issues),
-				raw,
-			});
-			return;
-		}
-		yield* handler(result.output).pipe(
-			Effect.catchAll((err) =>
-				Effect.logError(`Failed to handle ${label} message from LO:TECH`, {
-					err,
-				}),
-			),
-		);
 	});

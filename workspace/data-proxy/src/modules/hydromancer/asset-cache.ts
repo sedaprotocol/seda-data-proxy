@@ -12,8 +12,12 @@ export const createAssetCache = () =>
 
 		const set = (coin: string, ctx: AssetCtx, now: number) =>
 			Effect.sync(() => {
-				MutableHashMap.set(entries, coin, { ctx, lastUpdate: now });
+				setSync(coin, ctx, now);
 			});
+
+		const setSync = (coin: string, ctx: AssetCtx, now: number): void => {
+			MutableHashMap.set(entries, coin, { ctx, lastUpdate: now });
+		};
 
 		const get = (coin: string) =>
 			Effect.sync(() => MutableHashMap.get(entries, coin));
@@ -32,6 +36,7 @@ export const createAssetCache = () =>
 
 		return {
 			set,
+			setSync,
 			get,
 			remove,
 			isFresh,

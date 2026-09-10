@@ -2,6 +2,7 @@ import { Effect, type Fiber, Redacted, Runtime } from "effect";
 import { io } from "socket.io-client";
 import * as v from "valibot";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
+import { forkInboundControl } from "../shared/inbound-control";
 import { type VolmexDataPrice, VolmexDataPriceSchema } from "./schema";
 
 const FETCH_INDICES_EVENT = "fetch-indices-messages-private";
@@ -13,7 +14,7 @@ export type VolmexWebSocketServiceDeps = {
 		"wsBaseUrl" | "volmexApiKey" | "reconnectDelayMs"
 	>;
 	runtime: Runtime.Runtime<never>;
-	onPrice: (price: VolmexDataPrice) => Effect.Effect<void>;
+	onPrice: (price: VolmexDataPrice) => void;
 };
 
 export interface VolmexWS {
@@ -21,12 +22,35 @@ export interface VolmexWS {
 	start: () => Effect.Effect<Fiber.RuntimeFiber<void, never>>;
 }
 
+export type ParsedInbound =
+	| { kind: "price"; price: VolmexDataPrice }
+	| { kind: "invalid-payload"; issues: unknown; payload: unknown };
+
+export const parseInboundFrame = (payload: unknown): ParsedInbound => {
+	const result = v.safeParse(VolmexDataPriceSchema, payload);
+	if (!result.success) {
+		return {
+			kind: "invalid-payload",
+			issues: v.flatten(result.issues),
+			payload,
+		};
+	}
+	return { kind: "price", price: result.output };
+};
+
 export const makeVolmexWebSocketService = (
 	deps: VolmexWebSocketServiceDeps,
 ): Effect.Effect<VolmexWS> =>
 	Effect.gen(function* () {
 		const { config, runtime, onPrice } = deps;
 		const reconnectDelayMs = config.reconnectDelayMs ?? 1000;
+		const inboundControl = yield* forkInboundControl(
+			(event: Extract<ParsedInbound, { kind: "invalid-payload" }>) =>
+				Effect.logWarning("Unexpected Volmex indices message", {
+					issues: event.issues,
+					payload: event.payload,
+				}),
+		);
 
 		const connect = Effect.gen(function* () {
 			const socket = yield* Effect.acquireRelease(
@@ -61,27 +85,12 @@ export const makeVolmexWebSocketService = (
 			});
 
 			socket.on(INDICES_STREAM_EVENT, (payload: unknown) => {
-				Runtime.runSync(
-					runtime,
-					Effect.gen(function* () {
-						const result = v.safeParse(VolmexDataPriceSchema, payload);
-						if (!result.success) {
-							yield* Effect.logWarning("Unexpected Volmex indices message", {
-								issues: v.flatten(result.issues),
-								payload,
-							});
-							return;
-						}
-
-						yield* onPrice(result.output).pipe(
-							Effect.catchAll((err) =>
-								Effect.logError("Failed to handle Volmex price update", {
-									err,
-								}),
-							),
-						);
-					}),
-				);
+				const parsed = parseInboundFrame(payload);
+				if (parsed.kind === "invalid-payload") {
+					inboundControl.offer(parsed);
+					return;
+				}
+				onPrice(parsed.price);
 			});
 
 			socket.on("disconnect", (reason) => {

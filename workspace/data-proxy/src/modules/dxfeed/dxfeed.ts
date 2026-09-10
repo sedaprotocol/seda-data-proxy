@@ -7,7 +7,6 @@ import {
 } from "@dxfeed/dxlink-api";
 import {
 	Clock,
-	Duration,
 	Effect,
 	Either,
 	Layer,
@@ -15,7 +14,6 @@ import {
 	Option,
 	Queue,
 	Runtime,
-	Schedule,
 } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
@@ -26,9 +24,12 @@ import {
 } from "../../config/dxfeed-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
+import { forkInboundControl } from "../shared/inbound-control";
 import { createPriceCache } from "../shared/price-cache";
+import { recordTickHandle } from "../shared/tick-metrics";
 import { FailedToHandleDxFeedRequestError } from "./errors";
 import {
 	type DxFeedFullEventData,
@@ -57,6 +58,22 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			}>();
 			const lastRequestByKey = MutableHashMap.empty<DxFeedKey, number>();
 
+			type TickIssue =
+				| { kind: "invalid-event"; event: unknown }
+				| { kind: "unsubscribed"; key: DxFeedKey };
+
+			const inboundControl = yield* forkInboundControl((issue: TickIssue) => {
+				if (issue.kind === "invalid-event") {
+					return Effect.logError(
+						"Failed to extract symbol and type from event",
+						issue.event,
+					);
+				}
+				return Effect.logError("Received event for unsubscribed key", {
+					key: issue.key,
+				});
+			});
+
 			let subscriptionId = 0;
 
 			const client = new DXLinkWebSocketClient();
@@ -75,32 +92,28 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			});
 
 			feed.addEventListener((events) => {
-				Runtime.runSync(
-					runtime,
-					Effect.gen(function* () {
-						for (const event of events) {
-							yield* Effect.logDebug("dxFeed event", event);
+				const started = performance.now();
+				let applied = 0;
+				for (const event of events) {
+					const eventData = extractFullEventDataFromEvent(event);
+					if (eventData === undefined) {
+						inboundControl.offer({ kind: "invalid-event", event });
+						continue;
+					}
 
-							const eventData = extractFullEventDataFromEvent(event);
-							if (eventData === undefined) {
-								yield* Effect.logError(
-									"Failed to extract symbol and type from event",
-									event,
-								);
-								continue;
-							}
-
-							const key = dxfeedKey(eventData.symbol, eventData.type);
-
-							if (MutableHashMap.has(subscriptions, key)) {
-								yield* priceCache.setPrice(key, eventData);
-							} else {
-								yield* Effect.logError("Received event for unsubscribed key", {
-									key,
-								});
-							}
-						}
-					}),
+					const key = dxfeedKey(eventData.symbol, eventData.type);
+					if (!MutableHashMap.has(subscriptions, key)) {
+						inboundControl.offer({ kind: "unsubscribed", key });
+						continue;
+					}
+					priceCache.setPriceSync(key, eventData);
+					applied += 1;
+				}
+				recordTickHandle(
+					"dxfeed",
+					config.name,
+					performance.now() - started,
+					applied,
 				);
 			});
 
@@ -178,43 +191,19 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						}).pipe(Effect.forever),
 					);
 
-					// Clean up subscriptions that haven't been requested in a while
-					yield* Effect.forkDaemon(
-						Effect.gen(function* () {
-							const now = yield* Clock.currentTimeMillis;
-							yield* Effect.logDebug(
-								`Cleaning up dxFeed subscriptions (running ${priceCache.size()})`,
-							);
-
-							for (const [key, lastRequestTimestamp] of lastRequestByKey) {
-								const cleanupInterval = Duration.toMillis(
-									config.subscriptionsCleanupTtl,
-								);
-								const timeSinceLastRequest = now - lastRequestTimestamp;
-
-								yield* Effect.logDebug(
-									`Time since last request for dxFeed ${key}: ${Duration.format(Duration.decode(timeSinceLastRequest))}`,
-								);
-
-								if (timeSinceLastRequest > cleanupInterval) {
-									yield* Effect.logInfo(
-										`Cleaning up dxFeed subscription ${key}`,
-									);
-									MutableHashMap.remove(lastRequestByKey, key);
-									yield* priceCache.deletePrice(key);
-
-									const id = MutableHashMap.get(subscriptions, key);
-									if (Option.isSome(id)) {
-										unsubscribeByCompositeKey(key);
-									}
-								}
-							}
-						}).pipe(
-							Effect.schedule(
-								Schedule.spaced(config.subscriptionsCleanupInterval),
-							),
-						),
-					);
+					yield* forkIdleCleanup({
+						lastRequest: lastRequestByKey,
+						ttl: config.subscriptionsCleanupTtl,
+						interval: config.subscriptionsCleanupInterval,
+						onExpire: (key) =>
+							Effect.gen(function* () {
+								yield* Effect.logInfo("Cleaning up idle dxFeed subscription", {
+									key,
+								});
+								yield* priceCache.deletePrice(key);
+								unsubscribeByCompositeKey(key);
+							}),
+					});
 				}).pipe(Effect.annotateLogs("_name", "dxfeed"));
 
 			const handleRequest = (

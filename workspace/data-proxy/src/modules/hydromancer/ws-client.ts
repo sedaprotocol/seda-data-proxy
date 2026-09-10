@@ -1,6 +1,5 @@
 import { tryParseSync } from "@seda-protocol/utils";
 import {
-	Clock,
 	Deferred,
 	Duration,
 	Effect,
@@ -16,6 +15,7 @@ import {
 	AssetCtxSchema,
 	type HydromancerModuleConfig,
 } from "../../config/hydromancer-module-config";
+import { recordTickHandle } from "../shared/tick-metrics";
 import type { AssetCache } from "./asset-cache";
 
 const InboundFrameSchema = v.object({
@@ -141,16 +141,18 @@ export const createHydromancerWS = (
 				}
 			});
 
-		const handleInboundMessage = (raw: string) =>
-			Effect.gen(function* () {
-				const frame = parseInboundFrame(raw);
-				if (!frame) return;
-				if (Option.isNone(MutableHashMap.get(desiredCoins, frame.coin))) {
-					return;
-				}
-				const now = yield* Clock.currentTimeMillis;
-				yield* cache.set(frame.coin, frame.ctx, now);
-			});
+		// Tick path is plain JS (no Effect, no runSync). parseInboundFrame
+		// returns null for pongs and other non-tick channels. See DEVELOPING.md.
+		const handleInboundMessage = (raw: string): void => {
+			const started = performance.now();
+			const frame = parseInboundFrame(raw);
+			if (!frame) return;
+			if (Option.isNone(MutableHashMap.get(desiredCoins, frame.coin))) {
+				return;
+			}
+			cache.setSync(frame.coin, frame.ctx, Date.now());
+			recordTickHandle("hydromancer", config.name, performance.now() - started);
+		};
 
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
@@ -184,7 +186,7 @@ export const createHydromancerWS = (
 			});
 			ws.addEventListener("message", (event) => {
 				if (typeof event.data !== "string") return;
-				Runtime.runSync(runtime, handleInboundMessage(event.data));
+				handleInboundMessage(event.data);
 			});
 			ws.addEventListener("error", () => {
 				unhealthy = true;
