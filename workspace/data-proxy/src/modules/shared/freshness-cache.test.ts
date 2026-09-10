@@ -17,7 +17,7 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
 				const atWindowEdge = cache.get("BTC", 5000, 6000);
 				expect(Option.isSome(atWindowEdge)).toBe(true);
 				if (Option.isSome(atWindowEdge)) {
@@ -30,7 +30,7 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
 				expect(Option.isNone(cache.get("BTC", 5000, 6001))).toBe(true);
 			}),
 		));
@@ -39,8 +39,8 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
-				cache.set("BTC", { id: "BTC", n: 2 }, 4000);
+				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				yield* cache.set("BTC", { id: "BTC", n: 2 }, 4000);
 				// A 2000ms window is stale against the first write (1000) but
 				// fresh against the second (4000); a hit proves lastUpdate moved.
 				const got = cache.get("BTC", 2000, 5000);
@@ -55,7 +55,7 @@ describe("createFreshnessCache", () => {
 		Effect.runPromise(
 			Effect.gen(function* () {
 				const cache = yield* createFreshnessCache<string, SampleValue>();
-				cache.set("BTC", { id: "BTC", n: 1 }, 1000);
+				yield* cache.set("BTC", { id: "BTC", n: 1 }, 1000);
 				cache.remove("BTC");
 				expect(Option.isNone(cache.get("BTC", 100000, 1000))).toBe(true);
 			}),
