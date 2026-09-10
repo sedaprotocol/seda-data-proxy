@@ -65,6 +65,36 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	l2BookSubscriptionCoins: v.optional(v.array(v.string()), []),
+	l2BookMaxCoinsPerRequest: v.optional(v.number(), 10),
+	l2BookNSigFigs: v.optional(v.number()),
+	l2BookWaitTimeout: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "1 second"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookWaitTimeout duration"),
+			),
+		),
+	),
+	l2BookCleanupTtl: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookCleanupTtl duration"),
+			),
+		),
+	),
+	l2BookCleanupInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid l2BookCleanupInterval duration"),
+			),
+		),
+	),
 });
 
 export interface HydromancerModuleConfig
@@ -104,30 +134,60 @@ const SingleAssetContextType = v.object({
 	type: AssetContextType,
 	coin: v.string(),
 });
+
 const BatchAssetContextType = v.object({
 	type: AssetContextType,
 	// Array of tickers, or a single comma-delimited string (e.g. "BTC,ETH").
 	coins: v.union([v.string(), v.array(v.string())]),
 });
-// Request body the module accepts. Anything else is forwarded to the upstream
-export const AssetContextRequestBodySchema = v.union([
+
+const AssetContextRequestBodySchema = v.variant("type", [
 	SingleAssetContextType,
 	BatchAssetContextType,
 ]);
 
-export type AssetContextRequestBody = v.InferOutput<
-	typeof AssetContextRequestBodySchema
+export const BookLevelSchema = v.object({
+	px: v.string(),
+	sz: v.string(),
+	n: v.number(),
+});
+
+export type BookLevel = v.InferOutput<typeof BookLevelSchema>;
+
+export const BookSnapshotSchema = v.object({
+	coin: v.string(),
+	levels: v.tuple([v.array(BookLevelSchema), v.array(BookLevelSchema)]),
+	time: v.number(),
+});
+
+export type BookSnapshot = v.InferOutput<typeof BookSnapshotSchema>;
+
+export const L2BookRequestBodySchema = v.object({
+	type: v.literal("l2Book"),
+	// Array of tickers, or a single comma-delimited string (e.g. "BTC,ETH").
+	coins: v.union([v.string(), v.array(v.string())]),
+});
+
+// Request body the module accepts, discriminated on `type`. Any shape that
+// matches neither variant is rejected with 400.
+export const HydromancerRequestBodySchema = v.variant("type", [
+	AssetContextRequestBodySchema,
+	L2BookRequestBodySchema,
+]);
+
+export type ParsedHydromancerBody = v.InferOutput<
+	typeof HydromancerRequestBodySchema
 >;
 
-export const parseAssetContextRequestBody = (
+export const parseHydromancerBody = (
 	raw: string,
-): Option.Option<AssetContextRequestBody> => {
+): Option.Option<ParsedHydromancerBody> => {
 	let json: unknown;
 	try {
 		json = JSON.parse(raw);
 	} catch {
 		return Option.none();
 	}
-	const parsed = tryParseSync(AssetContextRequestBodySchema, json);
+	const parsed = tryParseSync(HydromancerRequestBodySchema, json);
 	return parsed.isErr ? Option.none() : Option.some(parsed.value);
 };
