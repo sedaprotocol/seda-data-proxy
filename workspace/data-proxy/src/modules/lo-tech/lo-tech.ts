@@ -1,12 +1,4 @@
-import {
-	Clock,
-	Effect,
-	Either,
-	Layer,
-	MutableHashMap,
-	Option,
-	Queue,
-} from "effect";
+import { Clock, Effect, Layer, MutableHashMap, Option, Queue } from "effect";
 import type { Route } from "../../config/config-parser";
 import {
 	LO_TECH_EXCHANGE_PATH_PARAM,
@@ -330,9 +322,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					const prices = yield* Effect.forEach(
 						symbolRequests,
 						({ symbol, exchange }) =>
-							Effect.either(
-								priceCache.getOrWaitPrice(priceFeedKey(exchange, symbol)),
-							),
+							priceCache.getOrWaitPrice(priceFeedKey(exchange, symbol)),
 						{ concurrency: "unbounded" },
 					);
 
@@ -340,14 +330,14 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						const symbol = symbols[i];
 						const price = prices[i];
 
-						if (Either.isLeft(price)) {
+						if (price === null) {
 							responses.push({
 								symbol,
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
 							responses.push({
-								...price.right,
+								...price,
 								[HAS_PRICE_KEY]: true,
 							});
 						}

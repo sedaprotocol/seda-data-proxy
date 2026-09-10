@@ -29,15 +29,19 @@ const makeWaiter = <V>(): PriceWaiter<V> => {
 };
 
 export interface PriceCache<K, V> {
-	getOrWaitPrice: (key: K) => Effect.Effect<V, FailedToGetPriceError>;
+	getOrWaitPrice: (key: K) => Effect.Effect<V | null>;
 	setPriceSync: (key: K, price: V) => void;
 	deletePrice: (key: K) => Effect.Effect<void>;
 	setPriceToError: (key: K, error: string) => Effect.Effect<void>;
 	size: () => number;
 }
 
-export const createPriceCache = <K, V>(): Effect.Effect<PriceCache<K, V>> =>
+export const createPriceCache = <K, V>(options?: {
+	timeout?: Duration.Duration;
+}): Effect.Effect<PriceCache<K, V>> =>
 	Effect.sync(() => {
+		const waitTimeout =
+			options?.timeout ?? Duration.millis(PRICE_WAIT_TIMEOUT_MS);
 		const priceCache = MutableHashMap.empty<K, V>();
 		const priceWaiters = MutableHashMap.empty<K, PriceWaiter<V>>();
 
@@ -60,7 +64,7 @@ export const createPriceCache = <K, V>(): Effect.Effect<PriceCache<K, V>> =>
 				}
 			});
 
-		const getOrWaitPrice = (key: K): Effect.Effect<V, FailedToGetPriceError> =>
+		const getOrWaitPrice = (key: K): Effect.Effect<V | null> =>
 			Effect.gen(function* () {
 				const cached = MutableHashMap.get(priceCache, key);
 				if (Option.isSome(cached)) {
@@ -85,13 +89,14 @@ export const createPriceCache = <K, V>(): Effect.Effect<PriceCache<K, V>> =>
 				});
 			}).pipe(
 				Effect.timeoutFail({
-					duration: Duration.millis(PRICE_WAIT_TIMEOUT_MS),
+					duration: waitTimeout,
 					onTimeout: () =>
 						new FailedToGetPriceError({
 							error: `Timed out waiting for price of key ${key}`,
 						}),
 				}),
 				Effect.tapError(() => deletePrice(key)),
+				Effect.catchTag("FailedToGetPriceError", () => Effect.succeed(null)),
 				Effect.withSpan("priceCache.getOrWaitPrice", { attributes: { key } }),
 			);
 

@@ -8,7 +8,6 @@ import {
 import {
 	Clock,
 	Effect,
-	Either,
 	Layer,
 	MutableHashMap,
 	Option,
@@ -261,7 +260,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 					// Now since the subscriptions are in-flight, we can fetch the prices concurrently.
 					const results = yield* Effect.forEach(
 						keys,
-						(key) => Effect.either(priceCache.getOrWaitPrice(key)),
+						(key) => priceCache.getOrWaitPrice(key),
 						{ concurrency: "unbounded" },
 					);
 
@@ -269,7 +268,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 						const symbol = symbols[i];
 						const price = results[i];
 
-						if (Either.isLeft(price)) {
+						if (price === null) {
 							prices.push({
 								symbol,
 								[HAS_PRICE_KEY]: false,
@@ -277,7 +276,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 							});
 						} else {
 							prices.push({
-								...price.right,
+								...price,
 								[HAS_PRICE_KEY]: true,
 							});
 						}

@@ -1,4 +1,4 @@
-import { Effect, Either, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
@@ -87,7 +87,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 
 					const prices = yield* Effect.forEach(
 						symbols,
-						(symbol) => Effect.either(priceCache.getOrWaitPrice(symbol)),
+						(symbol) => priceCache.getOrWaitPrice(symbol),
 						{ concurrency: "unbounded" },
 					);
 
@@ -96,14 +96,14 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 						const symbol = symbols[i];
 						const price = prices[i];
 
-						if (Either.isLeft(price)) {
+						if (price === null) {
 							responses.push({
 								symbol,
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
 							responses.push({
-								...price.right,
+								...price,
 								[HAS_PRICE_KEY]: true,
 							});
 						}
