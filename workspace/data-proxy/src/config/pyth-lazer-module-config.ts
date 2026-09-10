@@ -46,6 +46,16 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 	),
 	maxFeedsPerRequest: v.optional(v.number(), 100),
 	pythLazerApiKeyEnvKey: v.string(),
+	streamUrls: v.optional(v.array(v.string()), [
+		"wss://pyth-lazer-0.dourolabs.app/v1/stream",
+		"wss://pyth-lazer-1.dourolabs.app/v1/stream",
+		"wss://pyth-lazer-2.dourolabs.app/v1/stream",
+	]),
+	metadataServiceUrl: v.optional(v.string(), "https://pyth.dourolabs.app"),
+	numConnections: v.optional(
+		v.pipe(v.number(), v.minValue(1, "numConnections must be at least 1")),
+		3,
+	),
 	priceFeedsCleanupTtl: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "1 hour"),
 		v.transform((ttl) =>

@@ -218,14 +218,10 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				try: () =>
 					PythLazerClient.create({
 						token: config.pythLazerApiKey,
-						metadataServiceUrl: "https://pyth.dourolabs.app",
+						metadataServiceUrl: config.metadataServiceUrl,
 						webSocketPoolConfig: {
-							numConnections: 3,
-							urls: [
-								"wss://pyth-lazer-0.dourolabs.app/v1/stream",
-								"wss://pyth-lazer-1.dourolabs.app/v1/stream",
-								"wss://pyth-lazer-2.dourolabs.app/v1/stream",
-							],
+							numConnections: config.numConnections,
+							urls: config.streamUrls,
 							onWebSocketPoolError: (error) => {
 								const safeMessage = redactPythLazerSecrets(
 									pythLazerErrorMessage(error),
