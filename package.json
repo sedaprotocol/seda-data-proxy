@@ -8,7 +8,8 @@
 		"fmt": "bunx biome check --write .",
 		"check-fmt": "bunx biome check .",
 		"check-ts": "bunx tsc --noEmit",
-		"gen:dxfeed-token": "bun run ./workspace/data-proxy/src/scripts/generate-dxfeed-token.ts"
+		"gen:dxfeed-token": "bun run ./workspace/data-proxy/src/scripts/generate-dxfeed-token.ts",
+		"bench:performance": "NODE_TLS_REJECT_UNAUTHORIZED=0 bun run ./workspace/data-proxy/src/scripts/performance.bench.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
