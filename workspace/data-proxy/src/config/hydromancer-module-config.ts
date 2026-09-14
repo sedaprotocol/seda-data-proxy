@@ -19,7 +19,7 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 		),
 	),
 	subscriptionCoins: v.optional(v.array(v.string()), []),
-	maxCoinsPerRequest: v.optional(v.number(), 20),
+	maxCoinsPerRequest: v.optional(v.number(), 100),
 	reconnectMaxBackoff: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
 		v.transform((value) =>

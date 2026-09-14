@@ -7,6 +7,7 @@ import {
 } from "../../config/hydromancer-module-config";
 import { ModuleService } from "../module";
 import { HydromancerModuleService } from "./hydromancer";
+import { REST_MAX_COINS_PER_REQUEST } from "./rest-fallback";
 import { buildSubscribeFrame, buildUnsubscribeFrame } from "./ws-client";
 
 const baseConfig: HydromancerModuleConfig = {
@@ -353,6 +354,57 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 
 		const response = await callHandle(tightConfig, ["BTC", "ETH", "SOL"]);
 		expect(response.status).toBe(400);
+	});
+
+	it("chunks REST fallback into groups of 20 coins and fetches them concurrently", async () => {
+		const coins = Array.from(
+			{ length: REST_MAX_COINS_PER_REQUEST * 3 + 7 },
+			(_, i) => `C${i}`,
+		);
+		const expectedBatches = [
+			coins.slice(0, REST_MAX_COINS_PER_REQUEST),
+			coins.slice(REST_MAX_COINS_PER_REQUEST, REST_MAX_COINS_PER_REQUEST * 2),
+			coins.slice(
+				REST_MAX_COINS_PER_REQUEST * 2,
+				REST_MAX_COINS_PER_REQUEST * 3,
+			),
+			coins.slice(REST_MAX_COINS_PER_REQUEST * 3, coins.length),
+		];
+		const fetchedBatches: string[][] = [];
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const fetchMock = mock(
+			async (_input: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse(init?.body as string) as { coins: string[] };
+				fetchedBatches.push(body.coins);
+				inFlight++;
+				maxInFlight = Math.max(maxInFlight, inFlight);
+				await Bun.sleep(20);
+				inFlight--;
+				const responseBody: Record<string, typeof btcCtx> = {};
+				for (const coin of body.coins) {
+					responseBody[coin] = btcCtx;
+				}
+				return new Response(JSON.stringify(responseBody), { status: 200 });
+			},
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(
+			{ ...baseConfig, maxCoinsPerRequest: 100 },
+			coins,
+		);
+
+		expect(response.status).toBe(200);
+		expect(fetchedBatches).toHaveLength(expectedBatches.length);
+		expect(fetchedBatches).toEqual(expect.arrayContaining(expectedBatches));
+		expect(maxInFlight).toBe(expectedBatches.length);
+		const body = (await response.json()) as Record<string, typeof btcCtx>;
+		expect(Object.keys(body)).toEqual(coins);
+		// Sample a random coin and check the content.
+		expect(body[coins[Math.floor(Math.random() * coins.length)]]).toEqual(
+			btcCtx,
+		);
 	});
 });
 

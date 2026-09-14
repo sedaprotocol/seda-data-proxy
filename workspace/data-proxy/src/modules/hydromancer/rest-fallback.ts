@@ -11,6 +11,8 @@ const BatchResponseSchema = v.record(v.string(), v.nullable(AssetCtxSchema));
 
 export type BatchAssetContexts = v.InferOutput<typeof BatchResponseSchema>;
 
+export const REST_MAX_COINS_PER_REQUEST = 20;
+
 export const executeHydromancerRestRequest = (
 	config: HydromancerModuleConfig,
 	rawBody: unknown,
@@ -48,7 +50,7 @@ export const executeHydromancerRestRequest = (
 		return response;
 	}).pipe(Effect.withSpan("executeHydromancerRestRequest"));
 
-export const fetchAssetContextsFromRest = (
+const fetchAssetContextsChunkFromRest = (
 	config: HydromancerModuleConfig,
 	coins: string[],
 ): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> =>
@@ -99,6 +101,23 @@ export const fetchAssetContextsFromRest = (
 		}
 
 		return validated.value;
-	}).pipe(
+	});
+
+export const fetchAssetContextsFromRest = (
+	config: HydromancerModuleConfig,
+	coins: string[],
+): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> => {
+	const chunks: string[][] = [];
+	for (let i = 0; i < coins.length; i += REST_MAX_COINS_PER_REQUEST) {
+		chunks.push(coins.slice(i, i + REST_MAX_COINS_PER_REQUEST));
+	}
+
+	return Effect.forEach(
+		chunks,
+		(chunk) => fetchAssetContextsChunkFromRest(config, chunk),
+		{ concurrency: "unbounded" },
+	).pipe(
+		Effect.map((batches) => Object.assign({}, ...batches)),
 		Effect.withSpan("fetchAssetContextsFromRest", { attributes: { coins } }),
 	);
+};
