@@ -52,6 +52,11 @@ import {
 	MultiEndpointSchema,
 } from "./multi-endpoint-config";
 import {
+	type OkxModuleRoute,
+	OkxModuleRouteSchema,
+	validateOkxModuleRoute,
+} from "./okx-module-config";
+import {
 	type PmInsightsModuleRoute,
 	PmInsightsModuleRouteSchema,
 	validatePmInsightsModuleRoute,
@@ -155,6 +160,7 @@ const ConfigSchema = v.strictObject(
 				PmInsightsModuleRouteSchema,
 				BinanceModuleRouteSchema,
 				LighterModuleRouteSchema,
+				OkxModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -199,7 +205,8 @@ export type Route =
 	| VolmexModuleRoute
 	| PmInsightsModuleRoute
 	| BinanceModuleRoute
-	| LighterModuleRoute;
+	| LighterModuleRoute
+	| OkxModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -343,6 +350,11 @@ export const parseConfig = (
 
 			if (route.type === "lighter") {
 				yield* validateLighterModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "okx") {
+				yield* validateOkxModuleRoute(route);
 				continue;
 			}
 
@@ -597,12 +609,14 @@ export const parseConfig = (
 						envSecrets.add(password);
 						return Effect.succeed({ ...m, email, password } satisfies Modules);
 					}),
+					// Modules below use public streams that require no credentials.
 					Match.when({ type: "binance" }, (m) =>
-						// Public market-data streams need no credentials.
 						Effect.succeed({ ...m } satisfies Modules),
 					),
 					Match.when({ type: "lighter" }, (m) =>
-						// Public market-data streams need no credentials.
+						Effect.succeed({ ...m } satisfies Modules),
+					),
+					Match.when({ type: "okx" }, (m) =>
 						Effect.succeed({ ...m } satisfies Modules),
 					),
 					Match.exhaustive,

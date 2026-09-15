@@ -44,6 +44,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 | Venue | Default `wsUrl` | Default `maxMessagesPerSecond` | Extra fields |
 | --- | --- | --- | --- |
 | Binance | `wss://stream.binance.com:9443/stream` | `5` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `trade`, `ticker`, `miniTicker`. No keepalive. |
+| OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
 
 ### Route
 
@@ -61,12 +62,20 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 {
   "modules": [
     { "type": "binance", "name": "binance" },
+    { "type": "okx", "name": "okx" }
   ],
   "routes": [
     {
       "type": "binance",
       "moduleName": "binance",
       "path": "/binance/:symbols",
+      "method": ["GET"],
+      "fetchFromModule": "{:symbols}"
+    },
+    {
+      "type": "okx",
+      "moduleName": "okx",
+      "path": "/okx/:symbols",
       "method": ["GET"],
       "fetchFromModule": "{:symbols}"
     }
@@ -76,6 +85,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 ```bash
 curl -s "http://127.0.0.1:5384/proxy/binance/BTCUSDT,ETHUSDT" | jq .
+curl -s "http://127.0.0.1:5384/proxy/okx/BTC-USDT,ETH-USDT" | jq .
 ```
 
 ## Response shape
@@ -103,6 +113,20 @@ Binance (`bookTicker`; identity field `symbol`):
 ]
 ```
 
+OKX (identity field `instId`):
+
+```jsonc
+[
+  {
+    "instId": "BTC-USDT",
+    "last": "67123.4",
+    "askPx": "67123.5",
+    "bidPx": "67123.3",
+    "__sedaHasPrice": true
+  }
+]
+```
+
 | Field | Present when | Description |
 | --- | --- | --- |
 | Identity (`symbol` or `instId`) | always | The raw request token from `fetchFromModule` (original casing). |
@@ -125,3 +149,4 @@ For another string-keyed public ticker feed:
 - Symbols are uppercased for subscribe/cache keys; the identity field on the response keeps the request token as written.
 - The first request for a new symbol may wait up to 3 seconds for the first tick; a miss still returns 200 with `__sedaHasPrice: false`.
 - Binance docs: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
+- OKX tickers channel: https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-tickers-channel
