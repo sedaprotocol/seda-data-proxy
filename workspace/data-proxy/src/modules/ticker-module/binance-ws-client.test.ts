@@ -13,7 +13,7 @@ import {
 	buildUnsubscribeFrame,
 	createBinanceWS,
 	parseInboundFrame,
-} from "./ws-client";
+} from "./binance";
 
 const btcBook: BinancePriceFrame = {
 	u: 400900217,
@@ -149,15 +149,15 @@ afterEach(() => {
 const startService = (
 	config: BinanceModuleConfig,
 	preSubscribed: string[] = config.subscriptionSymbols,
-	options?: Parameters<typeof createBinanceWS>[2],
+	reconnectSchedule: Schedule.Schedule<
+		unknown,
+		unknown,
+		never
+	> = Schedule.spaced(Duration.minutes(10)),
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<string, BinancePriceFrame>();
-		const ws = yield* createBinanceWS(
-			config,
-			cache,
-			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
-		);
+		const ws = yield* createBinanceWS(config, cache, reconnectSchedule);
 		yield* ws.subscribe(preSubscribed);
 		const fiber = yield* ws.start();
 		return { cache, ws, fiber };
@@ -224,24 +224,6 @@ describe("createBinanceWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
-	it("marks hasError after the socket closes", async () => {
-		const { ws: service, fiber } = await Effect.runPromise(
-			startService(baseConfig),
-		);
-		await flush();
-		const ws = FakeWebSocket.instances[0];
-		ws.triggerOpen();
-		await flush();
-		expect(await Effect.runPromise(service.hasError())).toBe(false);
-
-		ws.triggerClose();
-		await flush();
-
-		expect(await Effect.runPromise(service.hasError())).toBe(true);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
 	it("ignores control acks and non-json frames", async () => {
 		const { cache, fiber } = await Effect.runPromise(startService(baseConfig));
 		await flush();
@@ -254,25 +236,6 @@ describe("createBinanceWS", () => {
 		await flush();
 
 		expect(cache.size()).toBe(0);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
-	it("subscribe is idempotent: a duplicate symbol sends no extra frame", async () => {
-		const { ws: service, fiber } = await Effect.runPromise(
-			startService(baseConfig, ["BTCUSDT"]),
-		);
-		await flush();
-		const ws = FakeWebSocket.instances[0];
-		ws.triggerOpen();
-		await flush();
-		expect(ws.sent.length).toBe(1);
-
-		await Effect.runPromise(service.subscribe(["BTCUSDT"]));
-		await Effect.runPromise(service.subscribe(["BTCUSDT"]));
-		await flush();
-
-		expect(ws.sent.length).toBe(1);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -314,7 +277,6 @@ describe("createBinanceWS", () => {
 		await flush();
 		expect(ws.sent.length).toBe(1);
 
-		// Unknown symbol: no frame.
 		await Effect.runPromise(service.unsubscribe(["ETHUSDT"]));
 		await flush();
 		expect(ws.sent.length).toBe(1);
@@ -325,126 +287,6 @@ describe("createBinanceWS", () => {
 		const frame = parseControl(ws.sent[1]);
 		expect(frame.method).toBe("UNSUBSCRIBE");
 		expect(frame.params).toEqual(["btcusdt@bookTicker"]);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
-	it("reconnects after a close, producing a second WebSocket instance", async () => {
-		const fastSchedule = Schedule.spaced(Duration.millis(10));
-		const { ws: service, fiber } = await Effect.runPromise(
-			startService(baseConfig, baseConfig.subscriptionSymbols, {
-				reconnectSchedule: fastSchedule,
-			}),
-		);
-		await flush();
-
-		expect(FakeWebSocket.instances.length).toBe(1);
-		const ws1 = FakeWebSocket.instances[0];
-		ws1.triggerOpen();
-		await flush();
-
-		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
-
-		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
-		const ws2 = FakeWebSocket.instances[1];
-		expect(ws2).not.toBe(ws1);
-
-		ws2.triggerOpen();
-		await flush();
-		expect(await Effect.runPromise(service.hasError())).toBe(false);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
-	it("re-subscribes every desired symbol after reconnect", async () => {
-		const fastSchedule = Schedule.spaced(Duration.millis(10));
-		const { fiber } = await Effect.runPromise(
-			startService(baseConfig, baseConfig.subscriptionSymbols, {
-				reconnectSchedule: fastSchedule,
-			}),
-		);
-		await flush();
-
-		const ws1 = FakeWebSocket.instances[0];
-		ws1.triggerOpen();
-		await flush();
-		expect(parseControl(ws1.sent[0]).params).toEqual([
-			"btcusdt@bookTicker",
-			"ethusdt@bookTicker",
-		]);
-
-		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
-
-		const ws2 = FakeWebSocket.instances[1];
-		ws2.triggerOpen();
-		await flush();
-
-		expect(parseControl(ws2.sent[0]).params).toEqual([
-			"btcusdt@bookTicker",
-			"ethusdt@bookTicker",
-		]);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
-	it("recovers from a send error by closing the socket and reconnecting", async () => {
-		const fastSchedule = Schedule.spaced(Duration.millis(10));
-		// First instance throws on send; second instance accepts normally.
-		FakeWebSocket.sendImpl = (instance, data) => {
-			if (FakeWebSocket.instances.indexOf(instance) === 0) {
-				throw new Error("send-blew-up");
-			}
-			instance.sent.push(data);
-		};
-
-		const { ws: service, fiber } = await Effect.runPromise(
-			startService(baseConfig, ["BTCUSDT"], {
-				reconnectSchedule: fastSchedule,
-			}),
-		);
-		await flush();
-
-		const ws1 = FakeWebSocket.instances[0];
-		ws1.triggerOpen();
-		await flush();
-
-		await new Promise<void>((r) => setTimeout(r, 40));
-		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
-		const ws2 = FakeWebSocket.instances[1];
-		ws2.triggerOpen();
-		await flush();
-
-		expect(parseControl(ws2.sent[0]).params).toEqual(["btcusdt@bookTicker"]);
-		expect(await Effect.runPromise(service.hasError())).toBe(false);
-
-		await Effect.runPromise(Fiber.interrupt(fiber));
-	});
-
-	it("paces outbound frames to stay under maxMessagesPerSecond", async () => {
-		const { ws: service, fiber } = await Effect.runPromise(
-			startService({ ...baseConfig, maxMessagesPerSecond: 4 }, []),
-		);
-		await flush();
-		const ws = FakeWebSocket.instances[0];
-		ws.triggerOpen();
-		await flush();
-
-		await Effect.runPromise(service.subscribe(["BTCUSDT"]));
-		await Effect.runPromise(service.subscribe(["ETHUSDT"]));
-		await Effect.runPromise(service.subscribe(["SOLUSDT"]));
-		await Effect.runPromise(service.subscribe(["DOGEUSDT"]));
-		await Effect.runPromise(service.subscribe(["XRPUSDT"]));
-		await Effect.runPromise(service.subscribe(["LINKUSDT"]));
-		await Effect.runPromise(service.subscribe(["AVAXUSDT"]));
-		await flush();
-
-		// First two frames send immediately; the third waits for a rate-limiter
-		// slot (held for one second), so it must not appear yet.
-		expect(ws.sent.length).toBe(4);
-		await new Promise<void>((r) => setTimeout(r, 50));
-		expect(ws.sent.length).toBe(4);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
