@@ -18,6 +18,7 @@ import { type ModuleHandlers, ModuleService } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import { BinanceModuleService } from "./modules/ticker-module/binance";
+import { BybitModuleService } from "./modules/ticker-module/bybit";
 import { OkxModuleService } from "./modules/ticker-module/okx";
 import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
@@ -77,6 +78,9 @@ export const startProxyServer = (
 					Layer.memoize(LighterModuleService(m)),
 				),
 				Match.when({ type: "okx" }, (m) => Layer.memoize(OkxModuleService(m))),
+				Match.when({ type: "bybit" }, (m) =>
+					Layer.memoize(BybitModuleService(m)),
+				),
 				Match.exhaustive,
 			);
 
@@ -101,7 +105,8 @@ export const startProxyServer = (
 				route.type === "pm-insights" ||
 				route.type === "binance" ||
 				route.type === "lighter" ||
-				route.type === "okx"
+				route.type === "okx" ||
+				route.type === "bybit"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {

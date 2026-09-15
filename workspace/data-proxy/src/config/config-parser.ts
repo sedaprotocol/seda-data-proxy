@@ -19,6 +19,11 @@ import {
 	validateBinanceModuleRoute,
 } from "./binance-module-config";
 import {
+	type BybitModuleRoute,
+	BybitModuleRouteSchema,
+	validateBybitModuleRoute,
+} from "./bybit-module-config";
+import {
 	type ChainlinkStreamsModuleRoute,
 	ChainlinkStreamsModuleRouteSchema,
 	validateChainlinkStreamsModuleRoute,
@@ -161,6 +166,7 @@ const ConfigSchema = v.strictObject(
 				BinanceModuleRouteSchema,
 				LighterModuleRouteSchema,
 				OkxModuleRouteSchema,
+				BybitModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -194,7 +200,6 @@ const ConfigSchema = v.strictObject(
 	UNKNOWN_ATTRIBUTE_ERROR,
 );
 
-// export type Route = v.InferOutput<typeof RouteSchema>;
 export type Route =
 	| UpstreamModuleRoute
 	| PythLazerModuleRoute
@@ -206,7 +211,8 @@ export type Route =
 	| PmInsightsModuleRoute
 	| BinanceModuleRoute
 	| LighterModuleRoute
-	| OkxModuleRoute;
+	| OkxModuleRoute
+	| BybitModuleRoute;
 
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
@@ -355,6 +361,11 @@ export const parseConfig = (
 
 			if (route.type === "okx") {
 				yield* validateOkxModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "bybit") {
+				yield* validateBybitModuleRoute(route);
 				continue;
 			}
 
@@ -617,6 +628,9 @@ export const parseConfig = (
 						Effect.succeed({ ...m } satisfies Modules),
 					),
 					Match.when({ type: "okx" }, (m) =>
+						Effect.succeed({ ...m } satisfies Modules),
+					),
+					Match.when({ type: "bybit" }, (m) =>
 						Effect.succeed({ ...m } satisfies Modules),
 					),
 					Match.exhaustive,
