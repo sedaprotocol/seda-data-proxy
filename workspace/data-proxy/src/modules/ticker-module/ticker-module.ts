@@ -134,6 +134,7 @@ export const createTickerModuleService = <
 							new FailedToHandleTickerRequestError({
 								error: `Too many symbols, max is ${config.maxSymbolsPerRequest} but got ${requestedSymbols.length}`,
 								status: 400,
+								moduleName: config.name,
 							}),
 						);
 					}

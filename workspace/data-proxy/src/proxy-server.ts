@@ -18,6 +18,7 @@ import { type ModuleHandlers, ModuleService } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import { BinanceModuleService } from "./modules/ticker-module/binance";
+import { OkxModuleService } from "./modules/ticker-module/okx";
 import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
 import { StatusContext, statusPlugin } from "./status-plugin";
@@ -75,6 +76,7 @@ export const startProxyServer = (
 				Match.when({ type: "lighter" }, (m) =>
 					Layer.memoize(LighterModuleService(m)),
 				),
+				Match.when({ type: "okx" }, (m) => Layer.memoize(OkxModuleService(m))),
 				Match.exhaustive,
 			);
 
@@ -98,7 +100,8 @@ export const startProxyServer = (
 				route.type === "volmex" ||
 				route.type === "pm-insights" ||
 				route.type === "binance" ||
-				route.type === "lighter"
+				route.type === "lighter" ||
+				route.type === "okx"
 			) {
 				const moduleLayer = MutableHashMap.get(modules, route.moduleName);
 				if (Option.isNone(moduleLayer)) {

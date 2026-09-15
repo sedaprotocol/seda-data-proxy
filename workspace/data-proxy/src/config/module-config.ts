@@ -11,6 +11,8 @@ import type { LighterModuleConfig } from "./lighter-module-config";
 import { LighterModuleConfigSchema } from "./lighter-module-config";
 import type { LoTechModuleConfig } from "./lo-tech-module-config";
 import { LoTechModuleConfigSchema } from "./lo-tech-module-config";
+import type { OkxModuleConfig } from "./okx-module-config";
+import { OkxModuleConfigSchema } from "./okx-module-config";
 import type { PmInsightsModuleConfig } from "./pm-insights-module-config";
 import { PmInsightsModuleConfigSchema } from "./pm-insights-module-config";
 import type { PythLazerModuleConfig } from "./pyth-lazer-module-config";
@@ -31,6 +33,7 @@ export const ModulesSchema = v.optional(
 			PmInsightsModuleConfigSchema,
 			BinanceModuleConfigSchema,
 			LighterModuleConfigSchema,
+			OkxModuleConfigSchema,
 		]),
 	),
 	[],
@@ -45,4 +48,5 @@ export type Modules =
 	| VolmexModuleConfig
 	| PmInsightsModuleConfig
 	| BinanceModuleConfig
-	| LighterModuleConfig;
+	| LighterModuleConfig
+	| OkxModuleConfig;

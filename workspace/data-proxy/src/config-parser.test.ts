@@ -856,6 +856,29 @@ describe("parseConfig", () => {
 
 			delete process.env.HYDROMANCER_API_KEY;
 		});
+
+		it("should default an okx module to the production public ticker WS", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [{ name: "okx", type: "okx" }],
+					routes: [
+						{
+							type: "okx",
+							moduleName: "okx",
+							path: "/okx/:symbols",
+							fetchFromModule: "{:symbols}",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "okx") {
+				throw new Error(`expected okx, got ${module.type}`);
+			}
+			expect(module.wsUrl).toBe("wss://ws.okx.com:8443/ws/v5/public");
+		});
 	});
 
 	describe("it should fail on unknown properties", () => {

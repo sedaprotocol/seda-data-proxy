@@ -2,43 +2,48 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, LogLevel, Logger } from "effect";
 import * as v from "valibot";
 import {
-	type BinanceModuleConfig,
-	BinanceModuleRouteSchema,
-} from "../../config/binance-module-config";
+	type OkxModuleConfig,
+	OkxModuleRouteSchema,
+} from "../../config/okx-module-config";
 import { ModuleService } from "../module";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
 } from "../shared/fake-websocket.test-helpers";
-import { BinanceModuleService } from "./binance";
-import type { BinancePriceFrame } from "./binance";
+import { OkxModuleService, type OkxPriceFrame } from "./okx";
 
-const btcBook: BinancePriceFrame = {
-	u: 400900217,
-	s: "BTCUSDT",
-	b: "67123.44",
-	B: "1.2",
-	a: "67123.46",
-	A: "0.8",
+const btcTicker: OkxPriceFrame = {
+	instType: "SPOT",
+	instId: "BTC-USDT",
+	last: "9999.99",
+	askPx: "9999.99",
+	bidPx: "8888.88",
+	ts: "1597026383085",
 };
 
-const ethBook: BinancePriceFrame = {
-	u: 400900218,
-	s: "ETHUSDT",
-	b: "3500.10",
-	B: "5.0",
-	a: "3500.20",
-	A: "4.1",
+const ethTicker: OkxPriceFrame = {
+	instType: "SPOT",
+	instId: "ETH-USDT",
+	last: "3500.10",
+	askPx: "3500.20",
+	bidPx: "3500.00",
+	ts: "1597026383086",
 };
 
-const baseConfig: BinanceModuleConfig = {
-	name: "binance",
-	type: "binance",
-	wsUrl: "wss://stream.binance.test/stream",
-	streamType: "bookTicker",
+const tickerMessage = (frame: OkxPriceFrame) =>
+	JSON.stringify({
+		arg: { channel: "tickers", instId: frame.instId },
+		data: [frame],
+	});
+
+const baseConfig: OkxModuleConfig = {
+	name: "okx",
+	type: "okx",
+	wsUrl: "wss://ws.okx.test/ws/v5/public",
 	subscriptionSymbols: [],
 	maxSymbolsPerRequest: 100,
 	maxMessagesPerSecond: 5,
+	keepaliveInterval: Duration.minutes(10),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.minutes(2),
@@ -46,9 +51,9 @@ const baseConfig: BinanceModuleConfig = {
 };
 
 const buildRoute = () =>
-	v.parse(BinanceModuleRouteSchema, {
-		type: "binance",
-		moduleName: "binance",
+	v.parse(OkxModuleRouteSchema, {
+		type: "okx",
+		moduleName: "okx",
 		path: "/price/:symbols",
 		fetchFromModule: "{:symbols}",
 		method: ["GET"],
@@ -59,7 +64,11 @@ const dummyRequest = new Request("http://proxy.local/price/x", {
 });
 
 const parseControl = (raw: string) =>
-	JSON.parse(raw) as { method: string; params: string[]; id: number };
+	JSON.parse(raw) as {
+		id: string;
+		op: string;
+		args: Array<{ channel: string; instId: string }>;
+	};
 
 const waitFor = async (
 	predicate: () => boolean,
@@ -74,7 +83,13 @@ const waitFor = async (
 };
 
 const subscribeFrames = (ws: FakeWebSocket) =>
-	ws.sent.filter((raw) => parseControl(raw).method === "SUBSCRIBE");
+	ws.sent.filter((raw) => {
+		try {
+			return parseControl(raw).op === "subscribe";
+		} catch {
+			return false;
+		}
+	});
 
 let restoreWebSocket: (() => void) | undefined;
 
@@ -86,17 +101,17 @@ afterEach(() => {
 	restoreWebSocket?.();
 });
 
-describe("BinanceModuleService.handleRequest", () => {
+describe("OkxModuleService.handleRequest", () => {
 	it("subscribes new symbols, returns seeded prices, and flags unseeded ones", async () => {
 		const route = buildRoute();
-		const params = { symbols: "ETHUSDT,BTCUSDT,DOGEUSDT" };
+		const params = { symbols: "ETH-USDT,BTC-USDT,DOGE-USDT" };
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			return yield* svc.handleRequest(route, params, dummyRequest);
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -108,34 +123,29 @@ describe("BinanceModuleService.handleRequest", () => {
 		);
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
-		// A subscribe frame proves all three symbols reached the desired set.
 		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
-		expect(parseControl(ws.sent[0]).params).toEqual([
-			"ethusdt@bookTicker",
-			"btcusdt@bookTicker",
-			"dogeusdt@bookTicker",
+		expect(parseControl(ws.sent[0]).args).toEqual([
+			{ channel: "tickers", instId: "ETH-USDT" },
+			{ channel: "tickers", instId: "BTC-USDT" },
+			{ channel: "tickers", instId: "DOGE-USDT" },
 		]);
 
-		ws.triggerMessage(
-			JSON.stringify({ stream: "ethusdt@bookTicker", data: ethBook }),
-		);
-		ws.triggerMessage(
-			JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook }),
-		);
+		ws.triggerMessage(tickerMessage(ethTicker));
+		ws.triggerMessage(tickerMessage(btcTicker));
 
 		const response = await resultPromise;
 		expect(response.status).toBe(200);
 		const body = await response.json();
 		expect(body).toEqual([
-			{ symbol: "ETHUSDT", ...ethBook, __sedaHasPrice: true },
-			{ symbol: "BTCUSDT", ...btcBook, __sedaHasPrice: true },
-			{ symbol: "DOGEUSDT", __sedaHasPrice: false },
+			{ ...ethTicker, instId: "ETH-USDT", __sedaHasPrice: true },
+			{ ...btcTicker, instId: "BTC-USDT", __sedaHasPrice: true },
+			{ instId: "DOGE-USDT", __sedaHasPrice: false },
 		]);
 	}, 10_000);
 
-	it("does not re-subscribe a symbol already requested", async () => {
+	it("does not re-subscribe an symbol already requested", async () => {
 		const route = buildRoute();
-		const params = { symbols: "BTCUSDT" };
+		const params = { symbols: "BTC-USDT" };
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
@@ -144,7 +154,7 @@ describe("BinanceModuleService.handleRequest", () => {
 			const r2 = yield* svc.handleRequest(route, params, dummyRequest);
 			return [r1, r2] as const;
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -157,31 +167,27 @@ describe("BinanceModuleService.handleRequest", () => {
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
 		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
-		ws.triggerMessage(
-			JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook }),
-		);
+		ws.triggerMessage(tickerMessage(btcTicker));
 
 		const [r1, r2] = await resultPromise;
 		expect(r1.status).toBe(200);
 		expect(r2.status).toBe(200);
-		// Only the first request subscribes; the repeat is served from cache.
 		expect(subscribeFrames(ws).length).toBe(1);
 	});
 
 	it("stops vouching for cached prices once the socket has errored", async () => {
 		const route = buildRoute();
-		const params = { symbols: "BTCUSDT" };
+		const params = { symbols: "BTC-USDT" };
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			const fresh = yield* svc.handleRequest(route, params, dummyRequest);
-			// Socket drops; the ws-client flags hasError until it reconnects.
 			FakeWebSocket.instances[0].close();
 			const afterError = yield* svc.handleRequest(route, params, dummyRequest);
 			return [fresh, afterError] as const;
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -194,22 +200,18 @@ describe("BinanceModuleService.handleRequest", () => {
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
 		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
-		ws.triggerMessage(
-			JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook }),
-		);
+		ws.triggerMessage(tickerMessage(btcTicker));
 
 		const [fresh, afterError] = await resultPromise;
 		const freshBody = await fresh.json();
 		expect(freshBody[0].__sedaHasPrice).toBe(true);
-		// Same symbol is still cached, but the unhealthy socket means it is no
-		// longer presented as a live price.
 		const afterBody = await afterError.json();
-		expect(afterBody).toEqual([{ symbol: "BTCUSDT", __sedaHasPrice: false }]);
+		expect(afterBody).toEqual([{ instId: "BTC-USDT", __sedaHasPrice: false }]);
 	}, 10_000);
 
 	it("rejects when more symbols than maxSymbolsPerRequest are requested", async () => {
 		const route = buildRoute();
-		const config: BinanceModuleConfig = {
+		const config: OkxModuleConfig = {
 			...baseConfig,
 			maxSymbolsPerRequest: 2,
 		};
@@ -218,36 +220,36 @@ describe("BinanceModuleService.handleRequest", () => {
 			const svc = yield* ModuleService;
 			return yield* svc.handleRequest(
 				route,
-				{ symbols: "BTCUSDT,ETHUSDT,SOLUSDT" },
+				{ symbols: "BTC-USDT,ETH-USDT,SOL-USDT" },
 				dummyRequest,
 			);
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(OkxModuleService(config)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(400);
 		const body = await response.json();
-		expect(body.moduleName).toBe("binance");
-		expect(body.data_proxy_error).toContain("binance");
+		expect(body.moduleName).toBe("okx");
+		expect(body.data_proxy_error).toContain("okx");
 		expect(body.data_proxy_error).toContain("max is 2");
 		expect(body.data_proxy_error).toContain("got 3");
 	});
 });
 
-describe("BinanceModuleService lifecycle", () => {
+describe("OkxModuleService lifecycle", () => {
 	it("seeds subscriptionSymbols on start", async () => {
-		const config: BinanceModuleConfig = {
+		const config: OkxModuleConfig = {
 			...baseConfig,
-			subscriptionSymbols: ["BTCUSDT", "ETHUSDT"],
+			subscriptionSymbols: ["BTC-USDT", "ETH-USDT"],
 		};
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(OkxModuleService(config)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -261,18 +263,17 @@ describe("BinanceModuleService lifecycle", () => {
 		ws.triggerOpen();
 		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
 
-		expect(parseControl(ws.sent[0]).method).toBe("SUBSCRIBE");
-		expect(parseControl(ws.sent[0]).params).toEqual([
-			"btcusdt@bookTicker",
-			"ethusdt@bookTicker",
+		expect(parseControl(ws.sent[0]).op).toBe("subscribe");
+		expect(parseControl(ws.sent[0]).args).toEqual([
+			{ channel: "tickers", instId: "BTC-USDT" },
+			{ channel: "tickers", instId: "ETH-USDT" },
 		]);
 	});
 
-	it("unsubscribes a symbol once it has been idle past symbolsCleanupTtl", async () => {
-		const config: BinanceModuleConfig = {
+	it("unsubscribes an symbol once it has been idle past symbolsCleanupTtl", async () => {
+		const config: OkxModuleConfig = {
 			...baseConfig,
-			subscriptionSymbols: ["BTCUSDT"],
-			// TTL is long enough that the socket opens first, short enough to keep the test fast.
+			subscriptionSymbols: ["BTC-USDT"],
 			symbolsCleanupTtl: Duration.millis(150),
 			symbolsCleanupInterval: Duration.millis(20),
 		};
@@ -281,7 +282,7 @@ describe("BinanceModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(OkxModuleService(config)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -296,14 +297,25 @@ describe("BinanceModuleService lifecycle", () => {
 		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
 
 		await waitFor(
-			() => ws.sent.some((raw) => parseControl(raw).method === "UNSUBSCRIBE"),
+			() =>
+				ws.sent.some((raw) => {
+					try {
+						return parseControl(raw).op === "unsubscribe";
+					} catch {
+						return false;
+					}
+				}),
 			"unsubscribe frame",
 		);
-		const unsubscribe = ws.sent.find(
-			(raw) => parseControl(raw).method === "UNSUBSCRIBE",
-		);
-		expect(parseControl(unsubscribe as string).params).toEqual([
-			"btcusdt@bookTicker",
+		const unsubscribe = ws.sent.find((raw) => {
+			try {
+				return parseControl(raw).op === "unsubscribe";
+			} catch {
+				return false;
+			}
+		});
+		expect(parseControl(unsubscribe as string).args).toEqual([
+			{ channel: "tickers", instId: "BTC-USDT" },
 		]);
 	});
 });
