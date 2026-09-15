@@ -6,6 +6,10 @@ import {
 	BinanceModuleRouteSchema,
 } from "../../config/binance-module-config";
 import { ModuleService } from "../module";
+import {
+	FakeWebSocket,
+	installFakeWebSocket,
+} from "../shared/fake-websocket.test-helpers";
 import { BinanceModuleService } from "./binance";
 import type { BinancePriceFrame } from "./ws-client";
 
@@ -57,43 +61,6 @@ const dummyRequest = new Request("http://proxy.local/price/x", {
 const parseControl = (raw: string) =>
 	JSON.parse(raw) as { method: string; params: string[]; id: number };
 
-class FakeWebSocket extends EventTarget {
-	static readonly CONNECTING = 0;
-	static readonly OPEN = 1;
-	static readonly CLOSING = 2;
-	static readonly CLOSED = 3;
-	static instances: FakeWebSocket[] = [];
-
-	url: string;
-	readyState = FakeWebSocket.CONNECTING;
-	sent: string[] = [];
-
-	constructor(url: string) {
-		super();
-		this.url = url;
-		FakeWebSocket.instances.push(this);
-	}
-
-	send(data: string): void {
-		this.sent.push(data);
-	}
-
-	close(): void {
-		if (this.readyState === FakeWebSocket.CLOSED) return;
-		this.readyState = FakeWebSocket.CLOSED;
-		this.dispatchEvent(new Event("close"));
-	}
-
-	triggerOpen(): void {
-		this.readyState = FakeWebSocket.OPEN;
-		this.dispatchEvent(new Event("open"));
-	}
-
-	triggerMessage(data: string): void {
-		this.dispatchEvent(new MessageEvent("message", { data }));
-	}
-}
-
 const waitFor = async (
 	predicate: () => boolean,
 	label: string,
@@ -109,15 +76,14 @@ const waitFor = async (
 const subscribeFrames = (ws: FakeWebSocket) =>
 	ws.sent.filter((raw) => parseControl(raw).method === "SUBSCRIBE");
 
-const originalWebSocket = globalThis.WebSocket;
+let restoreWebSocket: (() => void) | undefined;
 
 beforeEach(() => {
-	FakeWebSocket.instances = [];
-	globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	restoreWebSocket = installFakeWebSocket();
 });
 
 afterEach(() => {
-	globalThis.WebSocket = originalWebSocket;
+	restoreWebSocket?.();
 });
 
 describe("BinanceModuleService.handleRequest", () => {

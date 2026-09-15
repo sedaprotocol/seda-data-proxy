@@ -1,53 +1,13 @@
-import {
-	Deferred,
-	Duration,
-	Effect,
-	type Fiber,
-	Metric,
-	MutableHashMap,
-	Option,
-	Queue,
-	Runtime,
-	Schedule,
-	Stream,
-} from "effect";
+import type { Effect, Schedule } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
-import { forkInboundControl } from "../shared/inbound-control";
-import { recordTickHandle } from "../shared/tick-metrics";
+import type { PriceCache } from "../shared/price-cache";
+import { type VenueWS, createVenueWS } from "../shared/venue-ws";
 
 /** A raw Binance market-data payload. Always carries the symbol in `s`; the rest
  * of the fields depend on the configured stream type and are relayed verbatim. */
 export interface BinancePriceFrame {
 	s: string;
 	[key: string]: unknown;
-}
-
-type OutboundMessageType = "subscribe" | "unsubscribe";
-
-type OutboundMessage = {
-	frame: string;
-	type: OutboundMessageType;
-};
-
-/** Metrics for the Binance WebSocket client. */
-const activeSubscriptions = Metric.gauge("binance_active_subscriptions", {
-	description: "Number of active Binance WebSocket stream subscriptions",
-});
-
-const messagesSent = Metric.counter("binance_messages_sent", {
-	description:
-		"Outbound Binance WebSocket control messages sent (subscribe/unsubscribe)",
-	incremental: true,
-});
-
-const connectionAttempts = Metric.counter("binance_connection_attempts", {
-	description: "Binance WebSocket connection attempts",
-	incremental: true,
-});
-
-/** The subset of the shared price cache the WS daemon writes to. */
-interface PriceSink {
-	setPriceSync: (key: string, price: BinancePriceFrame) => void;
 }
 
 export const buildStreamName = (symbol: string, streamType: string): string =>
@@ -107,253 +67,33 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	};
 };
 
-export const defaultReconnectSchedule = (config: BinanceModuleConfig) =>
-	Schedule.exponential(Duration.seconds(1)).pipe(
-		Schedule.either(Schedule.spaced(config.reconnectMaxBackoff)),
-		Schedule.resetAfter(config.reconnectStableThreshold),
-	);
-
-export interface BinanceWS {
-	/** Forks the WS daemon. The daemon owns reconnect with backoff and resubscribes on each open. */
-	start(): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never>;
-	/** Adds the symbols to the desired set and enqueues one subscribe frame for the new ones. Idempotent. */
-	subscribe(symbols: string[]): Effect.Effect<void, never, never>;
-	/** Removes the symbols from the desired set and enqueues one unsubscribe frame for the removed ones. Idempotent. */
-	unsubscribe(symbols: string[]): Effect.Effect<void, never, never>;
-	/** True while the socket is disconnected, errored, or has a pending send failure. */
-	hasError(): Effect.Effect<boolean, never, never>;
-}
-
-export interface CreateBinanceWSOptions {
-	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
-}
-
 export const createBinanceWS = (
 	config: BinanceModuleConfig,
-	cache: PriceSink,
-	options?: CreateBinanceWSOptions,
-): Effect.Effect<BinanceWS, never, never> =>
-	Effect.gen(function* () {
-		const runtime = yield* Effect.runtime<never>();
-		const desiredSymbols = MutableHashMap.empty<string, true>();
-		let currentWS: WebSocket | null = null;
-		let unhealthy = false;
-		let controlId = 0;
-		const schedule =
-			options?.reconnectSchedule ?? defaultReconnectSchedule(config);
-		// Outbound queue to enforce maxMessagesPerSecond rate limit.
-		const outbound = yield* Queue.unbounded<OutboundMessage>();
+	cache: PriceCache<string, BinancePriceFrame>,
+	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
+): Effect.Effect<VenueWS, never, never> => {
+	let controlId = 0;
+	const nextControlId = () => ++controlId;
+	const streamNamesFor = (symbols: string[]) =>
+		symbols.map((symbol) => buildStreamName(symbol, config.streamType));
 
-		const inboundControl = yield* forkInboundControl(
-			(event: Extract<ParsedInbound, { kind: "error" }>) =>
-				Effect.logWarning("Binance WS error frame", {
-					code: event.code,
-					message: event.message,
-				}),
-		);
-
-		const withModuleName = <Type, In, Out>(
-			metric: Metric.Metric<Type, In, Out>,
-		) => Metric.tagged(metric, "module", config.name);
-
-		const setActiveSubscriptions = () =>
-			Metric.set(
-				withModuleName(activeSubscriptions),
-				MutableHashMap.size(desiredSymbols),
-			);
-
-		const incrementMessagesSent = (type: OutboundMessageType) =>
-			Metric.increment(
-				Metric.tagged(withModuleName(messagesSent), "type", type),
-			);
-
-		const incrementConnectionAttempts = () =>
-			Metric.increment(withModuleName(connectionAttempts));
-
-		const nextControlId = () => ++controlId;
-
-		const streamNamesFor = (symbols: string[]) =>
-			symbols.map((symbol) => buildStreamName(symbol, config.streamType));
-
-		const enqueue = (frame: string, type: OutboundMessageType) =>
-			Queue.offer(outbound, { frame, type }).pipe(Effect.asVoid);
-
-		const clearOutbound = () => Queue.takeAll(outbound).pipe(Effect.asVoid);
-
-		const sendOutbound = ({ frame, type }: OutboundMessage) =>
-			Effect.gen(function* () {
-				const ws = currentWS;
-				if (ws === null || ws.readyState !== WebSocket.OPEN) {
-					// Drop; handleOpen re-enqueues current desiredSymbols on reconnect.
-					return;
-				}
-				try {
-					ws.send(frame);
-					yield* incrementMessagesSent(type);
-					// Hold the concurrency slot for the rate-limit window so at most
-					// maxMessagesPerSecond frames leave per second.
-					yield* Effect.sleep(Duration.seconds(1));
-				} catch (err) {
-					unhealthy = true;
-					yield* Effect.logWarning("Binance WS send failed", {
-						error: String(err),
-					});
-					try {
-						ws.close();
-					} catch {
-						// best-effort; the close listener will trigger the reconnect loop.
-					}
-				}
-			});
-
-		const sendLoop = Stream.fromQueue(outbound).pipe(
-			Stream.mapEffect(sendOutbound, {
-				concurrency: config.maxMessagesPerSecond,
-			}),
-			Stream.runDrain,
-		);
-
-		const subscribe = (symbols: string[]) =>
-			Effect.gen(function* () {
-				const fresh: string[] = [];
-				for (const raw of symbols) {
-					const symbol = raw.toUpperCase();
-					if (Option.isSome(MutableHashMap.get(desiredSymbols, symbol)))
-						continue;
-					MutableHashMap.set(desiredSymbols, symbol, true);
-					fresh.push(symbol);
-				}
-				if (fresh.length === 0) return;
-				yield* setActiveSubscriptions();
-				yield* enqueue(
-					buildSubscribeFrame(streamNamesFor(fresh), nextControlId()),
-					"subscribe",
-				);
-			});
-
-		const unsubscribe = (symbols: string[]) =>
-			Effect.gen(function* () {
-				const removed: string[] = [];
-				for (const raw of symbols) {
-					const symbol = raw.toUpperCase();
-					if (Option.isNone(MutableHashMap.get(desiredSymbols, symbol)))
-						continue;
-					MutableHashMap.remove(desiredSymbols, symbol);
-					removed.push(symbol);
-				}
-				if (removed.length === 0) return;
-				yield* setActiveSubscriptions();
-				yield* enqueue(
-					buildUnsubscribeFrame(streamNamesFor(removed), nextControlId()),
-					"unsubscribe",
-				);
-			});
-
-		const hasError = () => Effect.sync(() => unhealthy);
-
-		const handleOpen = (ws: WebSocket) =>
-			Effect.gen(function* () {
-				yield* Effect.logInfo("Binance WS open", { name: config.name });
-				unhealthy = false;
-				currentWS = ws;
-				const symbols: string[] = [];
-				for (const [symbol] of desiredSymbols) symbols.push(symbol);
-				if (symbols.length > 0) {
-					yield* enqueue(
-						buildSubscribeFrame(streamNamesFor(symbols), nextControlId()),
-						"subscribe",
-					);
-				}
-			});
-
-		const handleInboundMessage = (raw: string): void => {
-			const started = performance.now();
+	return createVenueWS({
+		venue: "binance",
+		config,
+		cache,
+		reconnectSchedule,
+		buildSubscribeFrame: (keys) =>
+			buildSubscribeFrame(streamNamesFor(keys), nextControlId()),
+		buildUnsubscribeFrame: (keys) =>
+			buildUnsubscribeFrame(streamNamesFor(keys), nextControlId()),
+		parseInboundFrame: (raw) => {
 			const parsed = parseInboundFrame(raw);
-			if (!parsed) return;
-			if (parsed.kind === "error") {
-				inboundControl.offer(parsed);
-				return;
-			}
-			if (Option.isNone(MutableHashMap.get(desiredSymbols, parsed.symbol))) {
-				return;
-			}
-
-			cache.setPriceSync(parsed.symbol, parsed.frame);
-			recordTickHandle("binance", config.name, performance.now() - started);
-		};
-
-		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
-			Effect.gen(function* () {
-				unhealthy = true;
-				currentWS = null;
-				// Drop queued frames so a reconnect isn't preceded by a stale backlog.
-				yield* clearOutbound();
-				yield* Deferred.fail(closed, undefined);
-			});
-
-		const connectOnce = Effect.gen(function* () {
-			const deferred = yield* Deferred.make<void, void>();
-
-			yield* Effect.logInfo("Binance WS connecting", { name: config.name });
-			yield* incrementConnectionAttempts();
-
-			const ws = yield* Effect.acquireRelease(
-				Effect.sync(() => new WebSocket(config.wsUrl)),
-				(socket) =>
-					Effect.sync(() => {
-						if (socket.readyState !== WebSocket.CLOSED) {
-							socket.close();
-						}
-					}),
-			);
-
-			ws.addEventListener("open", () => {
-				Runtime.runSync(runtime, handleOpen(ws));
-			});
-			ws.addEventListener("message", (event) => {
-				if (typeof event.data !== "string") return;
-				handleInboundMessage(event.data);
-			});
-			ws.addEventListener("error", () => {
-				unhealthy = true;
-				Runtime.runSync(
-					runtime,
-					Effect.logWarning("Binance WS error event", { name: config.name }),
-				);
-			});
-			ws.addEventListener("close", (event) => {
-				Runtime.runSync(
-					runtime,
-					Effect.gen(function* () {
-						yield* Effect.logWarning("Binance WS disconnected", {
-							code: event.code,
-							closeReason: event.reason,
-							wasClean: event.wasClean,
-						});
-						yield* handleDisconnect(deferred);
-					}),
-				);
-			});
-
-			yield* Deferred.await(deferred);
-		}).pipe(Effect.scoped);
-
-		const loop = connectOnce.pipe(
-			Effect.tapError(() =>
-				Effect.sync(() => {
-					unhealthy = true;
-				}),
-			),
-			Effect.retry(schedule),
-		);
-
-		const cachedStart = yield* Effect.cached(
-			Effect.gen(function* () {
-				yield* Effect.forkDaemon(sendLoop);
-				return yield* Effect.forkDaemon(loop);
-			}),
-		);
-		const start = () => cachedStart;
-
-		return { start, subscribe, unsubscribe, hasError } satisfies BinanceWS;
+			if (!parsed) return null;
+			if (parsed.kind === "error") return parsed;
+			return {
+				kind: "tickers",
+				frames: [{ key: parsed.symbol, frame: parsed.frame }],
+			};
+		},
 	});
+};

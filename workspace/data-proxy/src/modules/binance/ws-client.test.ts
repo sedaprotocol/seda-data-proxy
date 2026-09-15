@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
+import {
+	FakeWebSocket,
+	installFakeWebSocket,
+} from "../shared/fake-websocket.test-helpers";
 import { createPriceCache } from "../shared/price-cache";
 import {
 	type BinancePriceFrame,
@@ -113,58 +117,6 @@ describe("parseInboundFrame", () => {
 	});
 });
 
-class FakeWebSocket extends EventTarget {
-	static readonly CONNECTING = 0;
-	static readonly OPEN = 1;
-	static readonly CLOSING = 2;
-	static readonly CLOSED = 3;
-	static instances: FakeWebSocket[] = [];
-	static sendImpl?: (instance: FakeWebSocket, data: string) => void;
-
-	url: string;
-	readyState = FakeWebSocket.CONNECTING;
-	sent: string[] = [];
-
-	constructor(url: string) {
-		super();
-		this.url = url;
-		FakeWebSocket.instances.push(this);
-	}
-
-	send(data: string): void {
-		if (FakeWebSocket.sendImpl) {
-			FakeWebSocket.sendImpl(this, data);
-			return;
-		}
-		this.sent.push(data);
-	}
-
-	close(): void {
-		if (this.readyState === FakeWebSocket.CLOSED) return;
-		this.readyState = FakeWebSocket.CLOSED;
-		this.dispatchEvent(new CloseEvent("close", { code: 1000, wasClean: true }));
-	}
-
-	triggerOpen(): void {
-		this.readyState = FakeWebSocket.OPEN;
-		this.dispatchEvent(new Event("open"));
-	}
-
-	triggerMessage(data: string): void {
-		this.dispatchEvent(new MessageEvent("message", { data }));
-	}
-
-	triggerClose(code = 1000, reason = "", wasClean = true): void {
-		if (this.readyState === FakeWebSocket.CLOSED) return;
-		this.readyState = FakeWebSocket.CLOSED;
-		this.dispatchEvent(new CloseEvent("close", { code, reason, wasClean }));
-	}
-
-	triggerError(message = "socket error"): void {
-		this.dispatchEvent(new ErrorEvent("error", { message }));
-	}
-}
-
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 const parseControl = (raw: string) =>
@@ -184,16 +136,14 @@ const baseConfig: BinanceModuleConfig = {
 	symbolsCleanupInterval: Duration.seconds(30),
 };
 
-const originalWebSocket = globalThis.WebSocket;
+let restoreWebSocket: (() => void) | undefined;
 
 beforeEach(() => {
-	FakeWebSocket.instances = [];
-	FakeWebSocket.sendImpl = undefined;
-	globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	restoreWebSocket = installFakeWebSocket();
 });
 
 afterEach(() => {
-	globalThis.WebSocket = originalWebSocket;
+	restoreWebSocket?.();
 });
 
 const startService = (
