@@ -11,7 +11,7 @@ import {
 	installFakeWebSocket,
 } from "../shared/fake-websocket.test-helpers";
 import { BinanceModuleService } from "./binance";
-import type { BinancePriceFrame } from "./ws-client";
+import type { BinancePriceFrame } from "./binance";
 
 const btcBook: BinancePriceFrame = {
 	u: 400900217,

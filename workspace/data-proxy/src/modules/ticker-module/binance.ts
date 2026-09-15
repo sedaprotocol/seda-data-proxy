@@ -2,6 +2,17 @@ import type { Effect, Schedule } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
 import type { PriceCache } from "../shared/price-cache";
 import { type VenueWS, createVenueWS } from "../shared/venue-ws";
+import { createTickerModuleService } from "./ticker-module";
+
+export const BinanceModuleService = (config: BinanceModuleConfig) =>
+	createTickerModuleService({
+		venue: "binance",
+		routeType: "binance",
+		identityField: "symbol",
+		config,
+		createWS: createBinanceWS,
+		extraInitLog: { streamType: config.streamType },
+	});
 
 /** A raw Binance market-data payload. Always carries the symbol in `s`; the rest
  * of the fields depend on the configured stream type and are relayed verbatim. */
