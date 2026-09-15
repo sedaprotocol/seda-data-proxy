@@ -331,9 +331,9 @@ In addition to forwarding HTTP requests to an upstream URL, routes can call **mo
 Module routes are declared in two places:
 
 1. **`modules`** — one entry per integration (connection settings, credentials, and so on).
-2. **`routes`** — a route with a module `type` (for example `binance`, `lighter`, or `multi`) that points at a module by `moduleName`.
+2. **`routes`** — a route with a module `type` (for example `binance`, `bybit`, `lighter`, `okx`, or `multi`) that points at a module by `moduleName`.
 
-Supported module types include `pyth-lazer`, `chainlink-streams`, `dxfeed`, `hydromancer`, `lo-tech`, `pm-insights`, `binance`, and `lighter`. Each module has its own config fields; see the example configs under `configs/` for full options.
+Supported module types include `pyth-lazer`, `chainlink-streams`, `dxfeed`, `hydromancer`, `lo-tech`, `pm-insights`, `binance`, `bybit`, `lighter`, and `okx`. Each module has its own config fields; see the example configs under `configs/` for full options.
 
 #### Single module route
 
@@ -376,6 +376,48 @@ Lighter example — numeric market ids (for example `1` for BTC on mainnet):
     }
   ]
 }
+```
+
+OKX example — comma-separated instrument ids (`symbol`s such as `BTC-USDT`):
+
+```jsonc
+{
+  "modules": [{ "name": "okx", "type": "okx" }],
+  "routes": [
+    {
+      "type": "okx",
+      "moduleName": "okx",
+      "path": "/okx/:symbols",
+      "method": ["GET"],
+      "fetchFromModule": "{:symbols}"
+    }
+  ]
+}
+```
+
+```bash
+curl "http://127.0.0.1:5384/proxy/okx/BTC-USDT,ETH-USDT"
+```
+
+Bybit example — comma-separated spot symbols (`BTCUSDT`):
+
+```jsonc
+{
+  "modules": [{ "name": "bybit", "type": "bybit" }],
+  "routes": [
+    {
+      "type": "bybit",
+      "moduleName": "bybit",
+      "path": "/bybit/:symbols",
+      "method": ["GET"],
+      "fetchFromModule": "{:symbols}"
+    }
+  ]
+}
+```
+
+```bash
+curl "http://127.0.0.1:5384/proxy/bybit/BTCUSDT,ETHUSDT"
 ```
 
 Module responses include a per-item `__sedaHasPrice` flag (`true` when a price was resolved, `false` on timeout or invalid input). The first request for a new symbol may need a retry while the WebSocket subscription warms up.

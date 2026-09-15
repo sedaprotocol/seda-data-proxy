@@ -1,6 +1,8 @@
 import * as v from "valibot";
 import type { BinanceModuleConfig } from "./binance-module-config";
 import { BinanceModuleConfigSchema } from "./binance-module-config";
+import type { BybitModuleConfig } from "./bybit-module-config";
+import { BybitModuleConfigSchema } from "./bybit-module-config";
 import type { ChainlinkStreamsModuleConfig } from "./chainlink-streams-module-config";
 import { ChainlinkStreamsModuleConfigSchema } from "./chainlink-streams-module-config";
 import type { DxFeedModuleConfig } from "./dxfeed-module-config";
@@ -34,6 +36,7 @@ export const ModulesSchema = v.optional(
 			BinanceModuleConfigSchema,
 			LighterModuleConfigSchema,
 			OkxModuleConfigSchema,
+			BybitModuleConfigSchema,
 		]),
 	),
 	[],
@@ -49,4 +52,5 @@ export type Modules =
 	| PmInsightsModuleConfig
 	| BinanceModuleConfig
 	| LighterModuleConfig
-	| OkxModuleConfig;
+	| OkxModuleConfig
+	| BybitModuleConfig;
