@@ -1,37 +1,83 @@
-import { Clock, Effect, Either, Layer, MutableHashMap } from "effect";
-import type { BinanceModuleConfig } from "../../config/binance-module-config";
+import {
+	Clock,
+	type Duration,
+	Effect,
+	Either,
+	Layer,
+	MutableHashMap,
+} from "effect";
 import type { Route } from "../../config/config-parser";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { createPriceCache } from "../shared/price-cache";
-import { FailedToHandleBinanceRequestError } from "./errors";
-import { type BinancePriceFrame, createBinanceWS } from "./ws-client";
+import { type PriceCache, createPriceCache } from "../shared/price-cache";
+import type { VenueWS } from "../shared/venue-ws";
+import { FailedToHandleTickerRequestError } from "./errors";
 
-type BinancePriceEntry =
-	| ({ symbol: string } & BinancePriceFrame & { [HAS_PRICE_KEY]: true })
-	| { symbol: string; [HAS_PRICE_KEY]: false };
+export interface TickerModuleServiceConfig {
+	name: string;
+	wsUrl: string;
+	subscriptionSymbols: readonly string[];
+	maxSymbolsPerRequest: number;
+	symbolsCleanupTtl: Duration.Duration;
+	symbolsCleanupInterval: Duration.Duration;
+}
 
-export const BinanceModuleService = (config: BinanceModuleConfig) =>
+export interface CreateTickerModuleServiceParams<
+	TFrame,
+	TConfig extends TickerModuleServiceConfig,
+> {
+	venue: string;
+	routeType: Route["type"];
+	identityField: string;
+	config: TConfig;
+	createWS: (
+		config: TConfig,
+		cache: PriceCache<string, TFrame>,
+	) => Effect.Effect<VenueWS, never, never>;
+	extraInitLog?: Record<string, unknown>;
+}
+
+const titleCase = (venue: string) =>
+	`${venue.charAt(0).toUpperCase()}${venue.slice(1)}`;
+
+/**
+ * HTTP + cache + idle-cleanup loop shared by string-keyed public ticker
+ * modules. Venue protocol stays in each createWS.
+ */
+export const createTickerModuleService = <
+	TFrame,
+	TConfig extends TickerModuleServiceConfig,
+>(
+	params: CreateTickerModuleServiceParams<TFrame, TConfig>,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
-			yield* Effect.logInfo("Initializing Binance module", {
+			const {
+				venue,
+				routeType,
+				identityField,
+				config,
+				createWS,
+				extraInitLog,
+			} = params;
+
+			yield* Effect.logInfo(`Initializing ${venue} module`, {
 				name: config.name,
 				wsUrl: config.wsUrl,
-				streamType: config.streamType,
+				...extraInitLog,
 			});
 
-			const cache = yield* createPriceCache<string, BinancePriceFrame>();
-			const ws = yield* createBinanceWS(config, cache);
-			// Symbol -> timestamp of the last request, drives the idle cleanup pass.
+			const cache = yield* createPriceCache<string, TFrame>();
+			const ws = yield* createWS(config, cache);
 			const lastRequestToSymbol = MutableHashMap.empty<string, number>();
 
 			const start = () =>
 				Effect.gen(function* () {
-					yield* Effect.logInfo("Starting Binance module", {
+					yield* Effect.logInfo(`Starting ${venue} module`, {
 						name: config.name,
 					});
 
@@ -59,30 +105,33 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 								yield* ws.unsubscribe([symbol]);
 							}),
 					});
-				}).pipe(Effect.annotateLogs("_name", "binance"));
+				}).pipe(Effect.annotateLogs("_name", venue));
 
 			const handleRequest = (
 				route: Route,
-				params: Record<string, string>,
+				routeParams: Record<string, string>,
 				_request: Request,
 			) =>
 				Effect.gen(function* () {
-					if (route.type !== "binance") {
+					if (route.type !== routeType || !("fetchFromModule" in route)) {
 						return yield* Effect.fail(
 							new FailedToHandleRequest({
-								msg: "Route is not a Binance module",
+								msg: `Route is not a ${titleCase(venue)} module`,
 							}),
 						);
 					}
 
-					const requestedSymbols = replaceParams(route.fetchFromModule, params)
+					const requestedSymbols = replaceParams(
+						route.fetchFromModule,
+						routeParams,
+					)
 						.split(",")
 						.map((symbol) => symbol.trim())
 						.filter((symbol) => symbol.length > 0);
 
 					if (requestedSymbols.length > config.maxSymbolsPerRequest) {
 						return yield* Effect.fail(
-							new FailedToHandleBinanceRequestError({
+							new FailedToHandleTickerRequestError({
 								error: `Too many symbols, max is ${config.maxSymbolsPerRequest} but got ${requestedSymbols.length}`,
 								status: 400,
 							}),
@@ -104,7 +153,6 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 						yield* ws.subscribe(newSymbols);
 					}
 
-					// Subscriptions are in-flight; resolve every requested symbol concurrently.
 					const results = yield* Effect.forEach(
 						requestedSymbols,
 						(requested) =>
@@ -112,17 +160,20 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 						{ concurrency: "unbounded" },
 					);
 
-					const prices: BinancePriceEntry[] = [];
+					const prices: Array<Record<string, unknown>> = [];
 					for (let i = 0; i < requestedSymbols.length; i++) {
 						const requested = requestedSymbols[i];
 						const result = results[i];
 
 						if (Either.isLeft(result) || !socketHealthy) {
-							prices.push({ symbol: requested, [HAS_PRICE_KEY]: false });
+							prices.push({
+								[identityField]: requested,
+								[HAS_PRICE_KEY]: false,
+							});
 						} else {
 							prices.push({
-								symbol: requested,
 								...result.right,
+								[identityField]: requested,
 								[HAS_PRICE_KEY]: true,
 							});
 						}
@@ -133,7 +184,7 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 						headers: { "Content-Type": "application/json" },
 					});
 				}).pipe(
-					Effect.withSpan("handleBinanceRequest"),
+					Effect.withSpan(`handle${titleCase(venue)}Request`),
 					Effect.catchAll((error) =>
 						Effect.succeed(createErrorResponse(error, error.status)),
 					),
