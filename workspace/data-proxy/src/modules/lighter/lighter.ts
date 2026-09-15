@@ -1,4 +1,4 @@
-import { Clock, Effect, Either, Layer, MutableHashMap } from "effect";
+import { Clock, Effect, Layer, MutableHashMap } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
@@ -6,7 +6,7 @@ import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { FailedToGetPriceError, createPriceCache } from "../shared/price-cache";
+import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleLighterRequestError } from "./errors";
 import { type LighterPriceFrame, createLighterWS } from "./ws-client";
 
@@ -117,17 +117,11 @@ export const LighterModuleService = (config: LighterModuleConfig) =>
 					// short-circuits to a miss instead of blocking on the wait.
 					const results = yield* Effect.forEach(
 						requested,
-						({ token, marketId }) => {
+						({ marketId }) => {
 							if (marketId === null) {
-								return Effect.succeed(
-									Either.left(
-										new FailedToGetPriceError({
-											error: `Invalid market id ${token}`,
-										}),
-									),
-								);
+								return Effect.succeed(null);
 							}
-							return Effect.either(cache.getOrWaitPrice(marketId));
+							return cache.getOrWaitPriceOrNull(marketId);
 						},
 						{ concurrency: "unbounded" },
 					);
@@ -137,12 +131,12 @@ export const LighterModuleService = (config: LighterModuleConfig) =>
 						const { token } = requested[i];
 						const result = results[i];
 
-						if (Either.isLeft(result) || !socketHealthy) {
+						if (result === null || !socketHealthy) {
 							prices.push({ marketId: token, [HAS_PRICE_KEY]: false });
 						} else {
 							prices.push({
 								marketId: token,
-								...result.right,
+								...result,
 								[HAS_PRICE_KEY]: true,
 							});
 						}

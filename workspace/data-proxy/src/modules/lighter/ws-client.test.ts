@@ -239,7 +239,7 @@ describe("createLighterWS", () => {
 		await flush();
 
 		expect(cache.size()).toBe(1);
-		const price = await Effect.runPromise(cache.getOrWaitPrice(1));
+		const price = await Effect.runPromise(cache.getOrWaitPriceOrNull(1));
 		expect(price).toEqual(innerTicker("BTC"));
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
