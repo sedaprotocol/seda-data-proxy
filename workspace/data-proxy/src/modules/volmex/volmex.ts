@@ -1,4 +1,4 @@
-import { Effect, Either, Layer } from "effect";
+import { Duration, Effect, Either, Layer } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
@@ -19,6 +19,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 			yield* Effect.logInfo("Initializing Volmex module");
 
 			const runtime = yield* Effect.runtime();
+			const staleLogAfterMs = Duration.toMillis(config.staleLogAfter);
 			const priceCache = yield* createPriceCache<string, VolmexDataPrice>();
 
 			const updatePrice = (data: VolmexDataPrice): void => {
@@ -92,6 +93,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 					);
 
 					const responses: VolmexResponse[] = [];
+					const nowMs = Date.now();
 					for (let i = 0; i < symbols.length; i++) {
 						const symbol = symbols[i];
 						const price = prices[i];
@@ -102,8 +104,17 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
+							const data = price.right;
+							const ageMs = nowMs - data.timestamp;
+							if (ageMs > staleLogAfterMs) {
+								yield* Effect.logWarning("Volmex cached price is stale", {
+									symbol,
+									ageMs,
+									timestamp: data.timestamp,
+								});
+							}
 							responses.push({
-								...price.right,
+								...data,
 								[HAS_PRICE_KEY]: true,
 							});
 						}

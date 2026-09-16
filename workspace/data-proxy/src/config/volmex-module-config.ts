@@ -12,6 +12,15 @@ export const VolmexModuleConfigSchema = v.strictObject({
 	maxSymbolsPerRequest: v.optional(v.number(), 100),
 	volmexApiKeyEnvKey: v.string(),
 	reconnectDelayMs: v.optional(v.number(), 1000),
+	staleLogAfter: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "60 seconds"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid staleLogAfter duration"),
+			),
+		),
+	),
 	restFetchTimeout: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "15 seconds"),
 		v.transform((value) =>

@@ -32,6 +32,7 @@ Unlike subscription-based modules, Volmex keeps the latest price for **all** sym
 | `restBaseUrl` | no | `https://private-multiregion-8jh89.volmex.finance` | REST API base URL for `source: "rest"` routes. |
 | `maxSymbolsPerRequest` | no | `100` | Max symbols allowed in a single WS request. |
 | `reconnectDelayMs` | no | `1000` | Passed to Socket.IO as `reconnectionDelay` (ms between reconnect attempts). |
+| `staleLogAfter` | no | `60 seconds` | Log a warning when a served WS tick's `timestamp` is older than this (`number` ms or duration string). Does not change the HTTP response. |
 | `restFetchTimeout` | no | `15 seconds` | Timeout for REST proxy fetches (`number` ms or duration string). |
 
 ### Route (WebSocket)

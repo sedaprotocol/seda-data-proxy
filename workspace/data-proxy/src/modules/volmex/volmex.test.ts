@@ -84,6 +84,7 @@ const baseConfig: VolmexModuleConfig = {
 	maxSymbolsPerRequest: 100,
 	volmexApiKeyEnvKey: "VOLMEX_API_KEY",
 	reconnectDelayMs: 60_000,
+	staleLogAfter: Duration.seconds(5),
 	restFetchTimeout: Duration.seconds(15),
 	volmexApiKey: Redacted.make("test.jwt.token"),
 };

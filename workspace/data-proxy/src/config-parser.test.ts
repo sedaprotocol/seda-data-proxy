@@ -3,7 +3,7 @@ import {
 	assertIsErrorResult,
 	assertIsOkResult,
 } from "@seda-protocol/utils/testing";
-import { Effect, LogLevel, Logger, Redacted } from "effect";
+import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
 import { parseConfig } from "./config/config-parser";
 
 describe("parseConfig", () => {
@@ -591,6 +591,33 @@ describe("parseConfig", () => {
 				throw new Error(`expected volmex, got ${module.type}`);
 			}
 			expect(Redacted.value(module.volmexApiKey)).toBe("volmex-api-key");
+			expect(Duration.toMillis(module.staleLogAfter)).toBe(60_000);
+			delete process.env.VOLMEX_API_KEY;
+		});
+
+		it("should parse a volmex staleLogAfter duration", () => {
+			process.env.VOLMEX_API_KEY = "volmex-api-key";
+
+			const [result] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					modules: [
+						{
+							type: "volmex",
+							name: "volmex",
+							volmexApiKeyEnvKey: "VOLMEX_API_KEY",
+							staleLogAfter: "30 seconds",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "volmex") {
+				throw new Error(`expected volmex, got ${module.type}`);
+			}
+			expect(Duration.toMillis(module.staleLogAfter)).toBe(30_000);
 			delete process.env.VOLMEX_API_KEY;
 		});
 
