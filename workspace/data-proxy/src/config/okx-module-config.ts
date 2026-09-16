@@ -10,8 +10,9 @@ export const OkxModuleConfigSchema = v.strictObject({
 	type: v.literal("okx"),
 	...tickerModuleBaseFields({
 		wsUrl: "wss://ws.okx.com:8443/ws/v5/public",
-		// OKX allows 480 subscribe/unsubscribe/login requests per connection per hour.
-		maxMessagesPerSecond: 2,
+		// OKX allows 480 requests per connection per hour.
+		maxMessages: 480,
+		maxMessagesWindow: "1 hour",
 	}),
 	// OKX drops the socket if no data is pushed for 30 seconds; ping sooner.
 	keepaliveInterval: keepaliveIntervalField("20 seconds"),

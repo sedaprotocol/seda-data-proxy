@@ -28,12 +28,13 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
-| `type` | yes | — | `"binance"` |
+| `type` | yes | — | `"binance"`, `"bybit"`, or `"okx"` |
 | `name` | yes | — | Module name referenced by routes as `moduleName`. |
 | `wsUrl` | no | venue default (below) | Public WebSocket URL. |
 | `subscriptionSymbols` | no | `[]` | Symbols to subscribe to on start. |
 | `maxSymbolsPerRequest` | no | `100` | Max symbols allowed in a single request. |
-| `maxMessagesPerSecond` | no | venue default (below) | Cap on outbound WS control frames per second. |
+| `maxMessages` | no | venue default (below) | Max outbound WS control frames per `maxMessagesWindow`. |
+| `maxMessagesWindow` | no | venue default (below) | Rolling window for `maxMessages`. |
 | `symbolsCleanupTtl` | no | `"1 hour"` | Idle time before an unused subscription is cleaned up. |
 | `symbolsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
@@ -41,9 +42,9 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 ### Venue-specific fields
 
-| Venue | Default `wsUrl` | Default `maxMessagesPerSecond` | Extra fields |
+| Venue | Default `wsUrl` | Default `maxMessages` / `maxMessagesWindow` | Extra fields |
 | --- | --- | --- | --- |
-| Binance | `wss://stream.binance.com:9443/stream` | `5` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `trade`, `ticker`, `miniTicker`. No keepalive. |
+| Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `trade`, `ticker`, `miniTicker`. No keepalive. |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
 | Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). |
 

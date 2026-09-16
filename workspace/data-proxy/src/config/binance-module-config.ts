@@ -20,7 +20,8 @@ export const BinanceModuleConfigSchema = v.strictObject({
 	...tickerModuleBaseFields({
 		wsUrl: "wss://stream.binance.com:9443/stream",
 		// Binance allows 5 client messages per second.
-		maxMessagesPerSecond: 5,
+		maxMessages: 5,
+		maxMessagesWindow: "1 second",
 	}),
 	streamType: v.optional(v.picklist(BINANCE_STREAM_TYPES), "bookTicker"),
 });

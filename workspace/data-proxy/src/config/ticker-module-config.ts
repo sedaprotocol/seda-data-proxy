@@ -16,18 +16,20 @@ const durationField = (defaultValue: string, invalidMessage: string) =>
 /** Shared fields for string-keyed public ticker modules. */
 export const tickerModuleBaseFields = (defaults: {
 	wsUrl: string;
-	maxMessagesPerSecond: number;
+	maxMessages: number;
+	maxMessagesWindow: string;
 }) => ({
 	name: v.string(),
 	wsUrl: v.optional(v.string(), defaults.wsUrl),
 	subscriptionSymbols: v.optional(v.array(v.string()), []),
 	maxSymbolsPerRequest: v.optional(v.number(), 100),
-	maxMessagesPerSecond: v.optional(
-		v.pipe(
-			v.number(),
-			v.minValue(1, "maxMessagesPerSecond must be at least 1"),
-		),
-		defaults.maxMessagesPerSecond,
+	maxMessages: v.optional(
+		v.pipe(v.number(), v.minValue(1, "maxMessages must be at least 1")),
+		defaults.maxMessages,
+	),
+	maxMessagesWindow: durationField(
+		defaults.maxMessagesWindow,
+		"Invalid maxMessagesWindow duration",
 	),
 	reconnectMaxBackoff: durationField(
 		"30 seconds",

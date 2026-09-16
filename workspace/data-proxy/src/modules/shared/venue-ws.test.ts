@@ -24,7 +24,8 @@ afterEach(() => {
 
 const startClient = (options?: {
 	keepaliveInterval?: Duration.Duration;
-	maxMessagesPerSecond?: number;
+	maxMessages?: number;
+	maxMessagesWindow?: Duration.Duration;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	preSubscribed?: string[];
 }) =>
@@ -35,7 +36,8 @@ const startClient = (options?: {
 			config: {
 				name: "venue-test",
 				wsUrl: "wss://example.test/ws",
-				maxMessagesPerSecond: options?.maxMessagesPerSecond ?? 5,
+				maxMessages: options?.maxMessages ?? 5,
+				maxMessagesWindow: options?.maxMessagesWindow ?? Duration.seconds(1),
 				reconnectMaxBackoff: Duration.seconds(30),
 				reconnectStableThreshold: Duration.seconds(30),
 			},
@@ -330,9 +332,13 @@ describe("createVenueWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
-	it("paces outbound frames to stay under maxMessagesPerSecond", async () => {
+	it("paces outbound frames to stay under maxMessages per maxMessagesWindow", async () => {
 		const { ws: service, fiber } = await Effect.runPromise(
-			startClient({ preSubscribed: [], maxMessagesPerSecond: 4 }),
+			startClient({
+				preSubscribed: [],
+				maxMessages: 2,
+				maxMessagesWindow: Duration.millis(80),
+			}),
 		);
 		await flush();
 		const ws = FakeWebSocket.instances[0];
@@ -344,12 +350,13 @@ describe("createVenueWS", () => {
 		await Effect.runPromise(service.subscribe(["SOL"]));
 		await Effect.runPromise(service.subscribe(["DOGE"]));
 		await Effect.runPromise(service.subscribe(["XRP"]));
-		await Effect.runPromise(service.subscribe(["LINK"]));
-		await Effect.runPromise(service.subscribe(["AVAX"]));
 		await flush();
 
-		expect(ws.sent.length).toBe(4);
-		await new Promise<void>((r) => setTimeout(r, 50));
+		expect(ws.sent.length).toBe(2);
+		await new Promise<void>((r) => setTimeout(r, 40));
+		expect(ws.sent.length).toBe(2);
+
+		await new Promise<void>((r) => setTimeout(r, 80));
 		expect(ws.sent.length).toBe(4);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

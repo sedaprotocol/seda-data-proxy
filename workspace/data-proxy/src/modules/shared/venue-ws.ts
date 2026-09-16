@@ -52,7 +52,8 @@ export type VenueParsedInbound<TFrame> =
 export interface VenueWSConfig extends ReconnectBackoffConfig {
 	name: string;
 	wsUrl: string;
-	maxMessagesPerSecond: number;
+	maxMessages: number;
+	maxMessagesWindow: Duration.Duration;
 }
 
 export interface CreateVenueWSParams<TFrame> {
@@ -82,7 +83,7 @@ export const createVenueWS = <TFrame>(
 			buildUnsubscribeFrame,
 			parseInboundFrame,
 		} = params;
-		const { name, wsUrl, maxMessagesPerSecond } = config;
+		const { name, wsUrl, maxMessages, maxMessagesWindow } = config;
 		const reconnectSchedule =
 			params.reconnectSchedule ?? defaultReconnectSchedule(config);
 
@@ -161,8 +162,8 @@ export const createVenueWS = <TFrame>(
 					ws.send(frame);
 					yield* incrementMessagesSent(type);
 					// Hold the concurrency slot for the rate-limit window so at most
-					// maxMessagesPerSecond frames leave per second.
-					yield* Effect.sleep(Duration.seconds(1));
+					// maxMessages frames leave per maxMessagesWindow.
+					yield* Effect.sleep(maxMessagesWindow);
 				} catch (err) {
 					yield* closeOnSendFailure(ws, err, "send");
 				}
@@ -170,7 +171,7 @@ export const createVenueWS = <TFrame>(
 
 		const sendLoop = Stream.fromQueue(outbound).pipe(
 			Stream.mapEffect(sendOutbound, {
-				concurrency: maxMessagesPerSecond,
+				concurrency: maxMessages,
 			}),
 			Stream.runDrain,
 		);

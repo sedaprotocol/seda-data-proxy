@@ -10,8 +10,8 @@ export const BybitModuleConfigSchema = v.strictObject({
 	type: v.literal("bybit"),
 	...tickerModuleBaseFields({
 		wsUrl: "wss://stream.bybit.com/v5/public/spot",
-		// Bybit allows 10 client messages per second.
-		maxMessagesPerSecond: 5,
+		maxMessages: 10,
+		maxMessagesWindow: "1 second",
 	}),
 	// Bybit allows up to 10 args for each subscription request.
 	maxSymbolsPerRequest: v.optional(v.number(), 10),
