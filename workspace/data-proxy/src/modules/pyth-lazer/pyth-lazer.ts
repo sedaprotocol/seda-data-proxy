@@ -9,7 +9,6 @@ import {
 	Clock,
 	Data,
 	Effect,
-	Either,
 	Layer,
 	Metric,
 	MetricBoundaries,
@@ -627,10 +626,8 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 					const results = yield* Effect.forEach(
 						priceFeedIds,
 						(priceFeedId) =>
-							Effect.either(
-								priceCache.getOrWaitPrice(
-									priceFeedSubscriptionKey(priceFeedId, route.channel),
-								),
+							priceCache.getOrWaitPrice(
+								priceFeedSubscriptionKey(priceFeedId, route.channel),
 							),
 						{ concurrency: "unbounded" },
 					);
@@ -640,7 +637,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 						const priceFeedId = priceFeedIds[i];
 						const price = results[i];
 
-						if (Either.isLeft(price)) {
+						if (price === null) {
 							prices.push({
 								priceFeedId,
 								symbol: priceFeedIdsRaw.at(i),
@@ -648,7 +645,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 							});
 						} else {
 							prices.push({
-								...price.right,
+								...price,
 								symbol: priceFeedIdsRaw.at(i),
 								[HAS_PRICE_KEY]: true,
 							});

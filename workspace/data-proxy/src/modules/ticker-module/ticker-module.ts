@@ -1,11 +1,4 @@
-import {
-	Clock,
-	type Duration,
-	Effect,
-	Either,
-	Layer,
-	MutableHashMap,
-} from "effect";
+import { Clock, type Duration, Effect, Layer, MutableHashMap } from "effect";
 import type { Route } from "../../config/config-parser";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
@@ -156,8 +149,7 @@ export const createTickerModuleService = <
 
 					const results = yield* Effect.forEach(
 						requestedSymbols,
-						(requested) =>
-							Effect.either(cache.getOrWaitPrice(requested.toUpperCase())),
+						(requested) => cache.getOrWaitPrice(requested.toUpperCase()),
 						{ concurrency: "unbounded" },
 					);
 
@@ -166,14 +158,14 @@ export const createTickerModuleService = <
 						const requested = requestedSymbols[i];
 						const result = results[i];
 
-						if (Either.isLeft(result) || !socketHealthy) {
+						if (result === null || !socketHealthy) {
 							prices.push({
 								[identityField]: requested,
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
 							prices.push({
-								...result.right,
+								...result,
 								[identityField]: requested,
 								[HAS_PRICE_KEY]: true,
 							});
