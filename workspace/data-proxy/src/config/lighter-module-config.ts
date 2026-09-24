@@ -1,85 +1,31 @@
-import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
-import { RouteSchema } from "./route-config";
+import {
+	keepaliveIntervalField,
+	tickerModuleBaseFields,
+	tickerModuleRouteSchema,
+	validateTickerModuleRoute,
+} from "./ticker-module-config";
 
 export const LighterModuleConfigSchema = v.strictObject({
-	name: v.string(),
 	type: v.literal("lighter"),
-	wsUrl: v.optional(v.string(), "wss://mainnet.zklighter.elliot.ai/stream"),
-	// Lighter numeric market ids (e.g. 1 for BTC) to subscribe at startup.
-	subscriptionMarketIds: v.optional(v.array(v.number()), []),
-	maxMarketsPerRequest: v.optional(v.number(), 100),
-	// Lighter allows 200 client WS messages per minute.
-	maxMessagesPerMinute: v.optional(
-		v.pipe(
-			v.number(),
-			v.minValue(1, "maxMessagesPerMinute must be at least 1"),
-		),
-		180,
-	),
+	...tickerModuleBaseFields({
+		// ?readonly=true avoids geo-restriction on the public stream.
+		wsUrl: "wss://mainnet.zklighter.elliot.ai/stream?readonly=true",
+		// Lighter allows 200 client WS messages per minute.
+		maxMessages: 180,
+		maxMessagesWindow: "1 minute",
+	}),
 	// Lighter closes a connection with no client frames for 2 minutes;
 	// ping on a shorter cadence.
-	keepaliveInterval: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "60 seconds"),
-		v.transform((value) =>
-			Option.getOrThrowWith(
-				Duration.decodeUnknown(value),
-				() => new Error("Invalid keepaliveInterval duration"),
-			),
-		),
-	),
-	reconnectMaxBackoff: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
-		v.transform((value) =>
-			Option.getOrThrowWith(
-				Duration.decodeUnknown(value),
-				() => new Error("Invalid reconnectMaxBackoff duration"),
-			),
-		),
-	),
-	reconnectStableThreshold: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
-		v.transform((value) =>
-			Option.getOrThrowWith(
-				Duration.decodeUnknown(value),
-				() => new Error("Invalid reconnectStableThreshold duration"),
-			),
-		),
-	),
-	marketsCleanupTtl: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "1 hour"),
-		v.transform((ttl) =>
-			Option.getOrThrowWith(
-				Duration.decodeUnknown(ttl),
-				() => new Error("Invalid markets cleanup TTL"),
-			),
-		),
-	),
-	marketsCleanupInterval: v.pipe(
-		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
-		v.transform((interval) =>
-			Option.getOrThrowWith(
-				Duration.decodeUnknown(interval),
-				() => new Error("Invalid markets cleanup interval"),
-			),
-		),
-	),
+	keepaliveInterval: keepaliveIntervalField("60 seconds"),
 });
 
 export type LighterModuleConfig = v.InferOutput<
 	typeof LighterModuleConfigSchema
 >;
 
-export const LighterModuleRouteSchema = v.strictObject({
-	...RouteSchema.entries,
-	moduleName: v.string(),
-	fetchFromModule: v.string(),
-	type: v.literal("lighter"),
-});
+export const LighterModuleRouteSchema = tickerModuleRouteSchema("lighter");
 
 export type LighterModuleRoute = v.InferOutput<typeof LighterModuleRouteSchema>;
 
-export const validateLighterModuleRoute = (_route: LighterModuleRoute) =>
-	Effect.gen(function* () {
-		return yield* Effect.void;
-	});
+export const validateLighterModuleRoute = validateTickerModuleRoute;

@@ -49,7 +49,7 @@ const startClient = (options?: {
 					? undefined
 					: {
 							interval: options.keepaliveInterval,
-							frame: "ping",
+							pingFrame: "ping",
 						},
 			buildSubscribeFrame: (keys) => JSON.stringify({ op: "subscribe", keys }),
 			buildUnsubscribeFrame: (keys) =>
@@ -80,7 +80,7 @@ const startClient = (options?: {
 describe("createVenueWS", () => {
 	it("opens the WS at the configured url and batches the subscribe on open", async () => {
 		const { fiber, ws: service } = await Effect.runPromise(
-			startClient({ preSubscribed: ["btc", "eth"] }),
+			startClient({ preSubscribed: ["BTC", "ETH"] }),
 		);
 		await flush();
 
@@ -191,6 +191,105 @@ describe("createVenueWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
+	it("enqueues one frame per key when the builder returns an array", async () => {
+		const { ws: service, fiber } = await Effect.runPromise(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<
+					string,
+					Record<string, unknown>
+				>();
+				const ws = yield* createVenueWS({
+					venue: "venue",
+					config: {
+						name: "venue-test",
+						wsUrl: "wss://example.test/ws",
+						maxMessages: 5,
+						maxMessagesWindow: Duration.seconds(1),
+						reconnectMaxBackoff: Duration.seconds(30),
+						reconnectStableThreshold: Duration.seconds(30),
+					},
+					cache,
+					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
+					buildSubscribeFrame: (keys) =>
+						keys.map((key) => JSON.stringify({ op: "subscribe", keys: [key] })),
+					buildUnsubscribeFrame: (keys) =>
+						keys.map((key) =>
+							JSON.stringify({ op: "unsubscribe", keys: [key] }),
+						),
+					parseInboundFrame: () => null,
+				});
+				const fiber = yield* ws.start();
+				return { ws, fiber };
+			}).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+		);
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		await Effect.runPromise(service.subscribe(["BTC", "ETH"]));
+		await flush();
+
+		expect(ws.sent.map(parseControl)).toEqual([
+			{ op: "subscribe", keys: ["BTC"] },
+			{ op: "subscribe", keys: ["ETH"] },
+		]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("replies to an inbound ping immediately when pongFrame is configured", async () => {
+		const { fiber } = await Effect.runPromise(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<
+					string,
+					Record<string, unknown>
+				>();
+				const ws = yield* createVenueWS({
+					venue: "venue",
+					config: {
+						name: "venue-test",
+						wsUrl: "wss://example.test/ws",
+						maxMessages: 5,
+						maxMessagesWindow: Duration.seconds(1),
+						reconnectMaxBackoff: Duration.seconds(30),
+						reconnectStableThreshold: Duration.seconds(30),
+					},
+					cache,
+					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
+					keepalive: {
+						interval: Duration.minutes(10),
+						pingFrame: "ping",
+						pongFrame: "pong",
+					},
+					buildSubscribeFrame: (keys) =>
+						JSON.stringify({ op: "subscribe", keys }),
+					buildUnsubscribeFrame: (keys) =>
+						JSON.stringify({ op: "unsubscribe", keys }),
+					parseInboundFrame: (raw) => {
+						if (raw === "ping") return { kind: "ping" };
+						return null;
+					},
+				});
+				yield* ws.subscribe(["BTC"]);
+				const fiber = yield* ws.start();
+				return { fiber };
+			}).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
+		);
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+		ws.sent.length = 0;
+
+		ws.triggerMessage("ping");
+		await flush();
+
+		expect(ws.sent).toEqual(["pong"]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
 	it("subscribe batches multiple new keys into one frame", async () => {
 		const { ws: service, fiber } = await Effect.runPromise(
 			startClient({ preSubscribed: [] }),
@@ -269,7 +368,7 @@ describe("createVenueWS", () => {
 	it("resubscribes desired keys after reconnect", async () => {
 		const { fiber } = await Effect.runPromise(
 			startClient({
-				preSubscribed: ["btc", "eth"],
+				preSubscribed: ["BTC", "ETH"],
 				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
 			}),
 		);

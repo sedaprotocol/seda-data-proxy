@@ -13,7 +13,7 @@ const durationField = (defaultValue: string, invalidMessage: string) =>
 		),
 	);
 
-/** Shared fields for string-keyed public ticker modules. */
+/** Shared fields for public ticker modules. */
 export const tickerModuleBaseFields = (defaults: {
 	wsUrl: string;
 	maxMessages: number;

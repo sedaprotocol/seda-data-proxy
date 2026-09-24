@@ -33,23 +33,24 @@ export const defaultReconnectSchedule = (config: ReconnectBackoffConfig) =>
 		Schedule.resetAfter(config.reconnectStableThreshold),
 	);
 
-export interface VenueWS {
+export interface VenueWS<TKey = string> {
 	/** Forks the WS daemon. The daemon owns reconnect with backoff and resubscribes on each open. */
 	start(): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never>;
-	/** Adds the keys to the desired set and enqueues one subscribe frame for the new ones. Idempotent. */
-	subscribe(keys: string[]): Effect.Effect<void, never, never>;
-	/** Removes the keys from the desired set and enqueues one unsubscribe frame for the removed ones. Idempotent. */
-	unsubscribe(keys: string[]): Effect.Effect<void, never, never>;
+	/** Adds the keys to the desired set and enqueues subscribe frame(s) for the new ones. Idempotent. */
+	subscribe(keys: TKey[]): Effect.Effect<void, never, never>;
+	/** Removes the keys from the desired set and enqueues unsubscribe frame(s) for the removed ones. Idempotent. */
+	unsubscribe(keys: TKey[]): Effect.Effect<void, never, never>;
 	/** True while the socket is disconnected, errored, or has a pending send failure. */
 	hasError(): Effect.Effect<boolean, never, never>;
 }
 
-export type VenueParsedInbound<TFrame> =
+export type VenueParsedInbound<TKey, TFrame> =
+	| { kind: "ping" }
 	| { kind: "pong" }
 	| { kind: "error"; code: string | number | null; message: string | null }
 	| {
 			kind: "tickers";
-			frames: Array<{ key: string; frame: TFrame }>;
+			frames: Array<{ key: TKey; frame: TFrame }>;
 	  };
 
 export interface VenueWSConfig extends ReconnectBackoffConfig {
@@ -59,23 +60,25 @@ export interface VenueWSConfig extends ReconnectBackoffConfig {
 	maxMessagesWindow: Duration.Duration;
 }
 
-export interface CreateVenueWSParams<TFrame> {
+export interface CreateVenueWSParams<TKey, TFrame> {
 	venue: string;
 	config: VenueWSConfig;
-	cache: PriceCache<string, TFrame>;
+	cache: PriceCache<TKey, TFrame>;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	keepalive?: {
 		interval: VenueWSConfig["reconnectMaxBackoff"];
-		frame: string;
+		pingFrame: string;
+		/** When set, an inbound ping is answered immediately with this frame. */
+		pongFrame?: string;
 	};
-	buildSubscribeFrame: (keys: string[]) => string;
-	buildUnsubscribeFrame: (keys: string[]) => string;
-	parseInboundFrame: (raw: string) => VenueParsedInbound<TFrame> | null;
+	buildSubscribeFrame: (keys: TKey[]) => string | string[];
+	buildUnsubscribeFrame: (keys: TKey[]) => string | string[];
+	parseInboundFrame: (raw: string) => VenueParsedInbound<TKey, TFrame> | null;
 }
 
-export const createVenueWS = <TFrame>(
-	params: CreateVenueWSParams<TFrame>,
-): Effect.Effect<VenueWS, never, never> =>
+export const createVenueWS = <TKey, TFrame>(
+	params: CreateVenueWSParams<TKey, TFrame>,
+): Effect.Effect<VenueWS<TKey>, never, never> =>
 	Effect.gen(function* () {
 		const {
 			venue,
@@ -91,7 +94,7 @@ export const createVenueWS = <TFrame>(
 			params.reconnectSchedule ?? defaultReconnectSchedule(config);
 
 		const inboundControl = yield* forkInboundControl(
-			(event: Extract<VenueParsedInbound<TFrame>, { kind: "error" }>) =>
+			(event: Extract<VenueParsedInbound<TKey, TFrame>, { kind: "error" }>) =>
 				Effect.logWarning(`${venue} WS error frame`, {
 					code: event.code,
 					message: event.message,
@@ -99,7 +102,7 @@ export const createVenueWS = <TFrame>(
 		);
 
 		const runtime = yield* Effect.runtime<never>();
-		const desiredKeys = MutableHashMap.empty<string, true>();
+		const desiredKeys = MutableHashMap.empty<TKey, true>();
 		let currentWS: WebSocket | null = null;
 		let unhealthy = false;
 		const outbound = yield* Queue.unbounded<OutboundMessage>();
@@ -133,11 +136,25 @@ export const createVenueWS = <TFrame>(
 		const incrementConnectionAttempts = () =>
 			Metric.increment(withModuleName(connectionAttempts));
 
-		const isDesired = (key: string): boolean =>
-			Option.isSome(MutableHashMap.get(desiredKeys, key.toUpperCase()));
+		const isDesired = (key: TKey): boolean =>
+			Option.isSome(MutableHashMap.get(desiredKeys, key));
 
 		const enqueue = (frame: string, type: OutboundMessageType) =>
 			Queue.offer(outbound, { frame, type }).pipe(Effect.asVoid);
+
+		const enqueueFrames = (
+			frames: string | string[],
+			type: OutboundMessageType,
+		) =>
+			Effect.gen(function* () {
+				if (Array.isArray(frames)) {
+					for (const frame of frames) {
+						yield* enqueue(frame, type);
+					}
+					return;
+				}
+				yield* enqueue(frames, type);
+			});
 
 		const clearOutbound = () => Queue.takeAll(outbound).pipe(Effect.asVoid);
 
@@ -151,6 +168,18 @@ export const createVenueWS = <TFrame>(
 					ws.close();
 				} catch {
 					// best-effort; the close listener will trigger the reconnect loop.
+				}
+			});
+
+		const sendImmediate = (frame: string, type: string) =>
+			Effect.gen(function* () {
+				const ws = currentWS;
+				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
+				try {
+					ws.send(frame);
+					yield* incrementMessagesSent(type);
+				} catch (err) {
+					yield* closeOnSendFailure(ws, err, type);
 				}
 			});
 
@@ -179,32 +208,30 @@ export const createVenueWS = <TFrame>(
 			Stream.runDrain,
 		);
 
-		const subscribe = (keys: string[]) =>
+		const subscribe = (keys: TKey[]) =>
 			Effect.gen(function* () {
-				const fresh: string[] = [];
-				for (const raw of keys) {
-					const key = raw.toUpperCase();
+				const fresh: TKey[] = [];
+				for (const key of keys) {
 					if (Option.isSome(MutableHashMap.get(desiredKeys, key))) continue;
 					MutableHashMap.set(desiredKeys, key, true);
 					fresh.push(key);
 				}
 				if (fresh.length === 0) return;
 				yield* setActiveSubscriptions();
-				yield* enqueue(buildSubscribeFrame(fresh), "subscribe");
+				yield* enqueueFrames(buildSubscribeFrame(fresh), "subscribe");
 			});
 
-		const unsubscribe = (keys: string[]) =>
+		const unsubscribe = (keys: TKey[]) =>
 			Effect.gen(function* () {
-				const removed: string[] = [];
-				for (const raw of keys) {
-					const key = raw.toUpperCase();
+				const removed: TKey[] = [];
+				for (const key of keys) {
 					if (Option.isNone(MutableHashMap.get(desiredKeys, key))) continue;
 					MutableHashMap.remove(desiredKeys, key);
 					removed.push(key);
 				}
 				if (removed.length === 0) return;
 				yield* setActiveSubscriptions();
-				yield* enqueue(buildUnsubscribeFrame(removed), "unsubscribe");
+				yield* enqueueFrames(buildUnsubscribeFrame(removed), "unsubscribe");
 			});
 
 		const hasError = () => Effect.sync(() => unhealthy);
@@ -214,10 +241,10 @@ export const createVenueWS = <TFrame>(
 				yield* Effect.logInfo(`${venue} WS open`, { name });
 				unhealthy = false;
 				currentWS = ws;
-				const keys: string[] = [];
+				const keys: TKey[] = [];
 				for (const [key] of desiredKeys) keys.push(key);
 				if (keys.length > 0) {
-					yield* enqueue(buildSubscribeFrame(keys), "subscribe");
+					yield* enqueueFrames(buildSubscribeFrame(keys), "subscribe");
 				}
 			});
 
@@ -235,6 +262,12 @@ export const createVenueWS = <TFrame>(
 			const parsed = parseInboundFrame(raw);
 			if (!parsed) return;
 			if (parsed.kind === "pong") return;
+			if (parsed.kind === "ping") {
+				if (keepalive?.pongFrame !== undefined) {
+					Runtime.runSync(runtime, sendImmediate(keepalive.pongFrame, "pong"));
+				}
+				return;
+			}
 			if (parsed.kind === "error") {
 				inboundControl.offer(parsed);
 				return;
@@ -308,14 +341,7 @@ export const createVenueWS = <TFrame>(
 		const sendPing = () =>
 			Effect.gen(function* () {
 				if (keepalive === undefined) return;
-				const ws = currentWS;
-				if (ws === null || ws.readyState !== WebSocket.OPEN) return;
-				try {
-					ws.send(keepalive.frame);
-					yield* incrementMessagesSent("ping");
-				} catch (err) {
-					yield* closeOnSendFailure(ws, err, "ping");
-				}
+				yield* sendImmediate(keepalive.pingFrame, "ping");
 			});
 
 		const cachedStart = yield* Effect.cached(
@@ -333,5 +359,5 @@ export const createVenueWS = <TFrame>(
 		);
 		const start = () => cachedStart;
 
-		return { start, subscribe, unsubscribe, hasError } satisfies VenueWS;
+		return { start, subscribe, unsubscribe, hasError } satisfies VenueWS<TKey>;
 	});

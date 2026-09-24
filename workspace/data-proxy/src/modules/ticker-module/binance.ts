@@ -2,7 +2,10 @@ import type { Effect, Schedule } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
 import type { PriceCache } from "../shared/price-cache";
 import { type VenueWS, createVenueWS } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import {
+	createTickerModuleService,
+	parseUppercaseSymbol,
+} from "./ticker-module";
 
 export const BinanceModuleService = (config: BinanceModuleConfig) =>
 	createTickerModuleService({
@@ -10,6 +13,7 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 		routeType: "binance",
 		identityField: "symbol",
 		config,
+		parseKey: parseUppercaseSymbol,
 		createWS: createBinanceWS,
 		extraInitLog: { streamType: config.streamType },
 	});

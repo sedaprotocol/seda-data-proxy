@@ -18,7 +18,11 @@ export interface TickerModuleServiceConfig {
 	symbolsCleanupInterval: Duration.Duration;
 }
 
+export const parseUppercaseSymbol = (token: string): string =>
+	token.toUpperCase();
+
 export interface CreateTickerModuleServiceParams<
+	TKey,
 	TFrame,
 	TConfig extends TickerModuleServiceConfig,
 > {
@@ -26,10 +30,11 @@ export interface CreateTickerModuleServiceParams<
 	routeType: Route["type"];
 	identityField: string;
 	config: TConfig;
+	parseKey: (token: string) => TKey | null;
 	createWS: (
 		config: TConfig,
-		cache: PriceCache<string, TFrame>,
-	) => Effect.Effect<VenueWS, never, never>;
+		cache: PriceCache<TKey, TFrame>,
+	) => Effect.Effect<VenueWS<TKey>, never, never>;
 	cacheApply?: (prev: TFrame | undefined, next: TFrame) => TFrame;
 	extraInitLog?: Record<string, unknown>;
 }
@@ -38,14 +43,16 @@ const titleCase = (venue: string) =>
 	`${venue.charAt(0).toUpperCase()}${venue.slice(1)}`;
 
 /**
- * HTTP + cache + idle-cleanup loop shared by string-keyed public ticker
- * modules. Venue protocol stays in each createWS.
+ * HTTP + cache + idle-cleanup loop shared by public ticker modules.
+ * Venue protocol stays in each createWS; parseKey turns request tokens into
+ * cache/subscribe keys.
  */
 export const createTickerModuleService = <
+	TKey,
 	TFrame,
 	TConfig extends TickerModuleServiceConfig,
 >(
-	params: CreateTickerModuleServiceParams<TFrame, TConfig>,
+	params: CreateTickerModuleServiceParams<TKey, TFrame, TConfig>,
 ) =>
 	Layer.effect(
 		ModuleService,
@@ -55,6 +62,7 @@ export const createTickerModuleService = <
 				routeType,
 				identityField,
 				config,
+				parseKey,
 				createWS,
 				cacheApply,
 				extraInitLog,
@@ -66,11 +74,11 @@ export const createTickerModuleService = <
 				...extraInitLog,
 			});
 
-			const cache = yield* createPriceCache<string, TFrame>({
+			const cache = yield* createPriceCache<TKey, TFrame>({
 				apply: cacheApply,
 			});
 			const ws = yield* createWS(config, cache);
-			const lastRequestToSymbol = MutableHashMap.empty<string, number>();
+			const lastRequestToKey = MutableHashMap.empty<TKey, number>();
 
 			const start = () =>
 				Effect.gen(function* () {
@@ -82,24 +90,29 @@ export const createTickerModuleService = <
 
 					if (config.subscriptionSymbols.length > 0) {
 						const now = yield* Clock.currentTimeMillis;
-						const seeded = config.subscriptionSymbols.map((symbol) =>
-							symbol.toUpperCase(),
-						);
-						for (const symbol of seeded) {
-							MutableHashMap.set(lastRequestToSymbol, symbol, now);
+						const seeded: TKey[] = [];
+						for (const token of config.subscriptionSymbols) {
+							const key = parseKey(token);
+							if (key === null) continue;
+							if (!MutableHashMap.has(lastRequestToKey, key)) {
+								seeded.push(key);
+							}
+							MutableHashMap.set(lastRequestToKey, key, now);
 						}
-						yield* ws.subscribe(seeded);
+						if (seeded.length > 0) {
+							yield* ws.subscribe(seeded);
+						}
 					}
 
 					yield* forkIdleCleanup({
-						lastRequest: lastRequestToSymbol,
+						lastRequest: lastRequestToKey,
 						ttl: config.symbolsCleanupTtl,
 						interval: config.symbolsCleanupInterval,
-						onExpire: (symbol) =>
+						onExpire: (key) =>
 							Effect.gen(function* () {
-								yield* Effect.logInfo("Cleaning up idle symbol", { symbol });
-								yield* cache.deletePrice(symbol);
-								yield* ws.unsubscribe([symbol]);
+								yield* Effect.logInfo("Cleaning up idle key", { key });
+								yield* cache.deletePrice(key);
+								yield* ws.unsubscribe([key]);
 							}),
 					});
 				}).pipe(Effect.annotateLogs("_name", venue));
@@ -118,59 +131,65 @@ export const createTickerModuleService = <
 						);
 					}
 
-					const requestedSymbols = replaceParams(
+					const requestedTokens = replaceParams(
 						route.fetchFromModule,
 						routeParams,
 					)
 						.split(",")
-						.map((symbol) => symbol.trim())
-						.filter((symbol) => symbol.length > 0);
+						.map((token) => token.trim())
+						.filter((token) => token.length > 0);
 
-					if (requestedSymbols.length > config.maxSymbolsPerRequest) {
+					if (requestedTokens.length > config.maxSymbolsPerRequest) {
 						return yield* Effect.fail(
 							new FailedToHandleTickerRequestError({
-								error: `Too many symbols, max is ${config.maxSymbolsPerRequest} but got ${requestedSymbols.length}`,
+								error: `Too many symbols, max is ${config.maxSymbolsPerRequest} but got ${requestedTokens.length}`,
 								status: 400,
 								moduleName: config.name,
 							}),
 						);
 					}
 
+					const requested = requestedTokens.map((token) => ({
+						token,
+						key: parseKey(token),
+					}));
+
 					const now = yield* Clock.currentTimeMillis;
 					const socketHealthy = !(yield* ws.hasError());
-					const newSymbols: string[] = [];
-					for (const requested of requestedSymbols) {
-						const symbol = requested.toUpperCase();
-						if (!MutableHashMap.has(lastRequestToSymbol, symbol)) {
-							newSymbols.push(symbol);
+					const newKeys: TKey[] = [];
+					for (const { key } of requested) {
+						if (key === null) continue;
+						if (!MutableHashMap.has(lastRequestToKey, key)) {
+							newKeys.push(key);
 						}
-						MutableHashMap.set(lastRequestToSymbol, symbol, now);
+						MutableHashMap.set(lastRequestToKey, key, now);
 					}
 
-					if (newSymbols.length > 0) {
-						yield* ws.subscribe(newSymbols);
+					if (newKeys.length > 0) {
+						yield* ws.subscribe(newKeys);
 					}
 
 					const results = yield* Effect.forEach(
-						requestedSymbols,
-						(requested) => cache.getOrWaitPrice(requested.toUpperCase()),
+						requested,
+						({ key }) =>
+							key === null ? Effect.succeed(null) : cache.getOrWaitPrice(key),
 						{ concurrency: "unbounded" },
 					);
 
 					const prices: Array<Record<string, unknown>> = [];
-					for (let i = 0; i < requestedSymbols.length; i++) {
-						const requested = requestedSymbols[i];
+					for (let i = 0; i < requested.length; i++) {
+						const { token } = requested[i];
 						const result = results[i];
 
 						if (result === null || !socketHealthy) {
 							prices.push({
-								[identityField]: requested,
+								[identityField]: token,
 								[HAS_PRICE_KEY]: false,
 							});
 						} else {
 							prices.push({
 								...result,
-								[identityField]: requested,
+								[identityField]: token,
 								[HAS_PRICE_KEY]: true,
 							});
 						}
