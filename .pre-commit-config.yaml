@@ -6,4 +6,5 @@ repos:
         exclude: \.md$
       - id: end-of-file-fixer
       - id: check-yaml
+        exclude: ^helm/templates/
       - id: check-added-large-files

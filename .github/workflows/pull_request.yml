@@ -1,10 +1,14 @@
 name: 🧹 Git Checks
 on: [pull_request]
 
+permissions: {}
+
 jobs:
   block_fixup:
     name: "Block Fixup Commit Merge"
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 🛃 Checkout repository
