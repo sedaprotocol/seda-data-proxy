@@ -4,14 +4,13 @@ import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { createPriceCache } from "../shared/price-cache";
 import {
 	type LighterPriceFrame,
+	PING_FRAME,
+	PONG_FRAME,
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
 	createLighterWS,
 	parseInboundFrame,
-} from "./ws-client";
-
-const PING = JSON.stringify({ type: "ping" });
-const PONG = JSON.stringify({ type: "pong" });
+} from "./lighter";
 
 const innerTicker = (symbol: string) => ({
 	s: symbol,
@@ -168,14 +167,15 @@ const baseConfig: LighterModuleConfig = {
 	name: "lighter",
 	type: "lighter",
 	wsUrl: "wss://lighter.test/stream",
-	subscriptionMarketIds: [],
-	maxMarketsPerRequest: 100,
-	maxMessagesPerMinute: 180,
+	subscriptionSymbols: [],
+	maxSymbolsPerRequest: 100,
+	maxMessages: 180,
+	maxMessagesWindow: Duration.minutes(1),
 	keepaliveInterval: Duration.seconds(60),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
-	marketsCleanupTtl: Duration.hours(1),
-	marketsCleanupInterval: Duration.seconds(30),
+	symbolsCleanupTtl: Duration.hours(1),
+	symbolsCleanupInterval: Duration.seconds(30),
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -193,14 +193,14 @@ afterEach(() => {
 const startService = (
 	config: LighterModuleConfig,
 	preSubscribed: number[] = [],
-	options?: Parameters<typeof createLighterWS>[2],
+	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<number, LighterPriceFrame>();
 		const ws = yield* createLighterWS(
 			config,
 			cache,
-			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
+			reconnectSchedule ?? Schedule.spaced(Duration.minutes(10)),
 		);
 		if (preSubscribed.length > 0) {
 			yield* ws.subscribe(preSubscribed);
@@ -273,7 +273,7 @@ describe("createLighterWS", () => {
 		ws.triggerMessage(JSON.stringify({ type: "ping" }));
 		await flush();
 
-		expect(ws.sent).toEqual([PONG]);
+		expect(ws.sent).toEqual([PONG_FRAME]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -293,7 +293,9 @@ describe("createLighterWS", () => {
 
 		await new Promise<void>((r) => setTimeout(r, 50));
 
-		expect(ws.sent.filter((frame) => frame === PING).length).toBeGreaterThan(0);
+		expect(
+			ws.sent.filter((frame) => frame === PING_FRAME).length,
+		).toBeGreaterThan(0);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -326,7 +328,6 @@ describe("createLighterWS", () => {
 		ws.triggerOpen();
 		await flush();
 
-		// Unknown market id: no frame.
 		await Effect.runPromise(service.unsubscribe([2]));
 		await flush();
 		expect(ws.sent).toEqual([buildSubscribeFrame(1)]);
@@ -335,7 +336,6 @@ describe("createLighterWS", () => {
 		await flush();
 		expect(ws.sent).toEqual([buildSubscribeFrame(1), buildUnsubscribeFrame(1)]);
 
-		// Repeat: already removed, no frame.
 		await Effect.runPromise(service.unsubscribe([1]));
 		await flush();
 		expect(ws.sent).toEqual([buildSubscribeFrame(1), buildUnsubscribeFrame(1)]);
@@ -345,9 +345,7 @@ describe("createLighterWS", () => {
 
 	it("reconnects after a close and re-subscribes every desired market", async () => {
 		const { fiber } = await Effect.runPromise(
-			startService(baseConfig, [1, 2], {
-				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
-			}),
+			startService(baseConfig, [1, 2], Schedule.spaced(Duration.millis(10))),
 		);
 		await flush();
 		const ws1 = FakeWebSocket.instances[0];
@@ -378,9 +376,7 @@ describe("createLighterWS", () => {
 		};
 
 		const { fiber } = await Effect.runPromise(
-			startService(baseConfig, [1], {
-				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
-			}),
+			startService(baseConfig, [1], Schedule.spaced(Duration.millis(10))),
 		);
 		await flush();
 		const ws1 = FakeWebSocket.instances[0];
@@ -398,10 +394,10 @@ describe("createLighterWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
-	it("paces outbound frames to stay under maxMessagesPerMinute", async () => {
+	it("paces outbound frames to stay under maxMessages per maxMessagesWindow", async () => {
 		const { fiber } = await Effect.runPromise(
 			startService(
-				{ ...baseConfig, maxMessagesPerMinute: 6 },
+				{ ...baseConfig, maxMessages: 6 },
 				[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 			),
 		);

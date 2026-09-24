@@ -299,8 +299,8 @@ const buildConfigJson = (mock: MockVenueServer): unknown => {
 			name: "lig",
 			type: "lighter",
 			wsUrl: wssUrl("lighter"),
-			subscriptionMarketIds: lighterMarketIds,
-			maxMarketsPerRequest: 200,
+			subscriptionSymbols: lighterMarketIds.map(String),
+			maxSymbolsPerRequest: 200,
 		});
 		routes.push({
 			type: "lighter",

@@ -2,7 +2,10 @@ import type { Effect, Schedule } from "effect";
 import type { BybitModuleConfig } from "../../config/bybit-module-config";
 import type { PriceCache } from "../shared/price-cache";
 import { type VenueWS, createVenueWS } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import {
+	createTickerModuleService,
+	parseUppercaseSymbol,
+} from "./ticker-module";
 
 export const TICKERS_TOPIC_PREFIX = "tickers.";
 export const PING_FRAME = JSON.stringify({ op: "ping" });
@@ -27,6 +30,7 @@ export const BybitModuleService = (config: BybitModuleConfig) =>
 		routeType: "bybit",
 		identityField: "symbol",
 		config,
+		parseKey: parseUppercaseSymbol,
 		createWS: createBybitWS,
 		cacheApply: applyBybitFrame,
 	});
@@ -134,7 +138,7 @@ export const createBybitWS = (
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,
-			frame: PING_FRAME,
+			pingFrame: PING_FRAME,
 		},
 		buildSubscribeFrame,
 		buildUnsubscribeFrame,

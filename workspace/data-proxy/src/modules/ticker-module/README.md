@@ -1,22 +1,23 @@
 # Ticker module
 
-Shared HTTP + cache + idle-cleanup loop for string-keyed public ticker venues. Each module supplies only its WebSocket protocol; request handling, price caching, and subscription lifecycle are the same.
+Shared HTTP + cache + idle-cleanup loop for public ticker venues. Each module supplies only its WebSocket protocol and a `parseKey` that turns request tokens into cache keys; request handling, price caching, and subscription lifecycle are the same.
 
 ## Overview
 
 On startup each venue module:
 
 1. Connects to `wsUrl`.
-2. Subscribes to every symbol in `subscriptionSymbols`.
-3. Caches inbound ticker frames by uppercased symbol.
-4. Sets up an idle cleanup loop to unsubscribe symbols that have not been requested within `symbolsCleanupTtl`.
+2. Subscribes to every parsed key in `subscriptionSymbols`.
+3. Caches inbound ticker frames by key.
+4. Sets up an idle cleanup loop to unsubscribe keys that have not been requested within `symbolsCleanupTtl`.
 
 For HTTP requests the handler:
 
-1. Resolves `fetchFromModule` to one or more comma-separated symbols.
+1. Resolves `fetchFromModule` to one or more comma-separated tokens.
 2. Rejects the request with HTTP 400 if the count exceeds `maxSymbolsPerRequest`.
-3. Subscribes to any new symbols over WebSocket.
-4. Returns the latest cached frame for each symbol. If a price is not yet available, the handler waits briefly (shared price-cache timeout: 3 seconds).
+3. Parses tokens into keys (`parseKey`); invalid tokens miss immediately.
+4. Subscribes to any new keys over WebSocket.
+5. Returns the latest cached frame for each token. If a price is not yet available, the handler waits briefly (shared price-cache timeout: 3 seconds).
 
 While the socket is disconnected or errored, every item is returned with `__sedaHasPrice: false` even if a stale frame is still in cache.
 
@@ -28,10 +29,10 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
-| `type` | yes | — | `"binance"`, `"bybit"`, or `"okx"` |
+| `type` | yes | — | `"binance"`, `"bybit"`, `"okx"`, or `"lighter"` |
 | `name` | yes | — | Module name referenced by routes as `moduleName`. |
 | `wsUrl` | no | venue default (below) | Public WebSocket URL. |
-| `subscriptionSymbols` | no | `[]` | Symbols to subscribe to on start. |
+| `subscriptionSymbols` | no | `[]` | Tokens to subscribe to on start (strings; Lighter uses market ids such as `"1"`). |
 | `maxSymbolsPerRequest` | no | `100` | Max symbols allowed in a single request. |
 | `maxMessages` | no | venue default (below) | Max outbound WS control frames per `maxMessagesWindow`. |
 | `maxMessagesWindow` | no | venue default (below) | Rolling window for `maxMessages`. |
@@ -47,12 +48,13 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 | Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `trade`, `ticker`, `miniTicker`. No keepalive. |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
 | Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). |
+| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `?readonly=true` avoids geo-restriction. Keys are numeric market ids. |
 
 ### Route
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | Must match the module (`"binance"`, `"bybit"`, or `"okx"`). |
+| `type` | yes | Must match the module (`"binance"`, `"bybit"`, `"okx"`, or `"lighter"`). |
 | `moduleName` | yes | Name of a configured ticker module. |
 | `path` | yes | Proxy path (supports `{:param}` path params). |
 | `method` | no | HTTP method(s); typically `GET`. |
@@ -65,7 +67,8 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
   "modules": [
     { "type": "binance", "name": "binance" },
     { "type": "okx", "name": "okx" },
-    { "type": "bybit", "name": "bybit" }
+    { "type": "bybit", "name": "bybit" },
+    { "type": "lighter", "name": "lighter" }
   ],
   "routes": [
     {
@@ -88,6 +91,13 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
       "path": "/bybit/:symbols",
       "method": ["GET"],
       "fetchFromModule": "{:symbols}"
+    },
+    {
+      "type": "lighter",
+      "moduleName": "lighter",
+      "path": "/lighter/:markets",
+      "method": ["GET"],
+      "fetchFromModule": "{:markets}"
     }
   ]
 }
@@ -97,6 +107,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 curl -s "http://127.0.0.1:5384/proxy/binance/BTCUSDT,ETHUSDT" | jq .
 curl -s "http://127.0.0.1:5384/proxy/okx/BTC-USDT,ETH-USDT" | jq .
 curl -s "http://127.0.0.1:5384/proxy/bybit/BTCUSDT,ETHUSDT" | jq .
+curl -s "http://127.0.0.1:5384/proxy/lighter/1,0" | jq .
 ```
 
 ## Response shape
@@ -152,9 +163,25 @@ Bybit (identity field `symbol`):
 ]
 ```
 
+Lighter (identity field `marketId`):
+
+```jsonc
+[
+  {
+    "s": "BTC",
+    "marketId": "1",
+    "__sedaHasPrice": true
+  },
+  {
+    "marketId": "NOPE",
+    "__sedaHasPrice": false
+  }
+]
+```
+
 | Field | Present when | Description |
 | --- | --- | --- |
-| Identity (`symbol` or `instId`) | always | The raw request token from `fetchFromModule` (original casing). |
+| Identity (`symbol`, `instId`, or `marketId`) | always | The raw request token from `fetchFromModule` (original casing). |
 | Venue ticker fields | `__sedaHasPrice: true` | Relayed verbatim from the stream. |
 | `__sedaHasPrice` | always | `true` when a cached price was returned; `false` on wait timeout, miss, or unhealthy socket. |
 
@@ -162,17 +189,16 @@ Requests with more symbols than `maxSymbolsPerRequest` return HTTP 400.
 
 ## Adding a venue
 
-For another string-keyed public ticker feed:
+For another public ticker feed:
 
 1. Add venue config with `tickerModuleBaseFields` (and keepalive / extra fields if needed).
-2. Implement `parseInboundFrame`, subscribe/unsubscribe builders, and `createWS` via `createVenueWS`.
-3. Wrap with `createTickerModuleService` (`venue`, `routeType`, `identityField`, `createWS`).
+2. Implement `parseInboundFrame`, subscribe/unsubscribe builders (`string | string[]` frames), and `createWS` via `createVenueWS`.
+3. Wrap with `createTickerModuleService` (`venue`, `routeType`, `identityField`, `parseKey`, `createWS`).
 4. Register the module in `module-config.ts` and `proxy-server.ts`.
 
 ## Notes
 
-- Symbols are uppercased for subscribe/cache keys; the identity field on the response keeps the request token as written.
-- The first request for a new symbol may wait up to 3 seconds for the first tick; a miss still returns 200 with `__sedaHasPrice: false`.
 - Binance docs: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
 - OKX tickers channel: https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-tickers-channel
 - Bybit ticker stream: https://bybit-exchange.github.io/docs/v5/websocket/public/ticker
+- Lighter: https://apidocs.lighter.xyz/docs/websocket-reference

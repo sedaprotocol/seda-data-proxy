@@ -3,7 +3,10 @@ import type { OkxModuleConfig } from "../../config/okx-module-config";
 import type { PriceCache } from "../shared/price-cache";
 import { createVenueWS } from "../shared/venue-ws";
 import type { VenueWS } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import {
+	createTickerModuleService,
+	parseUppercaseSymbol,
+} from "./ticker-module";
 
 export const TICKERS_CHANNEL = "tickers";
 export const PING_FRAME = "ping";
@@ -15,6 +18,7 @@ export const OkxModuleService = (config: OkxModuleConfig) =>
 		routeType: "okx",
 		identityField: "instId",
 		config,
+		parseKey: parseUppercaseSymbol,
 		createWS: createOkxWS,
 	});
 
@@ -110,7 +114,7 @@ export const createOkxWS = (
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,
-			frame: PING_FRAME,
+			pingFrame: PING_FRAME,
 		},
 		buildSubscribeFrame: (keys) => buildSubscribeFrame(keys, nextControlId()),
 		buildUnsubscribeFrame: (keys) =>
