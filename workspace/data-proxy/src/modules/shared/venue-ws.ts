@@ -47,7 +47,10 @@ export interface VenueWS {
 export type VenueParsedInbound<TFrame> =
 	| { kind: "pong" }
 	| { kind: "error"; code: string | number | null; message: string | null }
-	| { kind: "tickers"; frames: Array<{ key: string; frame: TFrame }> };
+	| {
+			kind: "tickers";
+			frames: Array<{ key: string; frame: TFrame }>;
+	  };
 
 export interface VenueWSConfig extends ReconnectBackoffConfig {
 	name: string;

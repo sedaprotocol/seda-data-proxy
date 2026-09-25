@@ -30,6 +30,7 @@ export interface CreateTickerModuleServiceParams<
 		config: TConfig,
 		cache: PriceCache<string, TFrame>,
 	) => Effect.Effect<VenueWS, never, never>;
+	cacheApply?: (prev: TFrame | undefined, next: TFrame) => TFrame;
 	extraInitLog?: Record<string, unknown>;
 }
 
@@ -55,6 +56,7 @@ export const createTickerModuleService = <
 				identityField,
 				config,
 				createWS,
+				cacheApply,
 				extraInitLog,
 			} = params;
 
@@ -64,7 +66,9 @@ export const createTickerModuleService = <
 				...extraInitLog,
 			});
 
-			const cache = yield* createPriceCache<string, TFrame>();
+			const cache = yield* createPriceCache<string, TFrame>({
+				apply: cacheApply,
+			});
 			const ws = yield* createWS(config, cache);
 			const lastRequestToSymbol = MutableHashMap.empty<string, number>();
 

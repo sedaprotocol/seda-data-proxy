@@ -36,22 +36,30 @@ export interface PriceCache<K, V> {
 	size: () => number;
 }
 
+const replace = <V>(_prev: V | undefined, next: V): V => next;
+
 export const createPriceCache = <K, V>(options?: {
 	timeout?: Duration.Duration;
+	/** Produces the value to store from the cached value, if any, and the incoming one. */
+	apply?: (prev: V | undefined, next: V) => V;
 }): Effect.Effect<PriceCache<K, V>> =>
 	Effect.sync(() => {
 		const waitTimeout =
 			options?.timeout ?? Duration.millis(PRICE_WAIT_TIMEOUT_MS);
+		const apply = options?.apply ?? replace;
 		const priceCache = MutableHashMap.empty<K, V>();
 		const priceWaiters = MutableHashMap.empty<K, PriceWaiter<V>>();
 
 		/** WS ingest write. Avoids the Effect interpreter on the tick path. */
 		const setPriceSync = (key: K, price: V): void => {
-			MutableHashMap.set(priceCache, key, price);
+			const prev = MutableHashMap.get(priceCache, key);
+			const next = apply(Option.isSome(prev) ? prev.value : undefined, price);
+			MutableHashMap.set(priceCache, key, next);
+
 			const waiter = MutableHashMap.get(priceWaiters, key);
 			if (Option.isSome(waiter)) {
 				MutableHashMap.remove(priceWaiters, key);
-				waiter.value.resolve(price);
+				waiter.value.resolve(next);
 			}
 		};
 

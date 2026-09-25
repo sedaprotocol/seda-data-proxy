@@ -7,6 +7,20 @@ import { createTickerModuleService } from "./ticker-module";
 export const TICKERS_TOPIC_PREFIX = "tickers.";
 export const PING_FRAME = JSON.stringify({ op: "ping" });
 
+export const frameType = Symbol("bybit.frameType");
+
+/** A snapshot replaces the cached ticker. A delta copies changed fields onto it. */
+const applyBybitFrame = (
+	prev: BybitPriceFrame | undefined,
+	next: BybitPriceFrame,
+): BybitPriceFrame => {
+	const isDelta = (next as { [frameType]?: string })[frameType] === "delta";
+	if (isDelta && prev !== undefined) {
+		return { ...prev, ...next };
+	}
+	return { ...next };
+};
+
 export const BybitModuleService = (config: BybitModuleConfig) =>
 	createTickerModuleService({
 		venue: "bybit",
@@ -14,6 +28,7 @@ export const BybitModuleService = (config: BybitModuleConfig) =>
 		identityField: "symbol",
 		config,
 		createWS: createBybitWS,
+		cacheApply: applyBybitFrame,
 	});
 
 /** A raw Bybit tickers payload. Always carries `symbol`; the rest of the
@@ -93,10 +108,14 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 		const symbol =
 			typeof item.symbol === "string" ? item.symbol.toUpperCase() : topicSymbol;
 		if (!symbol) continue;
-		frames.push({
-			symbol,
-			frame: { ...item, symbol } as BybitPriceFrame,
+
+		const frame = { ...item, symbol } as BybitPriceFrame;
+		Object.defineProperty(frame, frameType, {
+			value: json.type === "delta" ? "delta" : "snapshot",
+			// Non-enumerable so object spread leaves frameType out of the cached ticker.
+			enumerable: false,
 		});
+		frames.push({ symbol, frame });
 	}
 	if (frames.length === 0) return null;
 

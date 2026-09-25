@@ -12,6 +12,7 @@ import {
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
 	createBybitWS,
+	frameType,
 	parseInboundFrame,
 } from "./bybit";
 
@@ -118,6 +119,29 @@ describe("parseInboundFrame", () => {
 			kind: "tickers",
 			frames: [{ symbol: "BTCUSDT", frame: { ...rest, symbol: "BTCUSDT" } }],
 		});
+	});
+
+	it("extracts a delta payload", () => {
+		const parsed = parseInboundFrame(
+			JSON.stringify({
+				topic: "tickers.BTCUSDT",
+				type: "delta",
+				data: { symbol: "BTCUSDT", lastPrice: "77000" },
+			}),
+		);
+		expect(parsed).toEqual({
+			kind: "tickers",
+			frames: [
+				{
+					symbol: "BTCUSDT",
+					frame: { symbol: "BTCUSDT", lastPrice: "77000" },
+				},
+			],
+		});
+		if (parsed?.kind !== "tickers") {
+			throw new Error("expected a tickers frame");
+		}
+		expect(Reflect.get(parsed.frames[0].frame, frameType)).toBe("delta");
 	});
 
 	it("classifies a keepalive pong", () => {

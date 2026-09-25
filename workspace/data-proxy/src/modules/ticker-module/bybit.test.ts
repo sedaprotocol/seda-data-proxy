@@ -31,11 +31,14 @@ const ethTicker: BybitPriceFrame = {
 	lowPrice24h: "3400.00",
 };
 
-const tickerMessage = (frame: BybitPriceFrame) =>
+const tickerMessage = (
+	frame: BybitPriceFrame,
+	type: "snapshot" | "delta" = "snapshot",
+) =>
 	JSON.stringify({
 		topic: `tickers.${frame.symbol}`,
 		ts: 1789503838121,
-		type: "snapshot",
+		type,
 		cs: 2190093576,
 		data: frame,
 	});
@@ -146,6 +149,43 @@ describe("BybitModuleService.handleRequest", () => {
 			{ symbol: "DOGEUSDT", __sedaHasPrice: false },
 		]);
 	}, 10_000);
+
+	it("keeps unchanged ticker fields when a later frame only carries changes", async () => {
+		const route = buildRoute();
+		const params = { symbols: "BTCUSDT" };
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const first = yield* svc.handleRequest(route, params, dummyRequest);
+			const second = yield* svc.handleRequest(route, params, dummyRequest);
+			return [first, second] as const;
+		}).pipe(
+			Effect.provide(BybitModuleService(baseConfig)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		);
+
+		const resultPromise = Effect.runPromise(program);
+
+		await waitFor(
+			() => FakeWebSocket.instances.length >= 1,
+			"WebSocket instance",
+		);
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
+		ws.triggerMessage(tickerMessage(btcTicker));
+		ws.triggerMessage(
+			tickerMessage({ symbol: "BTCUSDT", lastPrice: "77000" }, "delta"),
+		);
+
+		const [first, second] = await resultPromise;
+		expect(first.status).toBe(200);
+		const body = await second.json();
+		expect(body[0].lastPrice).toBe("77000");
+		expect(body[0].highPrice24h).toBe(btcTicker.highPrice24h);
+		expect(body[0].__sedaHasPrice).toBe(true);
+	});
 
 	it("does not re-subscribe an symbol already requested", async () => {
 		const route = buildRoute();

@@ -94,6 +94,52 @@ describe("createPriceCache", () => {
 		);
 	});
 
+	it("stores the result of apply", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>({
+					apply: (prev, next) =>
+						prev === undefined ? next : { ...prev, ...next },
+				});
+				cache.setPriceSync("k", sample({ n: 1, label: "first" }));
+				cache.setPriceSync("k", { tag: "sample", n: 2 } as SampleValue);
+				const got = yield* cache.getOrWaitPrice("k");
+				expect(got).toEqual(sample({ n: 2, label: "first" }));
+			}),
+		);
+	});
+
+	it("passes undefined to apply when nothing is cached", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>({
+					apply: (prev, next) =>
+						prev === undefined ? next : { ...prev, ...next },
+				});
+				const entry = sample({ n: 1, label: "only" });
+				cache.setPriceSync("k", entry);
+				expect(yield* cache.getOrWaitPrice("k")).toEqual(entry);
+			}),
+		);
+	});
+
+	it("passes undefined to apply after an entry is deleted", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>({
+					apply: (prev, next) =>
+						prev === undefined ? next : { ...prev, ...next },
+				});
+				cache.setPriceSync("k", sample({ n: 1, label: "first" }));
+				yield* cache.deletePrice("k");
+				cache.setPriceSync("k", { tag: "sample", n: 2 } as SampleValue);
+				const got = yield* cache.getOrWaitPrice("k");
+				expect(got).toMatchObject({ tag: "sample", n: 2 });
+				expect(got).not.toHaveProperty("label");
+			}),
+		);
+	});
+
 	it("should keep different keys independent", async () => {
 		await run(
 			Effect.gen(function* () {
