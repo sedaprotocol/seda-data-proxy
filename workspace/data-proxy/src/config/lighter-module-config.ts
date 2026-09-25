@@ -6,6 +6,10 @@ import {
 	validateTickerModuleRoute,
 } from "./ticker-module-config";
 
+export const LIGHTER_STREAM_TYPES = ["ticker", "order_book", "trade"] as const;
+
+export type LighterStreamType = (typeof LIGHTER_STREAM_TYPES)[number];
+
 export const LighterModuleConfigSchema = v.strictObject({
 	type: v.literal("lighter"),
 	...tickerModuleBaseFields({
@@ -18,6 +22,7 @@ export const LighterModuleConfigSchema = v.strictObject({
 	// Lighter closes a connection with no client frames for 2 minutes;
 	// ping on a shorter cadence.
 	keepaliveInterval: keepaliveIntervalField("60 seconds"),
+	streamType: v.optional(v.picklist(LIGHTER_STREAM_TYPES), "ticker"),
 });
 
 export type LighterModuleConfig = v.InferOutput<
