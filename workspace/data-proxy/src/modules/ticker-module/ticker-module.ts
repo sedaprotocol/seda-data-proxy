@@ -110,7 +110,11 @@ export const createTickerModuleService = <
 				_request: Request,
 			) =>
 				Effect.gen(function* () {
-					if (route.type !== routeType || !("fetchFromModule" in route)) {
+					if (
+						route.type !== routeType ||
+						!("fetchFromModule" in route) ||
+						typeof route.fetchFromModule !== "string"
+					) {
 						return yield* Effect.fail(
 							new FailedToHandleRequest({
 								msg: `Route is not a ${titleCase(venue)} module`,
