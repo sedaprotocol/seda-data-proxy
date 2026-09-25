@@ -1,5 +1,8 @@
-import type { Effect, Schedule } from "effect";
-import type { LighterModuleConfig } from "../../config/lighter-module-config";
+import { type Effect, Match, type Schedule } from "effect";
+import type {
+	LighterModuleConfig,
+	LighterStreamType,
+} from "../../config/lighter-module-config";
 import { isRecord, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
@@ -20,66 +23,120 @@ export const LighterModuleService = (config: LighterModuleConfig) =>
 		config,
 		parseKey: parseMarketId,
 		createWS: createLighterWS,
+		extraInitLog: { streamType: config.streamType },
 	});
 
 export interface LighterPriceFrame {
-	s: string;
 	[key: string]: unknown;
 }
 
-export const buildSubscribeFrame = (marketId: number): string =>
-	JSON.stringify({ type: "subscribe", channel: `ticker/${marketId}` });
+export const buildSubscribeFrame = (
+	marketId: number,
+	streamType: LighterStreamType,
+): string =>
+	JSON.stringify({ type: "subscribe", channel: `${streamType}/${marketId}` });
 
-export const buildUnsubscribeFrame = (marketId: number): string =>
-	JSON.stringify({ type: "unsubscribe", channel: `ticker/${marketId}` });
+export const buildUnsubscribeFrame = (
+	marketId: number,
+	streamType: LighterStreamType,
+): string =>
+	JSON.stringify({
+		type: "unsubscribe",
+		channel: `${streamType}/${marketId}`,
+	});
 
 export const parseMarketId = (token: string): number | null => {
 	const id = Number(token);
 	return Number.isInteger(id) && id >= 0 ? id : null;
 };
 
-/** The inbound `channel` is `ticker:{id}` even though subscribe sends
- * `ticker/{id}`. Accept either separator. */
-const parseMarketIdFromChannel = (channel: unknown): number | null => {
+/** The inbound `channel` is `{streamType}:{id}` even though subscribe sends
+ * `{streamType}/{id}`. Accept either separator. */
+const parseMarketIdFromChannel = (
+	channel: unknown,
+	streamType: LighterStreamType,
+): number | null => {
 	if (typeof channel !== "string") return null;
-	const last = channel.split(/[:/]/).pop();
-	if (last === undefined) return null;
-	const id = Number(last);
+	const [prefix, idPart, ...rest] = channel.split(/[:/]/);
+	if (rest.length > 0 || prefix !== streamType || idPart === undefined) {
+		return null;
+	}
+	const id = Number(idPart);
 	return Number.isInteger(id) ? id : null;
+};
+
+type ReadFrame = (json: Record<string, unknown>) => LighterPriceFrame | null;
+
+const readTradeFrame: ReadFrame = (json) => {
+	if (!Array.isArray(json.trades)) return null;
+	const frame: LighterPriceFrame = { trades: json.trades };
+	if (Array.isArray(json.liquidation_trades)) {
+		frame.liquidation_trades = json.liquidation_trades;
+	}
+	return frame;
+};
+
+const readRecordFrame =
+	(kind: "ticker" | "order_book"): ReadFrame =>
+	(json) => {
+		const payload = json[kind];
+		if (!isRecord(payload)) return null;
+		return payload;
+	};
+
+/** Stream type is fixed for a connection, so the frame reader is chosen once. */
+const streamHandlers = (streamType: LighterStreamType) => {
+	const readFrame = Match.value(streamType).pipe(
+		Match.when("trade", () => readTradeFrame),
+		Match.whenOr("ticker", "order_book", (kind) => readRecordFrame(kind)),
+		Match.exhaustive,
+	);
+
+	const parseFrame = (
+		raw: string,
+	): VenueParsedInbound<number, LighterPriceFrame> | null => {
+		const json = parseJsonRecord(raw);
+		if (!json) return null;
+		if (json.type === "ping") return { kind: "ping" };
+
+		const err = json.error;
+		if (isRecord(err)) {
+			return {
+				kind: "error",
+				code: typeof err.code === "number" ? err.code : null,
+				message: typeof err.message === "string" ? err.message : null,
+			};
+		}
+
+		const marketId = parseMarketIdFromChannel(json.channel, streamType);
+		if (marketId === null) return null;
+		const frame = readFrame(json);
+		if (frame === null) return null;
+		return { kind: "tickers", frames: [{ key: marketId, frame }] };
+	};
+
+	return {
+		buildSubscribeFrame: (keys: number[]) =>
+			keys.map((marketId) => buildSubscribeFrame(marketId, streamType)),
+		buildUnsubscribeFrame: (keys: number[]) =>
+			keys.map((marketId) => buildUnsubscribeFrame(marketId, streamType)),
+		parseInboundFrame: parseFrame,
+	};
 };
 
 export const parseInboundFrame = (
 	raw: string,
-): VenueParsedInbound<number, LighterPriceFrame> | null => {
-	const json = parseJsonRecord(raw);
-	if (!json) return null;
-	if (json.type === "ping") return { kind: "ping" };
-
-	const err = json.error;
-	if (isRecord(err)) {
-		return {
-			kind: "error",
-			code: typeof err.code === "number" ? err.code : null,
-			message: typeof err.message === "string" ? err.message : null,
-		};
-	}
-
-	const ticker = json.ticker;
-	if (!isRecord(ticker) || typeof ticker.s !== "string") return null;
-	const marketId = parseMarketIdFromChannel(json.channel);
-	if (marketId === null) return null;
-	return {
-		kind: "tickers",
-		frames: [{ key: marketId, frame: ticker as LighterPriceFrame }],
-	};
-};
+	streamType: LighterStreamType,
+): VenueParsedInbound<number, LighterPriceFrame> | null =>
+	streamHandlers(streamType).parseInboundFrame(raw);
 
 export const createLighterWS = (
 	config: LighterModuleConfig,
 	cache: PriceCache<number, LighterPriceFrame>,
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
-): Effect.Effect<VenueWS<number>, never, never> =>
-	createVenueWS({
+): Effect.Effect<VenueWS<number>, never, never> => {
+	const handlers = streamHandlers(config.streamType);
+	return createVenueWS({
 		venue: "lighter",
 		config,
 		cache,
@@ -89,7 +146,8 @@ export const createLighterWS = (
 			pingFrame: PING_FRAME,
 			pongFrame: PONG_FRAME,
 		},
-		buildSubscribeFrame: (keys) => keys.map(buildSubscribeFrame),
-		buildUnsubscribeFrame: (keys) => keys.map(buildUnsubscribeFrame),
-		parseInboundFrame,
+		buildSubscribeFrame: handlers.buildSubscribeFrame,
+		buildUnsubscribeFrame: handlers.buildUnsubscribeFrame,
+		parseInboundFrame: handlers.parseInboundFrame,
 	});
+};

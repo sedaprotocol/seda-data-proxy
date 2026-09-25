@@ -80,6 +80,7 @@ const baseConfig: LighterModuleConfig = {
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.hours(1),
 	symbolsCleanupInterval: Duration.seconds(30),
+	streamType: "ticker",
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -114,7 +115,7 @@ describe("LighterModuleService", () => {
 		ws.triggerOpen();
 		await flush();
 
-		expect(ws.sent).toContain(buildSubscribeFrame(1));
+		expect(ws.sent).toContain(buildSubscribeFrame(1, "ticker"));
 
 		ws.triggerMessage(tickerMessage(1, "BTC"));
 		await flush();
@@ -141,7 +142,7 @@ describe("LighterModuleService", () => {
 			service.handleRequest(routeFor("2"), {}, new Request("http://x")),
 		);
 		await flush();
-		expect(ws.sent).toContain(buildSubscribeFrame(2));
+		expect(ws.sent).toContain(buildSubscribeFrame(2, "ticker"));
 
 		ws.triggerMessage(tickerMessage(2, "ETH"));
 		const response = await responsePromise;
