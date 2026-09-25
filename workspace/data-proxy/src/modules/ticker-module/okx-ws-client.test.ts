@@ -82,7 +82,7 @@ describe("parseInboundFrame", () => {
 	it("extracts tickers from a push payload", () => {
 		expect(parseInboundFrame(tickerMessage(btcTicker))).toEqual({
 			kind: "tickers",
-			frames: [{ instId: "BTC-USDT", frame: btcTicker }],
+			frames: [{ key: "BTC-USDT", frame: btcTicker }],
 		});
 	});
 
@@ -92,7 +92,7 @@ describe("parseInboundFrame", () => {
 		);
 		expect(result).toMatchObject({
 			kind: "tickers",
-			frames: [{ instId: "BTC-USDT" }],
+			frames: [{ key: "BTC-USDT" }],
 		});
 	});
 
@@ -107,8 +107,8 @@ describe("parseInboundFrame", () => {
 		).toEqual({
 			kind: "tickers",
 			frames: [
-				{ instId: "BTC-USDT", frame: btcTicker },
-				{ instId: "ETH-USDT", frame: ethTicker },
+				{ key: "BTC-USDT", frame: btcTicker },
+				{ key: "ETH-USDT", frame: ethTicker },
 			],
 		});
 	});

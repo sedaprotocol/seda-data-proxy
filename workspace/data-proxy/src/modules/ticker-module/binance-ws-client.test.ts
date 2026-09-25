@@ -66,23 +66,24 @@ describe("parseInboundFrame", () => {
 	it("unwraps a combined-stream envelope", () => {
 		const raw = JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook });
 		expect(parseInboundFrame(raw)).toEqual({
-			kind: "ticker",
-			symbol: "BTCUSDT",
-			frame: btcBook,
+			kind: "tickers",
+			frames: [{ key: "BTCUSDT", frame: btcBook }],
 		});
 	});
 
 	it("accepts a bare (raw-stream) payload", () => {
 		expect(parseInboundFrame(JSON.stringify(ethBook))).toEqual({
-			kind: "ticker",
-			symbol: "ETHUSDT",
-			frame: ethBook,
+			kind: "tickers",
+			frames: [{ key: "ETHUSDT", frame: ethBook }],
 		});
 	});
 
 	it("uppercases the symbol so cache keys stay consistent", () => {
 		const result = parseInboundFrame(JSON.stringify({ s: "btcusdt", b: "1" }));
-		expect(result).toMatchObject({ kind: "ticker", symbol: "BTCUSDT" });
+		expect(result).toMatchObject({
+			kind: "tickers",
+			frames: [{ key: "BTCUSDT" }],
+		});
 	});
 
 	it("returns null for a control ack with no symbol", () => {
