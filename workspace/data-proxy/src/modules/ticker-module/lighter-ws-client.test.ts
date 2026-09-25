@@ -49,9 +49,8 @@ describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
 describe("parseInboundFrame", () => {
 	it("extracts market id and verbatim frame from an update/ticker", () => {
 		expect(parseInboundFrame(tickerMessage(1, "BTC"))).toEqual({
-			kind: "ticker",
-			marketId: 1,
-			frame: innerTicker("BTC"),
+			kind: "tickers",
+			frames: [{ key: 1, frame: innerTicker("BTC") }],
 		});
 	});
 
@@ -60,9 +59,8 @@ describe("parseInboundFrame", () => {
 			tickerMessage(2, "ETH", "subscribed/ticker"),
 		);
 		expect(parsed).toEqual({
-			kind: "ticker",
-			marketId: 2,
-			frame: innerTicker("ETH"),
+			kind: "tickers",
+			frames: [{ key: 2, frame: innerTicker("ETH") }],
 		});
 	});
 

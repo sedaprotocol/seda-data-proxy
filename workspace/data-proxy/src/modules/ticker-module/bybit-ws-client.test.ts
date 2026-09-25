@@ -71,7 +71,7 @@ describe("parseInboundFrame", () => {
 	it("extracts tickers from a snapshot payload", () => {
 		expect(parseInboundFrame(tickerMessage(btcTicker))).toEqual({
 			kind: "tickers",
-			frames: [{ symbol: "BTCUSDT", frame: btcTicker }],
+			frames: [{ key: "BTCUSDT", frame: btcTicker }],
 		});
 	});
 
@@ -81,7 +81,7 @@ describe("parseInboundFrame", () => {
 		);
 		expect(result).toMatchObject({
 			kind: "tickers",
-			frames: [{ symbol: "BTCUSDT" }],
+			frames: [{ key: "BTCUSDT" }],
 		});
 	});
 
@@ -98,8 +98,8 @@ describe("parseInboundFrame", () => {
 		).toEqual({
 			kind: "tickers",
 			frames: [
-				{ symbol: "BTCUSDT", frame: btcTicker },
-				{ symbol: "ETHUSDT", frame: ethTicker },
+				{ key: "BTCUSDT", frame: btcTicker },
+				{ key: "ETHUSDT", frame: ethTicker },
 			],
 		});
 	});
@@ -117,7 +117,7 @@ describe("parseInboundFrame", () => {
 			),
 		).toEqual({
 			kind: "tickers",
-			frames: [{ symbol: "BTCUSDT", frame: { ...rest, symbol: "BTCUSDT" } }],
+			frames: [{ key: "BTCUSDT", frame: { ...rest, symbol: "BTCUSDT" } }],
 		});
 	});
 
@@ -133,7 +133,7 @@ describe("parseInboundFrame", () => {
 			kind: "tickers",
 			frames: [
 				{
-					symbol: "BTCUSDT",
+					key: "BTCUSDT",
 					frame: { symbol: "BTCUSDT", lastPrice: "77000" },
 				},
 			],
