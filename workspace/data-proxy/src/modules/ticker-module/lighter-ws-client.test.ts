@@ -4,14 +4,13 @@ import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { createPriceCache } from "../shared/price-cache";
 import {
 	type LighterPriceFrame,
+	PING_FRAME,
+	PONG_FRAME,
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
 	createLighterWS,
 	parseInboundFrame,
-} from "./ws-client";
-
-const PING = JSON.stringify({ type: "ping" });
-const PONG = JSON.stringify({ type: "pong" });
+} from "./lighter";
 
 const innerTicker = (symbol: string) => ({
 	s: symbol,
@@ -36,46 +35,61 @@ const tickerMessage = (
 
 describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
 	it("sends the ticker channel with a slash separator", () => {
-		expect(JSON.parse(buildSubscribeFrame(1))).toEqual({
+		expect(JSON.parse(buildSubscribeFrame(1, "ticker"))).toEqual({
 			type: "subscribe",
 			channel: "ticker/1",
 		});
-		expect(JSON.parse(buildUnsubscribeFrame(42))).toEqual({
+		expect(JSON.parse(buildUnsubscribeFrame(42, "ticker"))).toEqual({
 			type: "unsubscribe",
 			channel: "ticker/42",
+		});
+	});
+
+	it("uses the configured stream type in the channel", () => {
+		expect(JSON.parse(buildSubscribeFrame(0, "order_book"))).toEqual({
+			type: "subscribe",
+			channel: "order_book/0",
+		});
+		expect(JSON.parse(buildUnsubscribeFrame(0, "trade"))).toEqual({
+			type: "unsubscribe",
+			channel: "trade/0",
 		});
 	});
 });
 
 describe("parseInboundFrame", () => {
 	it("extracts market id and verbatim frame from an update/ticker", () => {
-		expect(parseInboundFrame(tickerMessage(1, "BTC"))).toEqual({
-			kind: "ticker",
-			marketId: 1,
-			frame: innerTicker("BTC"),
+		expect(parseInboundFrame(tickerMessage(1, "BTC"), "ticker")).toEqual({
+			kind: "tickers",
+			frames: [{ key: 1, frame: innerTicker("BTC") }],
 		});
 	});
 
 	it("treats the subscribed/ticker snapshot the same as an update", () => {
 		const parsed = parseInboundFrame(
 			tickerMessage(2, "ETH", "subscribed/ticker"),
+			"ticker",
 		);
 		expect(parsed).toEqual({
-			kind: "ticker",
-			marketId: 2,
-			frame: innerTicker("ETH"),
+			kind: "tickers",
+			frames: [{ key: 2, frame: innerTicker("ETH") }],
 		});
 	});
 
 	it("classifies a keepalive ping", () => {
-		expect(parseInboundFrame(JSON.stringify({ type: "ping" }))).toEqual({
+		expect(
+			parseInboundFrame(JSON.stringify({ type: "ping" }), "ticker"),
+		).toEqual({
 			kind: "ping",
 		});
 	});
 
 	it("returns null for the connected control frame", () => {
 		expect(
-			parseInboundFrame(JSON.stringify({ session_id: "x", type: "connected" })),
+			parseInboundFrame(
+				JSON.stringify({ session_id: "x", type: "connected" }),
+				"ticker",
+			),
 		).toBeNull();
 	});
 
@@ -83,6 +97,7 @@ describe("parseInboundFrame", () => {
 		expect(
 			parseInboundFrame(
 				JSON.stringify({ error: { code: 30005, message: "Invalid Channel" } }),
+				"ticker",
 			),
 		).toEqual({
 			kind: "error",
@@ -97,6 +112,7 @@ describe("parseInboundFrame", () => {
 				JSON.stringify({
 					error: { code: 30010, message: "Too Many Inflight Messages!" },
 				}),
+				"ticker",
 			),
 		).toEqual({
 			kind: "error",
@@ -106,7 +122,50 @@ describe("parseInboundFrame", () => {
 	});
 
 	it("returns null for malformed JSON", () => {
-		expect(parseInboundFrame("not json")).toBeNull();
+		expect(parseInboundFrame("not json", "ticker")).toBeNull();
+	});
+
+	it("extracts an order_book payload when that stream is configured", () => {
+		const orderBook = {
+			code: 0,
+			asks: [{ price: "2064.54", size: "0.3285" }],
+			bids: [{ price: "2064.53", size: "1.0" }],
+		};
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: orderBook,
+					type: "update/order_book",
+				}),
+				"order_book",
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [{ key: 0, frame: orderBook }],
+		});
+	});
+
+	it("extracts trade arrays when that stream is configured", () => {
+		const trades = [{ trade_id: 1, price: "2181.83", size: "0.1336" }];
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "trade:0",
+					trades,
+					liquidation_trades: [],
+					type: "update/trade",
+				}),
+				"trade",
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [{ key: 0, frame: { trades, liquidation_trades: [] } }],
+		});
+	});
+
+	it("returns null when the channel prefix does not match the stream type", () => {
+		expect(parseInboundFrame(tickerMessage(1, "BTC"), "order_book")).toBeNull();
 	});
 });
 
@@ -168,14 +227,16 @@ const baseConfig: LighterModuleConfig = {
 	name: "lighter",
 	type: "lighter",
 	wsUrl: "wss://lighter.test/stream",
-	subscriptionMarketIds: [],
-	maxMarketsPerRequest: 100,
-	maxMessagesPerMinute: 180,
+	subscriptionSymbols: [],
+	maxSymbolsPerRequest: 100,
+	maxMessages: 180,
+	maxMessagesWindow: Duration.minutes(1),
 	keepaliveInterval: Duration.seconds(60),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
-	marketsCleanupTtl: Duration.hours(1),
-	marketsCleanupInterval: Duration.seconds(30),
+	symbolsCleanupTtl: Duration.hours(1),
+	symbolsCleanupInterval: Duration.seconds(30),
+	streamType: "ticker",
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -193,14 +254,14 @@ afterEach(() => {
 const startService = (
 	config: LighterModuleConfig,
 	preSubscribed: number[] = [],
-	options?: Parameters<typeof createLighterWS>[2],
+	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<number, LighterPriceFrame>();
 		const ws = yield* createLighterWS(
 			config,
 			cache,
-			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
+			reconnectSchedule ?? Schedule.spaced(Duration.minutes(10)),
 		);
 		if (preSubscribed.length > 0) {
 			yield* ws.subscribe(preSubscribed);
@@ -221,7 +282,10 @@ describe("createLighterWS", () => {
 		ws.triggerOpen();
 		await flush();
 
-		expect(ws.sent).toEqual([buildSubscribeFrame(1), buildSubscribeFrame(2)]);
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame(1, "ticker"),
+			buildSubscribeFrame(2, "ticker"),
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -273,7 +337,7 @@ describe("createLighterWS", () => {
 		ws.triggerMessage(JSON.stringify({ type: "ping" }));
 		await flush();
 
-		expect(ws.sent).toEqual([PONG]);
+		expect(ws.sent).toEqual([PONG_FRAME]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -293,7 +357,9 @@ describe("createLighterWS", () => {
 
 		await new Promise<void>((r) => setTimeout(r, 50));
 
-		expect(ws.sent.filter((frame) => frame === PING).length).toBeGreaterThan(0);
+		expect(
+			ws.sent.filter((frame) => frame === PING_FRAME).length,
+		).toBeGreaterThan(0);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -306,13 +372,13 @@ describe("createLighterWS", () => {
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame(1)]);
+		expect(ws.sent).toEqual([buildSubscribeFrame(1, "ticker")]);
 
 		await Effect.runPromise(service.subscribe([1]));
 		await Effect.runPromise(service.subscribe([1]));
 		await flush();
 
-		expect(ws.sent).toEqual([buildSubscribeFrame(1)]);
+		expect(ws.sent).toEqual([buildSubscribeFrame(1, "ticker")]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -326,34 +392,39 @@ describe("createLighterWS", () => {
 		ws.triggerOpen();
 		await flush();
 
-		// Unknown market id: no frame.
 		await Effect.runPromise(service.unsubscribe([2]));
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame(1)]);
+		expect(ws.sent).toEqual([buildSubscribeFrame(1, "ticker")]);
 
 		await Effect.runPromise(service.unsubscribe([1]));
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame(1), buildUnsubscribeFrame(1)]);
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame(1, "ticker"),
+			buildUnsubscribeFrame(1, "ticker"),
+		]);
 
-		// Repeat: already removed, no frame.
 		await Effect.runPromise(service.unsubscribe([1]));
 		await flush();
-		expect(ws.sent).toEqual([buildSubscribeFrame(1), buildUnsubscribeFrame(1)]);
+		expect(ws.sent).toEqual([
+			buildSubscribeFrame(1, "ticker"),
+			buildUnsubscribeFrame(1, "ticker"),
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
 	it("reconnects after a close and re-subscribes every desired market", async () => {
 		const { fiber } = await Effect.runPromise(
-			startService(baseConfig, [1, 2], {
-				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
-			}),
+			startService(baseConfig, [1, 2], Schedule.spaced(Duration.millis(10))),
 		);
 		await flush();
 		const ws1 = FakeWebSocket.instances[0];
 		ws1.triggerOpen();
 		await flush();
-		expect(ws1.sent).toEqual([buildSubscribeFrame(1), buildSubscribeFrame(2)]);
+		expect(ws1.sent).toEqual([
+			buildSubscribeFrame(1, "ticker"),
+			buildSubscribeFrame(2, "ticker"),
+		]);
 
 		ws1.triggerClose();
 		await new Promise<void>((r) => setTimeout(r, 40));
@@ -364,7 +435,10 @@ describe("createLighterWS", () => {
 		ws2.triggerOpen();
 		await flush();
 
-		expect(ws2.sent).toEqual([buildSubscribeFrame(1), buildSubscribeFrame(2)]);
+		expect(ws2.sent).toEqual([
+			buildSubscribeFrame(1, "ticker"),
+			buildSubscribeFrame(2, "ticker"),
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
@@ -378,9 +452,7 @@ describe("createLighterWS", () => {
 		};
 
 		const { fiber } = await Effect.runPromise(
-			startService(baseConfig, [1], {
-				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
-			}),
+			startService(baseConfig, [1], Schedule.spaced(Duration.millis(10))),
 		);
 		await flush();
 		const ws1 = FakeWebSocket.instances[0];
@@ -393,15 +465,15 @@ describe("createLighterWS", () => {
 		ws2.triggerOpen();
 		await flush();
 
-		expect(ws2.sent).toEqual([buildSubscribeFrame(1)]);
+		expect(ws2.sent).toEqual([buildSubscribeFrame(1, "ticker")]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
-	it("paces outbound frames to stay under maxMessagesPerMinute", async () => {
+	it("paces outbound frames to stay under maxMessages per maxMessagesWindow", async () => {
 		const { fiber } = await Effect.runPromise(
 			startService(
-				{ ...baseConfig, maxMessagesPerMinute: 6 },
+				{ ...baseConfig, maxMessages: 6 },
 				[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 			),
 		);
@@ -411,21 +483,21 @@ describe("createLighterWS", () => {
 		await flush();
 
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame(1),
-			buildSubscribeFrame(2),
-			buildSubscribeFrame(3),
-			buildSubscribeFrame(4),
-			buildSubscribeFrame(5),
-			buildSubscribeFrame(6),
+			buildSubscribeFrame(1, "ticker"),
+			buildSubscribeFrame(2, "ticker"),
+			buildSubscribeFrame(3, "ticker"),
+			buildSubscribeFrame(4, "ticker"),
+			buildSubscribeFrame(5, "ticker"),
+			buildSubscribeFrame(6, "ticker"),
 		]);
 		await new Promise<void>((r) => setTimeout(r, 50));
 		expect(ws.sent).toEqual([
-			buildSubscribeFrame(1),
-			buildSubscribeFrame(2),
-			buildSubscribeFrame(3),
-			buildSubscribeFrame(4),
-			buildSubscribeFrame(5),
-			buildSubscribeFrame(6),
+			buildSubscribeFrame(1, "ticker"),
+			buildSubscribeFrame(2, "ticker"),
+			buildSubscribeFrame(3, "ticker"),
+			buildSubscribeFrame(4, "ticker"),
+			buildSubscribeFrame(5, "ticker"),
+			buildSubscribeFrame(6, "ticker"),
 		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

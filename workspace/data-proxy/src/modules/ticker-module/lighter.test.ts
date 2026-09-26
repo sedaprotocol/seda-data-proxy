@@ -4,8 +4,7 @@ import type { Route } from "../../config/config-parser";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { ModuleService } from "../module";
-import { LighterModuleService } from "./lighter";
-import { buildSubscribeFrame } from "./ws-client";
+import { LighterModuleService, buildSubscribeFrame } from "./lighter";
 
 const innerTicker = (symbol: string) => ({
 	s: symbol,
@@ -72,14 +71,16 @@ const baseConfig: LighterModuleConfig = {
 	name: "lighter",
 	type: "lighter",
 	wsUrl: "wss://lighter.test/stream",
-	subscriptionMarketIds: [],
-	maxMarketsPerRequest: 100,
-	maxMessagesPerMinute: 180,
+	subscriptionSymbols: [],
+	maxSymbolsPerRequest: 100,
+	maxMessages: 180,
+	maxMessagesWindow: Duration.minutes(1),
 	keepaliveInterval: Duration.seconds(60),
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
-	marketsCleanupTtl: Duration.hours(1),
-	marketsCleanupInterval: Duration.seconds(30),
+	symbolsCleanupTtl: Duration.hours(1),
+	symbolsCleanupInterval: Duration.seconds(30),
+	streamType: "ticker",
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -105,7 +106,7 @@ describe("LighterModuleService", () => {
 	it("subscribes seeded markets, caches a delivered ticker, and serves it in request order", async () => {
 		const service = await buildService({
 			...baseConfig,
-			subscriptionMarketIds: [1],
+			subscriptionSymbols: ["1"],
 		});
 		await Effect.runPromise(quiet(service.start()));
 		await flush();
@@ -114,8 +115,7 @@ describe("LighterModuleService", () => {
 		ws.triggerOpen();
 		await flush();
 
-		// The seeded market's subscribe frame actually went out.
-		expect(ws.sent).toContain(buildSubscribeFrame(1));
+		expect(ws.sent).toContain(buildSubscribeFrame(1, "ticker"));
 
 		ws.triggerMessage(tickerMessage(1, "BTC"));
 		await flush();
@@ -124,7 +124,6 @@ describe("LighterModuleService", () => {
 			service.handleRequest(routeFor("1,NOPE"), {}, new Request("http://x")),
 		);
 		expect(response.status).toBe(200);
-		// "1" resolves to a price; "NOPE" is not a market id, so it short-circuits to a miss.
 		expect(await response.json()).toEqual([
 			{ marketId: "1", ...innerTicker("BTC"), [HAS_PRICE_KEY]: true },
 			{ marketId: "NOPE", [HAS_PRICE_KEY]: false },
@@ -139,13 +138,11 @@ describe("LighterModuleService", () => {
 		ws.triggerOpen();
 		await flush();
 
-		// Market 2 was not seeded; the request itself drives the subscription, then
-		// waits on the cache. Deliver the ticker while that wait is in flight.
 		const responsePromise = Effect.runPromise(
 			service.handleRequest(routeFor("2"), {}, new Request("http://x")),
 		);
 		await flush();
-		expect(ws.sent).toContain(buildSubscribeFrame(2));
+		expect(ws.sent).toContain(buildSubscribeFrame(2, "ticker"));
 
 		ws.triggerMessage(tickerMessage(2, "ETH"));
 		const response = await responsePromise;
@@ -158,7 +155,7 @@ describe("LighterModuleService", () => {
 	it("stops vouching for cached prices once the socket has errored", async () => {
 		const service = await buildService({
 			...baseConfig,
-			subscriptionMarketIds: [1],
+			subscriptionSymbols: ["1"],
 		});
 		await Effect.runPromise(quiet(service.start()));
 		await flush();
@@ -173,24 +170,21 @@ describe("LighterModuleService", () => {
 		);
 		expect((await fresh.json())[0][HAS_PRICE_KEY]).toBe(true);
 
-		// Socket drops; the ws-client reports hasError until it reconnects.
 		ws.close();
 		await flush();
 
 		const afterError = await Effect.runPromise(
 			service.handleRequest(routeFor("1"), {}, new Request("http://x")),
 		);
-		// Market 1 is still cached, but the unhealthy socket means it is no longer
-		// presented as a live price.
 		expect(await afterError.json()).toEqual([
 			{ marketId: "1", [HAS_PRICE_KEY]: false },
 		]);
 	});
 
-	it("rejects a request over maxMarketsPerRequest with 400", async () => {
+	it("rejects a request over maxSymbolsPerRequest with 400", async () => {
 		const service = await buildService({
 			...baseConfig,
-			maxMarketsPerRequest: 1,
+			maxSymbolsPerRequest: 1,
 		});
 
 		const response = await Effect.runPromise(

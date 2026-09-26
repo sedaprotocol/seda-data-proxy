@@ -1,8 +1,16 @@
 import type { Effect, Schedule } from "effect";
 import type { BybitModuleConfig } from "../../config/bybit-module-config";
+import { mapDataItems, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
-import { type VenueWS, createVenueWS } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import {
+	type VenueParsedInbound,
+	type VenueWS,
+	createVenueWS,
+} from "../shared/venue-ws";
+import {
+	createTickerModuleService,
+	parseUppercaseSymbol,
+} from "./ticker-module";
 
 export const TICKERS_TOPIC_PREFIX = "tickers.";
 export const PING_FRAME = JSON.stringify({ op: "ping" });
@@ -27,12 +35,11 @@ export const BybitModuleService = (config: BybitModuleConfig) =>
 		routeType: "bybit",
 		identityField: "symbol",
 		config,
+		parseKey: parseUppercaseSymbol,
 		createWS: createBybitWS,
 		cacheApply: applyBybitFrame,
 	});
 
-/** A raw Bybit tickers payload. Always carries `symbol`; the rest of the
- * fields are relayed verbatim. */
 export interface BybitPriceFrame {
 	symbol: string;
 	[key: string]: unknown;
@@ -50,33 +57,17 @@ export const buildUnsubscribeFrame = (symbols: string[]): string =>
 		args: symbols.map((symbol) => `${TICKERS_TOPIC_PREFIX}${symbol}`),
 	});
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
-
-export type ParsedInbound =
-	| { kind: "pong" }
-	| {
-			kind: "tickers";
-			frames: Array<{ symbol: string; frame: BybitPriceFrame }>;
-	  }
-	| { kind: "error"; code: string | null; message: string | null };
-
 const codeFromJson = (json: Record<string, unknown>): string | null => {
 	if (typeof json.ret_code === "string") return json.ret_code;
 	if (typeof json.ret_code === "number") return String(json.ret_code);
 	return null;
 };
 
-/** Classifies an inbound message: a tickers payload, a venue error, a
- * keepalive pong, or null for other control frames. */
-export const parseInboundFrame = (raw: string): ParsedInbound | null => {
-	let json: unknown;
-	try {
-		json = JSON.parse(raw);
-	} catch {
-		return null;
-	}
-	if (!isRecord(json)) return null;
+export const parseInboundFrame = (
+	raw: string,
+): VenueParsedInbound<string, BybitPriceFrame> | null => {
+	const json = parseJsonRecord(raw);
+	if (!json) return null;
 
 	if (json.op === "pong" || json.ret_msg === "pong") {
 		return { kind: "pong" };
@@ -96,18 +87,10 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	}
 
 	const topicSymbol = topic.slice(TICKERS_TOPIC_PREFIX.length).toUpperCase();
-	const items = Array.isArray(json.data)
-		? json.data
-		: isRecord(json.data)
-			? [json.data]
-			: [];
-
-	const frames: Array<{ symbol: string; frame: BybitPriceFrame }> = [];
-	for (const item of items) {
-		if (!isRecord(item)) continue;
+	const frames = mapDataItems(json.data, (item) => {
 		const symbol =
 			typeof item.symbol === "string" ? item.symbol.toUpperCase() : topicSymbol;
-		if (!symbol) continue;
+		if (!symbol) return null;
 
 		const frame = { ...item, symbol } as BybitPriceFrame;
 		Object.defineProperty(frame, frameType, {
@@ -115,8 +98,8 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 			// Non-enumerable so object spread leaves frameType out of the cached ticker.
 			enumerable: false,
 		});
-		frames.push({ symbol, frame });
-	}
+		return { key: symbol, frame };
+	});
 	if (frames.length === 0) return null;
 
 	return { kind: "tickers", frames };
@@ -134,20 +117,9 @@ export const createBybitWS = (
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,
-			frame: PING_FRAME,
+			pingFrame: PING_FRAME,
 		},
 		buildSubscribeFrame,
 		buildUnsubscribeFrame,
-		parseInboundFrame: (raw) => {
-			const parsed = parseInboundFrame(raw);
-			if (!parsed) return null;
-			if (parsed.kind === "pong" || parsed.kind === "error") return parsed;
-			return {
-				kind: "tickers",
-				frames: parsed.frames.map(({ symbol, frame }) => ({
-					key: symbol,
-					frame,
-				})),
-			};
-		},
+		parseInboundFrame,
 	});

@@ -1,9 +1,13 @@
 import type { Effect, Schedule } from "effect";
 import type { OkxModuleConfig } from "../../config/okx-module-config";
+import { isRecord, mapDataItems, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import { createVenueWS } from "../shared/venue-ws";
-import type { VenueWS } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import type { VenueParsedInbound, VenueWS } from "../shared/venue-ws";
+import {
+	createTickerModuleService,
+	parseUppercaseSymbol,
+} from "./ticker-module";
 
 export const TICKERS_CHANNEL = "tickers";
 export const PING_FRAME = "ping";
@@ -15,11 +19,10 @@ export const OkxModuleService = (config: OkxModuleConfig) =>
 		routeType: "okx",
 		identityField: "instId",
 		config,
+		parseKey: parseUppercaseSymbol,
 		createWS: createOkxWS,
 	});
 
-/** A raw OKX tickers-channel payload. Always carries `instId`; the rest of the
- * fields are relayed verbatim. */
 export interface OkxPriceFrame {
 	instId: string;
 	[key: string]: unknown;
@@ -45,24 +48,13 @@ export const buildUnsubscribeFrame = (instIds: string[], id: string): string =>
 		})),
 	});
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null;
-
-export type ParsedInbound =
-	| { kind: "pong" }
-	| { kind: "tickers"; frames: Array<{ instId: string; frame: OkxPriceFrame }> }
-	| { kind: "error"; code: string | null; message: string | null };
-
-export const parseInboundFrame = (raw: string): ParsedInbound | null => {
+export const parseInboundFrame = (
+	raw: string,
+): VenueParsedInbound<string, OkxPriceFrame> | null => {
 	if (raw === PONG_FRAME) return { kind: "pong" };
 
-	let json: unknown;
-	try {
-		json = JSON.parse(raw);
-	} catch {
-		return null;
-	}
-	if (!isRecord(json)) return null;
+	const json = parseJsonRecord(raw);
+	if (!json) return null;
 
 	if (json.event === "error" || json.event === "notice") {
 		return {
@@ -73,23 +65,21 @@ export const parseInboundFrame = (raw: string): ParsedInbound | null => {
 	}
 
 	const arg = json.arg;
-	const data = json.data;
 	if (
 		!isRecord(arg) ||
 		arg.channel !== TICKERS_CHANNEL ||
-		!Array.isArray(data)
+		!Array.isArray(json.data)
 	) {
 		return null;
 	}
 
-	const frames: Array<{ instId: string; frame: OkxPriceFrame }> = [];
-	for (const item of data) {
-		if (!isRecord(item) || typeof item.instId !== "string") continue;
-		frames.push({
-			instId: item.instId.toUpperCase(),
+	const frames = mapDataItems(json.data, (item) => {
+		if (typeof item.instId !== "string") return null;
+		return {
+			key: item.instId.toUpperCase(),
 			frame: item as OkxPriceFrame,
-		});
-	}
+		};
+	});
 	if (frames.length === 0) return null;
 
 	return { kind: "tickers", frames };
@@ -110,22 +100,11 @@ export const createOkxWS = (
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,
-			frame: PING_FRAME,
+			pingFrame: PING_FRAME,
 		},
 		buildSubscribeFrame: (keys) => buildSubscribeFrame(keys, nextControlId()),
 		buildUnsubscribeFrame: (keys) =>
 			buildUnsubscribeFrame(keys, nextControlId()),
-		parseInboundFrame: (raw) => {
-			const parsed = parseInboundFrame(raw);
-			if (!parsed) return null;
-			if (parsed.kind === "pong" || parsed.kind === "error") return parsed;
-			return {
-				kind: "tickers",
-				frames: parsed.frames.map(({ instId, frame }) => ({
-					key: instId,
-					frame,
-				})),
-			};
-		},
+		parseInboundFrame,
 	});
 };
