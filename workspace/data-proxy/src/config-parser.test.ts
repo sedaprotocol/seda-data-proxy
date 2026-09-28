@@ -879,6 +879,56 @@ describe("parseConfig", () => {
 			}
 			expect(module.wsUrl).toBe("wss://ws.okx.com:8443/ws/v5/public");
 		});
+
+		it("rejects duplicate module names", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [
+						{ name: "lighter_dup", type: "lighter", streamType: "ticker" },
+						{
+							name: "lighter_dup",
+							type: "lighter",
+							streamType: "order_book",
+						},
+						{ name: "lighter_dup", type: "lighter", streamType: "trade" },
+					],
+					routes: [
+						{
+							type: "lighter",
+							moduleName: "lighter_dup",
+							path: "/lighter/ticker/:markets",
+							fetchFromModule: "{:markets}",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeErrResult('Duplicate module name "lighter_dup"');
+		});
+
+		it("allows several routes to share one module name", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [{ name: "lighter", type: "lighter" }],
+					routes: [
+						{
+							type: "lighter",
+							moduleName: "lighter",
+							path: "/lighter/ticker/:markets",
+							fetchFromModule: "{:markets}",
+						},
+						{
+							type: "lighter",
+							moduleName: "lighter",
+							path: "/lighter/trade/:markets",
+							fetchFromModule: "{:markets}",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+		});
 	});
 
 	describe("it should fail on unknown properties", () => {

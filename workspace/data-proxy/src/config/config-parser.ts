@@ -498,8 +498,17 @@ export const parseConfig = (
 		}
 
 		const modules: Modules[] = [];
+		const seenModuleNames = new Set<string>();
 
 		for (const module of config.modules) {
+			if (seenModuleNames.has(module.name)) {
+				return [
+					Result.err(`Duplicate module name "${module.name}"`),
+					hasWarnings,
+				];
+			}
+			seenModuleNames.add(module.name);
+
 			const resolved = yield* Effect.either(
 				Match.value(module).pipe(
 					Match.when({ type: "pyth-lazer" }, (m) => {
