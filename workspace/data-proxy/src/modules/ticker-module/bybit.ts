@@ -45,17 +45,22 @@ export interface BybitPriceFrame {
 	[key: string]: unknown;
 }
 
-export const buildSubscribeFrame = (symbols: string[]): string =>
-	JSON.stringify({
-		op: "subscribe",
-		args: symbols.map((symbol) => `${TICKERS_TOPIC_PREFIX}${symbol}`),
-	});
+/** One message per symbol. Bybit rejects every symbol in the argument when one symbol is invalid. */
+export const buildSubscribeFrame = (symbols: string[]): string[] =>
+	symbols.map((symbol) =>
+		JSON.stringify({
+			op: "subscribe",
+			args: [`${TICKERS_TOPIC_PREFIX}${symbol}`],
+		}),
+	);
 
-export const buildUnsubscribeFrame = (symbols: string[]): string =>
-	JSON.stringify({
-		op: "unsubscribe",
-		args: symbols.map((symbol) => `${TICKERS_TOPIC_PREFIX}${symbol}`),
-	});
+export const buildUnsubscribeFrame = (symbols: string[]): string[] =>
+	symbols.map((symbol) =>
+		JSON.stringify({
+			op: "unsubscribe",
+			args: [`${TICKERS_TOPIC_PREFIX}${symbol}`],
+		}),
+	);
 
 const codeFromJson = (json: Record<string, unknown>): string | null => {
 	if (typeof json.ret_code === "string") return json.ret_code;

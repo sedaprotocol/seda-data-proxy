@@ -44,26 +44,31 @@ const tickerMessage = (frame: BybitPriceFrame) =>
 		data: frame,
 	});
 
+const parseFrames = (frames: string[]) =>
+	frames.map((frame) => JSON.parse(frame) as { op: string; args: string[] });
+
 describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
-	it("produces the documented subscribe control frame", () => {
-		expect(JSON.parse(buildSubscribeFrame(["BTCUSDT"]))).toEqual({
-			op: "subscribe",
-			args: ["tickers.BTCUSDT"],
-		});
+	it("produces the documented subscribe message", () => {
+		expect(parseFrames(buildSubscribeFrame(["BTCUSDT"]))).toEqual([
+			{
+				op: "subscribe",
+				args: ["tickers.BTCUSDT"],
+			},
+		]);
 	});
 
-	it("batches multiple symbols into one subscribe frame", () => {
-		expect(JSON.parse(buildSubscribeFrame(["BTCUSDT", "ETHUSDT"]))).toEqual({
-			op: "subscribe",
-			args: ["tickers.BTCUSDT", "tickers.ETHUSDT"],
-		});
+	it("sends one subscribe frame per symbol", () => {
+		expect(parseFrames(buildSubscribeFrame(["BTCUSDT", "ETHUSDT"]))).toEqual([
+			{ op: "subscribe", args: ["tickers.BTCUSDT"] },
+			{ op: "subscribe", args: ["tickers.ETHUSDT"] },
+		]);
 	});
 
-	it("produces the documented unsubscribe control frame", () => {
-		expect(JSON.parse(buildUnsubscribeFrame(["BTCUSDT", "ETHUSDT"]))).toEqual({
-			op: "unsubscribe",
-			args: ["tickers.BTCUSDT", "tickers.ETHUSDT"],
-		});
+	it("sends one unsubscribe frame per symbol", () => {
+		expect(parseFrames(buildUnsubscribeFrame(["BTCUSDT", "ETHUSDT"]))).toEqual([
+			{ op: "unsubscribe", args: ["tickers.BTCUSDT"] },
+			{ op: "unsubscribe", args: ["tickers.ETHUSDT"] },
+		]);
 	});
 });
 
@@ -261,7 +266,7 @@ const startService = (
 	}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
 
 describe("createBybitWS", () => {
-	it("opens the WS at the configured url and batches the subscribe on open", async () => {
+	it("opens the WS at the configured url and subscribes each symbol on open", async () => {
 		const { fiber, ws: service } = await Effect.runPromise(
 			startService(baseConfig),
 		);
@@ -274,10 +279,10 @@ describe("createBybitWS", () => {
 		ws.triggerOpen();
 		await flush();
 
-		expect(ws.sent.length).toBe(1);
-		const frame = parseControl(ws.sent[0]);
-		expect(frame.op).toBe("subscribe");
-		expect(frame.args).toEqual(["tickers.BTCUSDT", "tickers.ETHUSDT"]);
+		expect(ws.sent.map(parseControl)).toEqual([
+			{ op: "subscribe", args: ["tickers.BTCUSDT"] },
+			{ op: "subscribe", args: ["tickers.ETHUSDT"] },
+		]);
 		expect(await Effect.runPromise(service.hasError())).toBe(false);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
@@ -341,7 +346,7 @@ describe("createBybitWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
-	it("subscribe batches multiple new symbols into one frame", async () => {
+	it("subscribes each new symbol in its own frame", async () => {
 		const { ws: service, fiber } = await Effect.runPromise(
 			startService(baseConfig, []),
 		);
@@ -356,13 +361,10 @@ describe("createBybitWS", () => {
 		);
 		await flush();
 
-		expect(ws.sent.length).toBe(1);
-		const frame = parseControl(ws.sent[0]);
-		expect(frame.op).toBe("subscribe");
-		expect(frame.args).toEqual([
-			"tickers.BTCUSDT",
-			"tickers.ETHUSDT",
-			"tickers.SOLUSDT",
+		expect(ws.sent.map(parseControl)).toEqual([
+			{ op: "subscribe", args: ["tickers.BTCUSDT"] },
+			{ op: "subscribe", args: ["tickers.ETHUSDT"] },
+			{ op: "subscribe", args: ["tickers.SOLUSDT"] },
 		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));

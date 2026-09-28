@@ -13,8 +13,7 @@ export const BybitModuleConfigSchema = v.strictObject({
 		maxMessages: 10,
 		maxMessagesWindow: "1 second",
 	}),
-	// Bybit allows up to 10 args for each subscription request.
-	maxSymbolsPerRequest: v.optional(v.number(), 10),
+	maxSymbolsPerRequest: v.optional(v.number(), 100),
 	// Bybit drops the socket if no ping is sent for ~20 seconds.
 	keepaliveInterval: keepaliveIntervalField("15 seconds"),
 });

@@ -130,11 +130,11 @@ describe("BybitModuleService.handleRequest", () => {
 		);
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
-		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
-		expect(parseControl(ws.sent[0]).args).toEqual([
-			"tickers.ETHUSDT",
-			"tickers.BTCUSDT",
-			"tickers.DOGEUSDT",
+		await waitFor(() => subscribeFrames(ws).length >= 3, "subscribe frames");
+		expect(subscribeFrames(ws).map(parseControl)).toEqual([
+			{ op: "subscribe", args: ["tickers.ETHUSDT"] },
+			{ op: "subscribe", args: ["tickers.BTCUSDT"] },
+			{ op: "subscribe", args: ["tickers.DOGEUSDT"] },
 		]);
 
 		ws.triggerMessage(tickerMessage(ethTicker));
@@ -305,13 +305,13 @@ describe("BybitModuleService lifecycle", () => {
 		);
 		const ws = FakeWebSocket.instances[0];
 		ws.triggerOpen();
-		await waitFor(() => ws.sent.length >= 1, "subscribe frame");
+		await waitFor(() => subscribeFrames(ws).length >= 2, "subscribe frames");
 
-		expect(parseControl(ws.sent[0]).op).toBe("subscribe");
-		expect(parseControl(ws.sent[0]).args).toEqual([
-			"tickers.BTCUSDT",
-			"tickers.ETHUSDT",
-		]);
+		const subscribes = subscribeFrames(ws).map(parseControl);
+		expect(subscribes.every((frame) => frame.args.length === 1)).toBe(true);
+		expect(
+			[...new Set(subscribes.map((frame) => frame.args[0]))].sort(),
+		).toEqual(["tickers.BTCUSDT", "tickers.ETHUSDT"]);
 	});
 
 	it("unsubscribes an symbol once it has been idle past symbolsCleanupTtl", async () => {
