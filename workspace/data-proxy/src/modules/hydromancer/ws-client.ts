@@ -4,6 +4,7 @@ import {
 	Duration,
 	Effect,
 	type Fiber,
+	Match,
 	MutableHashMap,
 	Option,
 	Runtime,
@@ -16,12 +17,14 @@ import {
 	type BookSnapshot,
 	BookSnapshotSchema,
 	type HydromancerModuleConfig,
+	type Trade,
+	TradeSchema,
 } from "../../config/hydromancer-module-config";
 import type { FreshnessCache } from "../shared/freshness-cache";
 import type { PriceCache } from "../shared/price-cache";
 import { recordTickHandle } from "../shared/tick-metrics";
 
-export type HydromancerChannel = "activeAssetCtx" | "l2Book";
+export type HydromancerChannel = "activeAssetCtx" | "l2Book" | "trades";
 
 const InboundAssetCtxFrameSchema = v.object({
 	channel: v.literal("activeAssetCtx"),
@@ -36,14 +39,21 @@ const InboundBookFrameSchema = v.object({
 	data: BookSnapshotSchema,
 });
 
+const InboundTradesFrameSchema = v.object({
+	channel: v.literal("trades"),
+	trades: v.array(TradeSchema),
+});
+
 const InboundFrameSchema = v.variant("channel", [
 	InboundAssetCtxFrameSchema,
 	InboundBookFrameSchema,
+	InboundTradesFrameSchema,
 ]);
 
 export type ParsedInboundFrame =
 	| { kind: "activeAssetCtx"; coin: string; ctx: AssetCtx }
-	| { kind: "l2Book"; snapshot: BookSnapshot };
+	| { kind: "l2Book"; snapshot: BookSnapshot }
+	| { kind: "trades"; trades: Trade[] };
 
 export const buildSubscribeFrame = (
 	channel: HydromancerChannel,
@@ -83,7 +93,10 @@ export const parseInboundFrame = (raw: string): ParsedInboundFrame | null => {
 			ctx: parsed.value.data.ctx,
 		};
 	}
-	return { kind: "l2Book", snapshot: parsed.value.data };
+	if (parsed.value.channel === "l2Book") {
+		return { kind: "l2Book", snapshot: parsed.value.data };
+	}
+	return { kind: "trades", trades: parsed.value.trades };
 };
 
 export const defaultReconnectSchedule = (config: HydromancerModuleConfig) =>
@@ -123,6 +136,7 @@ export const createHydromancerWS = (
 	config: HydromancerModuleConfig,
 	assetCache: FreshnessCache<string, AssetCtx>,
 	bookCache: PriceCache<string, BookSnapshot>,
+	tradesCache: PriceCache<string, readonly Trade[]>,
 	options?: CreateHydromancerWSOptions,
 ): Effect.Effect<HydromancerWS, never, never> =>
 	Effect.gen(function* () {
@@ -136,6 +150,10 @@ export const createHydromancerWS = (
 				desired: MutableHashMap.empty<string, true>(),
 				subscribeFrame: (coin) =>
 					buildSubscribeFrame("l2Book", coin, config.l2BookNSigFigs),
+			},
+			trades: {
+				desired: MutableHashMap.empty<string, true>(),
+				subscribeFrame: (coin) => buildSubscribeFrame("trades", coin),
 			},
 		};
 		let currentWS: WebSocket | null = null;
@@ -198,25 +216,52 @@ export const createHydromancerWS = (
 			const started = performance.now();
 			const frame = parseInboundFrame(raw);
 			if (!frame) return;
-			if (frame.kind === "activeAssetCtx") {
-				if (
-					Option.isNone(
-						MutableHashMap.get(channels.activeAssetCtx.desired, frame.coin),
-					)
-				) {
-					return;
-				}
-				assetCache.setSync(frame.coin, frame.ctx, Date.now());
-			} else {
-				if (
-					Option.isNone(
-						MutableHashMap.get(channels.l2Book.desired, frame.snapshot.coin),
-					)
-				) {
-					return;
-				}
-				bookCache.setPriceSync(frame.snapshot.coin, frame.snapshot);
-			}
+			const handled = Match.value(frame).pipe(
+				Match.when({ kind: "activeAssetCtx" }, (frame) => {
+					if (
+						Option.isNone(
+							MutableHashMap.get(channels.activeAssetCtx.desired, frame.coin),
+						)
+					) {
+						return false;
+					}
+					assetCache.setSync(frame.coin, frame.ctx, Date.now());
+					return true;
+				}),
+				Match.when({ kind: "l2Book" }, (frame) => {
+					if (
+						Option.isNone(
+							MutableHashMap.get(channels.l2Book.desired, frame.snapshot.coin),
+						)
+					) {
+						return false;
+					}
+					bookCache.setPriceSync(frame.snapshot.coin, frame.snapshot);
+					return true;
+				}),
+				Match.when({ kind: "trades" }, (frame) => {
+					const byCoin = new Map<string, Trade[]>();
+					for (const trade of frame.trades) {
+						if (
+							Option.isNone(
+								MutableHashMap.get(channels.trades.desired, trade.coin),
+							)
+						) {
+							continue;
+						}
+						const batch = byCoin.get(trade.coin);
+						if (batch === undefined) byCoin.set(trade.coin, [trade]);
+						else batch.push(trade);
+					}
+					if (byCoin.size === 0) return false;
+					for (const [coin, trades] of byCoin) {
+						tradesCache.setPriceSync(coin, trades);
+					}
+					return true;
+				}),
+				Match.exhaustive,
+			);
+			if (!handled) return;
 			recordTickHandle("hydromancer", config.name, performance.now() - started);
 		};
 

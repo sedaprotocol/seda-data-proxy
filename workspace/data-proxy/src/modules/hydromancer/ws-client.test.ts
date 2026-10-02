@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+	Clock,
 	Duration,
 	Effect,
 	Fiber,
@@ -14,9 +15,11 @@ import type {
 	AssetCtx,
 	BookSnapshot,
 	HydromancerModuleConfig,
+	Trade,
 } from "../../config/hydromancer-module-config";
 import { createFreshnessCache } from "../shared/freshness-cache";
 import { createPriceCache } from "../shared/price-cache";
+import { retainTradesWithinWindow } from "./hydromancer";
 import {
 	buildSubscribeFrame,
 	buildUnsubscribeFrame,
@@ -51,6 +54,20 @@ describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
 		expect(JSON.parse(buildSubscribeFrame("l2Book", "BTC"))).toEqual({
 			method: "subscribe",
 			subscription: { type: "l2Book", coin: "BTC" },
+		});
+	});
+
+	it("produces the documented trades subscribe shape", () => {
+		expect(JSON.parse(buildSubscribeFrame("trades", "BTC"))).toEqual({
+			method: "subscribe",
+			subscription: { type: "trades", coin: "BTC" },
+		});
+	});
+
+	it("produces the documented trades unsubscribe shape", () => {
+		expect(JSON.parse(buildUnsubscribeFrame("trades", "ETH"))).toEqual({
+			method: "unsubscribe",
+			subscription: { type: "trades", coin: "ETH" },
 		});
 	});
 });
@@ -141,6 +158,40 @@ describe("parseInboundFrame", () => {
 		const frame = JSON.stringify({
 			channel: "l2Book",
 			data: { coin: "BTC", levels: [[]] },
+		});
+		expect(parseInboundFrame(frame)).toBeNull();
+	});
+
+	it("extracts trades from a valid trades frame", () => {
+		const trades: Trade[] = [
+			{
+				coin: "BTC",
+				side: "B",
+				px: "62541.0",
+				sz: "0.0006",
+				hash: "0xabc",
+				time: 1782203279565,
+				tid: 414334974001319,
+				users: [
+					"0xf83fc34248744a304872e1ed40b9b10f54a64f6f",
+					"0x2ca4927174ba283d8a57f60ef3589844035a2930",
+				],
+			},
+		];
+		const frame = JSON.stringify({
+			type: "trades",
+			channel: "trades",
+			seq: 1,
+			cursor: "500:1704067200000:0",
+			trades,
+		});
+		expect(parseInboundFrame(frame)).toEqual({ kind: "trades", trades });
+	});
+
+	it("returns null for a trades frame with a malformed trade", () => {
+		const frame = JSON.stringify({
+			channel: "trades",
+			trades: [{ coin: "BTC", side: "B", px: "1" }],
 		});
 		expect(parseInboundFrame(frame)).toBeNull();
 	});
@@ -244,6 +295,12 @@ const baseConfig: HydromancerModuleConfig = {
 	l2BookWaitTimeout: Duration.seconds(1),
 	l2BookCleanupTtl: Duration.minutes(2),
 	l2BookCleanupInterval: Duration.seconds(30),
+	tradesSubscriptionCoins: [],
+	tradesMaxCoinsPerRequest: 20,
+	tradesKeepSeconds: 60,
+	tradesWaitTimeout: Duration.seconds(1),
+	tradesCleanupTtl: Duration.minutes(2),
+	tradesCleanupInterval: Duration.seconds(30),
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -261,22 +318,33 @@ afterEach(() => {
 const startService = (
 	config: HydromancerModuleConfig,
 	preSubscribed: string[] = config.subscriptionCoins,
-	options?: Parameters<typeof createHydromancerWS>[3],
+	options?: Parameters<typeof createHydromancerWS>[4],
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createFreshnessCache<string, AssetCtx>();
 		const bookCache = yield* createPriceCache<string, BookSnapshot>();
+		const clock = yield* Clock.clockWith((clock) => Effect.succeed(clock));
+		const tradesKeepMillis = config.tradesKeepSeconds * 1000;
+		const tradesCache = yield* createPriceCache<string, readonly Trade[]>({
+			apply: (prev, next) =>
+				retainTradesWithinWindow(
+					prev === undefined ? next : prev.concat(next),
+					tradesKeepMillis,
+					clock.unsafeCurrentTimeMillis(),
+				),
+		});
 		const ws = yield* createHydromancerWS(
 			config,
 			cache,
 			bookCache,
+			tradesCache,
 			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
 		);
 		for (const coin of preSubscribed) {
 			yield* ws.subscribe("activeAssetCtx", coin);
 		}
 		const fiber = yield* ws.start();
-		return { cache, bookCache, ws, fiber };
+		return { cache, bookCache, tradesCache, ws, fiber };
 	});
 
 describe("createHydromancerWS", () => {
@@ -391,6 +459,105 @@ describe("createHydromancerWS", () => {
 				const now = yield* TestClock.currentTimeMillis;
 				const fromAsset = cache.get("BTC", Number.MAX_SAFE_INTEGER, now);
 				expect(Option.isNone(fromAsset)).toBe(true);
+
+				yield* Fiber.interrupt(fiber);
+			}),
+		);
+	});
+
+	it("routes trades frames to the trades cache, split by coin", async () => {
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const now = yield* TestClock.currentTimeMillis;
+				const btc: Trade = {
+					coin: "BTC",
+					side: "B",
+					px: "100",
+					sz: "1",
+					hash: "0x1",
+					time: now,
+					tid: 1,
+					users: ["0xbuyer", "0xseller"],
+				};
+				const eth: Trade = { ...btc, coin: "ETH", tid: 2 };
+				const btcNext: Trade = { ...btc, tid: 3, time: now + 1 };
+
+				const {
+					tradesCache,
+					bookCache,
+					ws: service,
+					fiber,
+				} = yield* startService(baseConfig, []);
+				yield* waitForInstances(1);
+				const ws = FakeWebSocket.instances[0];
+				ws.triggerOpen();
+
+				yield* service.subscribe("trades", "BTC");
+
+				ws.triggerMessage(
+					JSON.stringify({ channel: "trades", trades: [btc, eth] }),
+				);
+				ws.triggerMessage(
+					JSON.stringify({ channel: "trades", trades: [btcNext] }),
+				);
+
+				expect(yield* tradesCache.getOrWaitPrice("BTC")).toEqual([
+					btc,
+					btcNext,
+				]);
+				expect(tradesCache.size()).toBe(1);
+				expect(bookCache.size()).toBe(0);
+
+				yield* Fiber.interrupt(fiber);
+			}),
+		);
+	});
+
+	it("drops trades executed outside tradesKeepSeconds, regardless of order", async () => {
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const now = yield* TestClock.currentTimeMillis;
+				const trade = (tid: number, time: number): Trade => ({
+					coin: "BTC",
+					side: "A",
+					px: "100",
+					sz: "1",
+					hash: "0x1",
+					time,
+					tid,
+					users: ["0xbuyer", "0xseller"],
+				});
+				const fresh = trade(1, now - 1_000);
+				const stale = trade(2, now - 120_000);
+				const freshLater = trade(3, now - 500);
+
+				const {
+					tradesCache,
+					ws: service,
+					fiber,
+				} = yield* startService({ ...baseConfig, tradesKeepSeconds: 60 }, []);
+				yield* waitForInstances(1);
+				const ws = FakeWebSocket.instances[0];
+				ws.triggerOpen();
+				yield* service.subscribe("trades", "BTC");
+
+				ws.triggerMessage(
+					JSON.stringify({
+						channel: "trades",
+						trades: [stale, fresh],
+					}),
+				);
+				ws.triggerMessage(
+					JSON.stringify({
+						channel: "trades",
+						trades: [freshLater, stale],
+					}),
+				);
+
+				expect(yield* tradesCache.getOrWaitPrice("BTC")).toEqual([
+					fresh,
+					freshLater,
+				]);
 
 				yield* Fiber.interrupt(fiber);
 			}),

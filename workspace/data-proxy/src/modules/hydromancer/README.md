@@ -1,15 +1,15 @@
 # Hydromancer module
 
-Caches Hydromancer `activeAssetCtx` and `l2Book` updates over WebSocket and serves `assetContext` / `l2Book` requests from those caches. `assetContext` falls back to a REST endpoint when data is missing or stale. `l2Book` has no REST fallback: the request waits briefly for a snapshot and returns `null` on timeout. Bodies that match neither type are forwarded to upstream REST as-is.
+Caches Hydromancer `activeAssetCtx`, `l2Book`, or `trades` updates over WebSocket and serves requests from those caches. `assetContext` falls back to a REST endpoint when data is missing or stale. `l2Book` and `trades` have no REST fallback: the request waits briefly for the first update and returns `null` on timeout. Bodies that match none of these types are forwarded to upstream REST as-is.
 
 ## Overview
 
 On startup the module:
 
 1. Connects to `wsUrl` with the API key as a `token` query parameter.
-2. Subscribes to every coin in `subscriptionCoins` (`activeAssetCtx`) and `l2BookSubscriptionCoins` (`l2Book`).
-3. Caches inbound `activeAssetCtx` frames by coin (freshness-keyed) and inbound `l2Book` snapshots by coin (waiter-keyed).
-4. Idle-unsubscribes each channel independently: `activeAssetCtx` coins after `coinsCleanupTtl`, `l2Book` coins after `l2BookCleanupTtl` (demand-driven subscriptions from HTTP requests are cleaned up the same way).
+2. Subscribes to every coin in `subscriptionCoins` (`activeAssetCtx`), `l2BookSubscriptionCoins` (`l2Book`), and `tradesSubscriptionCoins` (`trades`).
+3. Caches inbound frames. The cache for `activeAssetCtx` frames is freshness-keyed, whereas the caches for `l2Book` and `trades` frames are waiter-keyed.
+4. Idle-unsubscribes each channel independently based on `coinsCleanupTtl`, `l2BookCleanupTtl`, and `tradesCleanupTtl`.
 
 For `assetContext` HTTP requests the handler:
 
@@ -28,6 +28,15 @@ For `l2Book` HTTP requests the handler:
 4. Returns the latest cached snapshot immediately when present; otherwise waits up to `l2BookWaitTimeout` for the next inbound frame. A timeout or unsubscribe during the wait yields `null` for that coin.
 
 There is no REST fallback for `l2Book`. Requests with more coins than `l2BookMaxCoinsPerRequest` return HTTP 400.
+
+For `trades` HTTP requests the handler:
+
+1. Parses a batch (`coins`) body. There is no single-coin `coin` field.
+2. Expands comma-separated values inside `coins` into individual tickers (same path-param expansion as batch `assetContext`).
+3. Subscribes to each coin over WebSocket (idempotent). Re-subscribing adds coins to the connection's single trades subscription.
+4. Returns the cached recent trades for that coin immediately when present; otherwise waits up to `tradesWaitTimeout` for the next inbound frame. A timeout or unsubscribe during the wait yields `null` for that coin. Trades executed outside `tradesKeepSeconds` are dropped on cache write or when the request is served.
+
+There is no REST fallback for `trades`, and the all-coins firehose is not used. Requests with more coins than `tradesMaxCoinsPerRequest` return HTTP 400.
 
 ## Environment variables
 
@@ -59,6 +68,12 @@ Set the env var named by `hydromancerApiKeyEnvKey`. Config parsing fails if it i
 | `l2BookWaitTimeout` | no | `"1 second"` | How long an `l2Book` request waits for a snapshot before returning `null`. |
 | `l2BookCleanupTtl` | no | `"2 minutes"` | Idle time before an unused `l2Book` subscription is cleaned up. |
 | `l2BookCleanupInterval` | no | `"30 seconds"` | How often `l2Book` idle cleanup runs. |
+| `tradesSubscriptionCoins` | no | `[]` | Coins to subscribe to `trades` on start. |
+| `tradesMaxCoinsPerRequest` | no | `20` | Max coins allowed in a single `trades` request. |
+| `tradesKeepSeconds` | no | `60` | How many seconds of executed trades to keep per coin. Older trades are dropped. |
+| `tradesWaitTimeout` | no | `"1 second"` | How long a `trades` request waits for the first trade before returning `null`. |
+| `tradesCleanupTtl` | no | `"2 minutes"` | Idle time before an unused `trades` subscription is cleaned up. |
+| `tradesCleanupInterval` | no | `"30 seconds"` | How often `trades` idle cleanup runs. |
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
 | `reconnectStableThreshold` | no | `"30 seconds"` | Connected duration before reconnect backoff resets. |
 | `restFetchTimeout` | no | `"15 seconds"` | Timeout for REST `/info` calls. |
@@ -86,7 +101,8 @@ Hydromancer routes do not use `fetchFromModule`. The request body is the Hydroma
       "restBaseUrl": "https://api.hydromancer.xyz",
       "hydromancerApiKeyEnvKey": "HYDROMANCER_API_KEY_MAINNET",
       "subscriptionCoins": ["BTC", "ETH"],
-      "l2BookSubscriptionCoins": ["BTC", "ETH"]
+      "l2BookSubscriptionCoins": ["BTC", "ETH"],
+      "tradesSubscriptionCoins": ["BTC", "ETH"]
     }
   ],
   "routes": [
@@ -120,6 +136,11 @@ curl -s "http://127.0.0.1:5384/proxy/hydro" \
 curl -s "http://127.0.0.1:5384/proxy/hydro" \
   -H 'Content-Type: application/json' \
   -d '{"type":"l2Book","coins":["BTC","ETH"]}' | jq .
+
+# trades — response is a map of coin → Trade[] | null
+curl -s "http://127.0.0.1:5384/proxy/hydro" \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"trades","coins":["BTC","ETH"]}' | jq .
 ```
 
 ## Request body
@@ -130,6 +151,7 @@ curl -s "http://127.0.0.1:5384/proxy/hydro" \
 | `{"type":"assetContext","coins":["...", "..."]}` | Batch path. Response is `{ [coin]: AssetCtx \| null }`. Comma-separated entries inside the array are expanded. |
 | `{"type":"assetContext","coins":"BTC,ETH"}` | Same batch path; a comma-delimited string is expanded to individual tickers. |
 | `{"type":"l2Book","coins":["...", "..."]}` | Batch path. Response is `{ [coin]: BookSnapshot \| null }`. Comma-separated entries inside the array are expanded. There is no REST fallback; a miss waits up to `l2BookWaitTimeout` then returns `null`. |
+| `{"type":"trades","coins":["...", "..."]}` | Batch path. Response is `{ [coin]: Trade[] \| null }`. Comma-separated entries inside the array are expanded. There is no REST fallback; a miss waits up to `tradesWaitTimeout` then returns `null`. |
 | Anything else | Forwarded unchanged to `POST {restBaseUrl}/info` with the bearer token. |
 
 ## Response shape
@@ -176,3 +198,25 @@ Unresolved coins stay `null`, matching Hydromancer’s native `/info` batch shap
 ```
 
 `levels` is `[bids, asks]`. Each level has `px` (price), `sz` (size), and `n` (number of orders). Unresolved coins (timeout, unsubscribe during wait, or no snapshot yet) stay `null`.
+
+### trades (`coins`)
+
+```jsonc
+{
+  "BTC": [
+    {
+      "coin": "BTC",
+      "side": "B",
+      "px": "62541.0",
+      "sz": "0.0006",
+      "hash": "0x...",
+      "time": 1782203279565,
+      "tid": 414334974001319,
+      "users": ["0x...", "0x..."]
+    }
+  ],
+  "ETH": null
+}
+```
+
+Each entry matches Hydromancer's `WsTrade`. `side` is the taker's side (`"B"` bought, `"A"` sold). `users` is `[buyer, seller]`. `time` is a millisecond execution timestamp. Trades stay in arrival order; any trade older than `tradesKeepSeconds` is dropped. Unresolved coins stay `null`. A coin whose trades have all aged out is `[]`.

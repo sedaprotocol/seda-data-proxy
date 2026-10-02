@@ -12,6 +12,7 @@ import {
 	type AssetCtx,
 	type BookSnapshot,
 	type HydromancerModuleConfig,
+	type Trade,
 	parseHydromancerBody,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
@@ -26,6 +27,17 @@ import {
 } from "./rest-fallback";
 import { type HydromancerChannel, createHydromancerWS } from "./ws-client";
 
+/** Returns trades whose execution time is inside the window. */
+export const retainTradesWithinWindow = (
+	trades: readonly Trade[],
+	keepMillis: number,
+	now: number,
+): readonly Trade[] => {
+	const cutoff = now - keepMillis;
+	const kept = trades.filter((trade) => trade.time >= cutoff);
+	return kept.length === trades.length ? trades : kept;
+};
+
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 	Layer.effect(
 		ModuleService,
@@ -36,18 +48,36 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				restBaseUrl: config.restBaseUrl,
 			});
 
-			// Two caches with deliberately different shapes.
+			// Three caches with deliberately different shapes.
 			// assetContext is freshness-keyed: a stale read falls back to a REST fetch.
 			// l2Book is waiter-keyed: a request waits briefly and returns null on timeout.
+			// trades is waiter-keyed too, and each coin keeps trades executed inside tradesKeepSeconds.
 			const cache = yield* createFreshnessCache<string, AssetCtx>();
 			const bookCache = yield* createPriceCache<string, BookSnapshot>({
 				timeout: config.l2BookWaitTimeout,
 			});
+			const clock = yield* Clock.clockWith((clock) => Effect.succeed(clock));
+			const tradesKeepMillis = config.tradesKeepSeconds * 1000;
+			const tradesCache = yield* createPriceCache<string, readonly Trade[]>({
+				timeout: config.tradesWaitTimeout,
+				apply: (prev, next) =>
+					retainTradesWithinWindow(
+						prev === undefined ? next : prev.concat(next),
+						tradesKeepMillis,
+						clock.unsafeCurrentTimeMillis(),
+					),
+			});
 			const assetCtxStaleAfterMillis = Duration.toMillis(config.staleAfter);
-			const ws = yield* createHydromancerWS(config, cache, bookCache);
+			const ws = yield* createHydromancerWS(
+				config,
+				cache,
+				bookCache,
+				tradesCache,
+			);
 
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();
 			const lastRequestToBookCoin = MutableHashMap.empty<string, number>();
+			const lastRequestToTradesCoin = MutableHashMap.empty<string, number>();
 
 			const subscriptionKinds = [
 				{
@@ -73,6 +103,18 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 							yield* bookCache.deletePrice(coin);
 						}),
 				},
+				{
+					name: "trades",
+					channel: "trades" as HydromancerChannel,
+					lastRequest: lastRequestToTradesCoin,
+					ttl: config.tradesCleanupTtl,
+					interval: config.tradesCleanupInterval,
+					onEvict: (coin: string) =>
+						Effect.gen(function* () {
+							yield* tradesCache.setPriceToError(coin, "unsubscribed");
+							yield* tradesCache.deletePrice(coin);
+						}),
+				},
 			];
 
 			const start = () =>
@@ -88,6 +130,9 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					}
 					for (const coin of config.l2BookSubscriptionCoins) {
 						yield* ws.subscribe("l2Book", coin);
+					}
+					for (const coin of config.tradesSubscriptionCoins) {
+						yield* ws.subscribe("trades", coin);
 					}
 
 					for (const kind of subscriptionKinds) {
@@ -217,6 +262,35 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					Effect.withSpan("handleL2BookRequest", { attributes: { coins } }),
 				);
 
+			const handleTradesRequest = (coins: string[]) =>
+				Effect.gen(function* () {
+					const { resolved } = yield* prepareRequest<readonly Trade[]>(
+						coins,
+						config.tradesMaxCoinsPerRequest,
+						"trades",
+						lastRequestToTradesCoin,
+					);
+
+					for (const coin of coins) {
+						const trades = yield* tradesCache.getOrWaitPrice(coin);
+						if (trades === null) continue;
+						const kept = retainTradesWithinWindow(
+							trades,
+							tradesKeepMillis,
+							yield* Clock.currentTimeMillis,
+						);
+						if (kept !== trades) tradesCache.replaceCached(coin, kept);
+						resolved[coin] = kept;
+					}
+
+					return new Response(JSON.stringify(resolved), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}).pipe(
+					Effect.withSpan("handleTradesRequest", { attributes: { coins } }),
+				);
+
 			const handleRequest = (
 				route: Route,
 				_params: Record<string, string>,
@@ -276,6 +350,9 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 						),
 						Match.when({ type: "l2Book", coins: Match.any }, (body) =>
 							handleL2BookRequest(expandCoins(body.coins)),
+						),
+						Match.when({ type: "trades", coins: Match.any }, (body) =>
+							handleTradesRequest(expandCoins(body.coins)),
 						),
 						Match.exhaustive,
 					);

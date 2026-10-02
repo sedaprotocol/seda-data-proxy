@@ -31,6 +31,8 @@ const makeWaiter = <V>(): PriceWaiter<V> => {
 export interface PriceCache<K, V> {
 	getOrWaitPrice: (key: K) => Effect.Effect<V | null>;
 	setPriceSync: (key: K, price: V) => void;
+	/** Overwrites an existing entry without waking waiters. */
+	replaceCached: (key: K, price: V) => void;
 	deletePrice: (key: K) => Effect.Effect<void>;
 	setPriceToError: (key: K, error: string) => Effect.Effect<void>;
 	size: () => number;
@@ -39,6 +41,7 @@ export interface PriceCache<K, V> {
 const replace = <V>(_prev: V | undefined, next: V): V => next;
 
 export const createPriceCache = <K, V>(options?: {
+	/** The timeout for a price wait. Defaults to 3 seconds. */
 	timeout?: Duration.Duration;
 	/** Produces the value to store from the cached value, if any, and the incoming one. */
 	apply?: (prev: V | undefined, next: V) => V;
@@ -61,6 +64,11 @@ export const createPriceCache = <K, V>(options?: {
 				MutableHashMap.remove(priceWaiters, key);
 				waiter.value.resolve(next);
 			}
+		};
+
+		const replaceCached = (key: K, price: V): void => {
+			if (Option.isNone(MutableHashMap.get(priceCache, key))) return;
+			MutableHashMap.set(priceCache, key, price);
 		};
 
 		const setPriceToError = (key: K, error: string) =>
@@ -119,6 +127,7 @@ export const createPriceCache = <K, V>(options?: {
 		return {
 			getOrWaitPrice,
 			setPriceSync,
+			replaceCached,
 			deletePrice,
 			setPriceToError,
 			size,
