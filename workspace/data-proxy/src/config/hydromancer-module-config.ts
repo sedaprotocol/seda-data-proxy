@@ -95,6 +95,36 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	tradesSubscriptionCoins: v.optional(v.array(v.string()), []),
+	tradesMaxCoinsPerRequest: v.optional(v.number(), 20),
+	tradesKeepPerCoin: v.optional(v.number(), 100),
+	tradesWaitTimeout: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "1 second"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid tradesWaitTimeout duration"),
+			),
+		),
+	),
+	tradesCleanupTtl: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "2 minutes"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid tradesCleanupTtl duration"),
+			),
+		),
+	),
+	tradesCleanupInterval: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid tradesCleanupInterval duration"),
+			),
+		),
+	),
 });
 
 export interface HydromancerModuleConfig
@@ -168,11 +198,31 @@ export const L2BookRequestBodySchema = v.object({
 	coins: v.union([v.string(), v.array(v.string())]),
 });
 
-// Request body the module accepts, discriminated on `type`. Any shape that
-// matches neither variant is rejected with 400.
+export const TradeSchema = v.object({
+	coin: v.string(),
+	side: v.union([v.literal("B"), v.literal("A")]),
+	px: v.string(),
+	sz: v.string(),
+	hash: v.string(),
+	time: v.number(),
+	tid: v.number(),
+	users: v.tuple([v.string(), v.string()]),
+});
+
+export type Trade = v.InferOutput<typeof TradeSchema>;
+
+export const TradesRequestBodySchema = v.object({
+	type: v.literal("trades"),
+	// Array of tickers, or a single comma-delimited string (e.g. "BTC,ETH").
+	coins: v.union([v.string(), v.array(v.string())]),
+});
+
+// Request body the module accepts, discriminated on `type`. Any other shape
+// is forwarded to upstream REST.
 export const HydromancerRequestBodySchema = v.variant("type", [
 	AssetContextRequestBodySchema,
 	L2BookRequestBodySchema,
+	TradesRequestBodySchema,
 ]);
 
 export type ParsedHydromancerBody = v.InferOutput<

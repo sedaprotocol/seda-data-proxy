@@ -5,6 +5,7 @@ import {
 	type BookSnapshot,
 	type HydromancerModuleConfig,
 	HydromancerModuleRouteSchema,
+	type Trade,
 } from "../../config/hydromancer-module-config";
 import { ModuleService } from "../module";
 import { HydromancerModuleService } from "./hydromancer";
@@ -35,6 +36,12 @@ const baseConfig: HydromancerModuleConfig = {
 	l2BookWaitTimeout: Duration.seconds(1),
 	l2BookCleanupTtl: Duration.minutes(2),
 	l2BookCleanupInterval: Duration.seconds(30),
+	tradesSubscriptionCoins: [],
+	tradesMaxCoinsPerRequest: 20,
+	tradesKeepPerCoin: 100,
+	tradesWaitTimeout: Duration.seconds(1),
+	tradesCleanupTtl: Duration.minutes(2),
+	tradesCleanupInterval: Duration.seconds(30),
 };
 
 const btcCtx = {
@@ -71,6 +78,30 @@ const buildL2BookRequest = (coins: string[]) =>
 
 const l2BookBody = (coins: string[]) =>
 	JSON.stringify({ type: "l2Book", coins });
+
+const btcTrade: Trade = {
+	coin: "BTC",
+	side: "B",
+	px: "62541.0",
+	sz: "0.0006",
+	hash: "0xabc",
+	time: 1782203279565,
+	tid: 1,
+	users: [
+		"0xf83fc34248744a304872e1ed40b9b10f54a64f6f",
+		"0x2ca4927174ba283d8a57f60ef3589844035a2930",
+	],
+};
+
+const buildTradesRequest = (coins: string[]) =>
+	new Request("http://proxy.local/info", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ type: "trades", coins }),
+	});
+
+const tradesBody = (coins: string[]) =>
+	JSON.stringify({ type: "trades", coins });
 
 const buildRoute = () =>
 	v.parse(HydromancerModuleRouteSchema, {
@@ -919,6 +950,156 @@ describe("HydromancerModuleService l2Book flow", () => {
 				{},
 				buildL2BookRequest(["BTC", "ETH"]),
 				l2BookBody(["BTC", "ETH"]),
+			);
+		});
+
+		const response = await runSilently(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(400);
+	});
+});
+
+describe("HydromancerModuleService trades flow", () => {
+	const originalWebSocket = globalThis.WebSocket;
+
+	beforeEach(() => {
+		FakeWebSocket.instances = [];
+		globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+	});
+
+	afterEach(() => {
+		globalThis.WebSocket = originalWebSocket;
+	});
+
+	it("subscribes the pre-seeded coin on open and returns its trades", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			tradesSubscriptionCoins: ["BTC"],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const ws = yield* waitForSocket();
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+			const sentOnOpen = [...ws.sent];
+
+			ws.triggerMessage(
+				JSON.stringify({ channel: "trades", trades: [btcTrade] }),
+			);
+			yield* Effect.yieldNow();
+
+			const route = buildRoute();
+			const response = yield* svc.handleRequest(
+				route,
+				{},
+				buildTradesRequest(["BTC"]),
+				tradesBody(["BTC"]),
+			);
+			return { response, sentOnOpen };
+		});
+
+		const { response, sentOnOpen } = await runSilently(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(sentOnOpen).toEqual([buildSubscribeFrame("trades", "BTC")]);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ BTC: [btcTrade] });
+	});
+
+	it("returns null for an unseeded coin once tradesWaitTimeout elapses", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			tradesSubscriptionCoins: [],
+			tradesWaitTimeout: Duration.millis(50),
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const ws = yield* waitForSocket();
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildTradesRequest(["BTC"]),
+				tradesBody(["BTC"]),
+			);
+		});
+
+		const response = await runSilently(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ BTC: null });
+	});
+
+	it("splits a mixed trades frame into one list per coin", async () => {
+		const ethTrade: Trade = { ...btcTrade, coin: "ETH", tid: 2 };
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			tradesSubscriptionCoins: ["BTC", "ETH"],
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const ws = yield* waitForSocket();
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+
+			ws.triggerMessage(
+				JSON.stringify({ channel: "trades", trades: [btcTrade, ethTrade] }),
+			);
+			yield* Effect.yieldNow();
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildTradesRequest(["BTC", "ETH"]),
+				tradesBody(["BTC", "ETH"]),
+			);
+		});
+
+		const response = await runSilently(
+			program.pipe(Effect.provide(HydromancerModuleService(config))),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			BTC: [btcTrade],
+			ETH: [ethTrade],
+		});
+	});
+
+	it("rejects a trades batch larger than tradesMaxCoinsPerRequest", async () => {
+		const config: HydromancerModuleConfig = {
+			...baseConfig,
+			tradesMaxCoinsPerRequest: 1,
+		};
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const ws = yield* waitForSocket();
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+
+			const route = buildRoute();
+			return yield* svc.handleRequest(
+				route,
+				{},
+				buildTradesRequest(["BTC", "ETH"]),
+				tradesBody(["BTC", "ETH"]),
 			);
 		});
 
