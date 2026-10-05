@@ -48,7 +48,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 | Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `trade`, `ticker`, `miniTicker`. No keepalive. |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
 | Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). Subscribe and unsubscribe send one symbol per frame since Bybit rejects the whole args list when any symbol is invalid. |
-| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `?readonly=true` avoids geo-restriction. Keys are numeric market ids. |
+| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. Keys are numeric market ids. |
 
 ### Route
 

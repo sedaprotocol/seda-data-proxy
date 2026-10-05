@@ -57,9 +57,30 @@ describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
 	});
 });
 
+const inboundCache = Effect.runSync(
+	createPriceCache<number, LighterPriceFrame>(),
+);
+
+const snapshotBook = {
+	code: 0,
+	asks: [
+		{ price: "10", size: "1" },
+		{ price: "11", size: "2" },
+	],
+	bids: [
+		{ price: "9", size: "3" },
+		{ price: "8", size: "4" },
+	],
+	nonce: 10,
+	begin_nonce: 1,
+	offset: 1,
+};
+
 describe("parseInboundFrame", () => {
 	it("extracts market id and verbatim frame from an update/ticker", () => {
-		expect(parseInboundFrame(tickerMessage(1, "BTC"), "ticker")).toEqual({
+		expect(
+			parseInboundFrame(tickerMessage(1, "BTC"), "ticker", inboundCache),
+		).toEqual({
 			kind: "tickers",
 			frames: [{ key: 1, frame: innerTicker("BTC") }],
 		});
@@ -69,6 +90,7 @@ describe("parseInboundFrame", () => {
 		const parsed = parseInboundFrame(
 			tickerMessage(2, "ETH", "subscribed/ticker"),
 			"ticker",
+			inboundCache,
 		);
 		expect(parsed).toEqual({
 			kind: "tickers",
@@ -78,7 +100,11 @@ describe("parseInboundFrame", () => {
 
 	it("classifies a keepalive ping", () => {
 		expect(
-			parseInboundFrame(JSON.stringify({ type: "ping" }), "ticker"),
+			parseInboundFrame(
+				JSON.stringify({ type: "ping" }),
+				"ticker",
+				inboundCache,
+			),
 		).toEqual({
 			kind: "ping",
 		});
@@ -89,6 +115,7 @@ describe("parseInboundFrame", () => {
 			parseInboundFrame(
 				JSON.stringify({ session_id: "x", type: "connected" }),
 				"ticker",
+				inboundCache,
 			),
 		).toBeNull();
 	});
@@ -98,6 +125,7 @@ describe("parseInboundFrame", () => {
 			parseInboundFrame(
 				JSON.stringify({ error: { code: 30005, message: "Invalid Channel" } }),
 				"ticker",
+				inboundCache,
 			),
 		).toEqual({
 			kind: "error",
@@ -113,6 +141,7 @@ describe("parseInboundFrame", () => {
 					error: { code: 30010, message: "Too Many Inflight Messages!" },
 				}),
 				"ticker",
+				inboundCache,
 			),
 		).toEqual({
 			kind: "error",
@@ -122,14 +151,16 @@ describe("parseInboundFrame", () => {
 	});
 
 	it("returns null for malformed JSON", () => {
-		expect(parseInboundFrame("not json", "ticker")).toBeNull();
+		expect(parseInboundFrame("not json", "ticker", inboundCache)).toBeNull();
 	});
 
-	it("extracts an order_book payload when that stream is configured", () => {
+	it("ignores an order_book diff when no book is cached", () => {
 		const orderBook = {
 			code: 0,
 			asks: [{ price: "2064.54", size: "0.3285" }],
 			bids: [{ price: "2064.53", size: "1.0" }],
+			nonce: 11,
+			begin_nonce: 10,
 		};
 		expect(
 			parseInboundFrame(
@@ -139,11 +170,49 @@ describe("parseInboundFrame", () => {
 					type: "update/order_book",
 				}),
 				"order_book",
+				inboundCache,
 			),
 		).toEqual({
 			kind: "tickers",
-			frames: [{ key: 0, frame: orderBook }],
+			frames: [{ key: 0, frame: orderBook, action: "ignore" }],
 		});
+	});
+
+	it("extracts a subscribed/order_book snapshot", () => {
+		const orderBook = {
+			code: 0,
+			asks: [{ price: "10", size: "1" }],
+			bids: [{ price: "9", size: "2" }],
+			nonce: 10,
+			begin_nonce: 1,
+		};
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: orderBook,
+					type: "subscribed/order_book",
+				}),
+				"order_book",
+				inboundCache,
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [{ key: 0, frame: orderBook, action: "write" }],
+		});
+	});
+
+	it("returns null for an order_book frame with no snapshot or update type", () => {
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: { asks: [], bids: [], nonce: 1 },
+				}),
+				"order_book",
+				inboundCache,
+			),
+		).toBeNull();
 	});
 
 	it("extracts trade arrays when that stream is configured", () => {
@@ -157,6 +226,7 @@ describe("parseInboundFrame", () => {
 					type: "update/trade",
 				}),
 				"trade",
+				inboundCache,
 			),
 		).toEqual({
 			kind: "tickers",
@@ -165,7 +235,116 @@ describe("parseInboundFrame", () => {
 	});
 
 	it("returns null when the channel prefix does not match the stream type", () => {
-		expect(parseInboundFrame(tickerMessage(1, "BTC"), "order_book")).toBeNull();
+		expect(
+			parseInboundFrame(tickerMessage(1, "BTC"), "order_book", inboundCache),
+		).toBeNull();
+	});
+
+	it("replaces the book on a snapshot and drops zero-size levels", () => {
+		const orderBook = {
+			...snapshotBook,
+			asks: [
+				{ price: "10", size: "1" },
+				{ price: "11", size: "0" },
+			],
+		};
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: orderBook,
+					type: "subscribed/order_book",
+				}),
+				"order_book",
+				inboundCache,
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [
+				{
+					key: 0,
+					action: "write",
+					frame: {
+						...snapshotBook,
+						asks: [{ price: "10", size: "1" }],
+					},
+				},
+			],
+		});
+	});
+
+	it("merges a continuous diff and removes a price when size is 0", () => {
+		const cache = Effect.runSync(createPriceCache<number, LighterPriceFrame>());
+		cache.setPriceSync(0, snapshotBook);
+		const orderBook = {
+			code: 0,
+			asks: [
+				{ price: "11", size: "0.0000" },
+				{ price: "12", size: "5" },
+			],
+			bids: [{ price: "9", size: "1.7387" }],
+			nonce: 11,
+			begin_nonce: 10,
+			offset: 2,
+		};
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: orderBook,
+					type: "update/order_book",
+				}),
+				"order_book",
+				cache,
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [
+				{
+					key: 0,
+					action: "write",
+					frame: {
+						code: 0,
+						asks: [
+							{ price: "10", size: "1" },
+							{ price: "12", size: "5" },
+						],
+						bids: [
+							{ price: "9", size: "1.7387" },
+							{ price: "8", size: "4" },
+						],
+						nonce: 11,
+						begin_nonce: 10,
+						offset: 2,
+					},
+				},
+			],
+		});
+	});
+
+	it("asks for a resubscribe when begin_nonce does not match", () => {
+		const cache = Effect.runSync(createPriceCache<number, LighterPriceFrame>());
+		cache.setPriceSync(0, snapshotBook);
+		const orderBook = {
+			asks: [],
+			bids: [],
+			nonce: 100,
+			begin_nonce: 99,
+		};
+		expect(
+			parseInboundFrame(
+				JSON.stringify({
+					channel: "order_book:0",
+					order_book: orderBook,
+					type: "update/order_book",
+				}),
+				"order_book",
+				cache,
+			),
+		).toEqual({
+			kind: "tickers",
+			frames: [{ key: 0, frame: orderBook, action: "resubscribe" }],
+		});
 	});
 });
 
@@ -466,6 +645,95 @@ describe("createLighterWS", () => {
 		await flush();
 
 		expect(ws2.sent).toEqual([buildSubscribeFrame(1, "ticker")]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("keeps a local order book and resubscribes when begin_nonce gaps", async () => {
+		const { cache, fiber } = await Effect.runPromise(
+			startService({ ...baseConfig, streamType: "order_book" }, [0]),
+		);
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		ws.triggerMessage(
+			JSON.stringify({
+				channel: "order_book:0",
+				type: "update/order_book",
+				order_book: {
+					asks: [{ price: "11", size: "0" }],
+					bids: [],
+					nonce: 11,
+					begin_nonce: 10,
+				},
+			}),
+		);
+		await flush();
+		expect(cache.size()).toBe(0);
+		expect(ws.sent).toEqual([buildSubscribeFrame(0, "order_book")]);
+
+		ws.triggerMessage(
+			JSON.stringify({
+				channel: "order_book:0",
+				type: "subscribed/order_book",
+				order_book: snapshotBook,
+			}),
+		);
+		ws.triggerMessage(
+			JSON.stringify({
+				channel: "order_book:0",
+				type: "update/order_book",
+				order_book: {
+					code: 0,
+					asks: [
+						{ price: "11", size: "0" },
+						{ price: "12", size: "5" },
+					],
+					bids: [{ price: "9", size: "7" }],
+					nonce: 11,
+					begin_nonce: 10,
+					offset: 2,
+				},
+			}),
+		);
+		await flush();
+
+		expect(await Effect.runPromise(cache.getOrWaitPrice(0))).toEqual({
+			code: 0,
+			asks: [
+				{ price: "10", size: "1" },
+				{ price: "12", size: "5" },
+			],
+			bids: [
+				{ price: "9", size: "7" },
+				{ price: "8", size: "4" },
+			],
+			nonce: 11,
+			begin_nonce: 10,
+			offset: 2,
+		});
+
+		ws.triggerMessage(
+			JSON.stringify({
+				channel: "order_book:0",
+				type: "update/order_book",
+				order_book: {
+					asks: [],
+					bids: [],
+					nonce: 100,
+					begin_nonce: 99,
+				},
+			}),
+		);
+		await flush();
+
+		expect(cache.size()).toBe(0);
+		expect(ws.sent.slice(-2)).toEqual([
+			buildUnsubscribeFrame(0, "order_book"),
+			buildSubscribeFrame(0, "order_book"),
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});

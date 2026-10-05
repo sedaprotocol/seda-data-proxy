@@ -45,6 +45,35 @@ describe("createPriceCache", () => {
 		);
 	});
 
+	it("getCachedSync returns the stored value without waiting", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				expect(cache.getCached("k")).toBeUndefined();
+				const entry = sample({ n: 1 });
+				cache.setPriceSync("k", entry);
+				expect(cache.getCached("k")).toEqual(entry);
+			}),
+		);
+	});
+
+	it("deleteCachedSync drops the stored value and still resolves a later waiter", async () => {
+		await run(
+			Effect.gen(function* () {
+				const cache = yield* createPriceCache<string, SampleValue>();
+				cache.setPriceSync("k", sample({ n: 1 }));
+				cache.deleteCached("k");
+				expect(cache.size()).toBe(0);
+
+				const waiter = yield* Effect.fork(cache.getOrWaitPrice("k"));
+				yield* Effect.sleep("1 millis");
+				const next = sample({ n: 2 });
+				cache.setPriceSync("k", next);
+				expect(yield* Fiber.join(waiter)).toEqual(next);
+			}),
+		);
+	});
+
 	it("should resolve a waiter when setPriceSync is called", async () => {
 		await run(
 			Effect.gen(function* () {

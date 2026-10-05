@@ -44,14 +44,27 @@ export interface VenueWS<TKey = string> {
 	hasError(): Effect.Effect<boolean, never, never>;
 }
 
+export type InboundFrameAction = "write" | "ignore" | "resubscribe";
+
+export type ParsedTickersFrame<TKey, TFrame> = {
+	key: TKey;
+	frame: TFrame;
+	/**
+	 * Omitted means write. `ignore` drops the frame. `resubscribe`
+	 * clears the cached value and subscribes again for a snapshot.
+	 */
+	action?: InboundFrameAction;
+};
+
+export type ParsedTickerFrames<TKey, TFrame> = Array<
+	ParsedTickersFrame<TKey, TFrame>
+>;
+
 export type VenueParsedInbound<TKey, TFrame> =
 	| { kind: "ping" }
 	| { kind: "pong" }
 	| { kind: "error"; code: string | number | null; message: string | null }
-	| {
-			kind: "tickers";
-			frames: Array<{ key: TKey; frame: TFrame }>;
-	  };
+	| { kind: "tickers"; frames: ParsedTickerFrames<TKey, TFrame> };
 
 export interface VenueWSConfig extends ReconnectBackoffConfig {
 	name: string;
@@ -183,6 +196,26 @@ export const createVenueWS = <TKey, TFrame>(
 				}
 			});
 
+		const resubscribeKeys = (keys: TKey[]) =>
+			Effect.gen(function* () {
+				if (keys.length === 0) return;
+				yield* Effect.logWarning(`${venue} WS resubscribing stale keys`, {
+					keys,
+				});
+				const unsubscribe = buildUnsubscribeFrame(keys);
+				const subscribe = buildSubscribeFrame(keys);
+				for (const frame of Array.isArray(unsubscribe)
+					? unsubscribe
+					: [unsubscribe]) {
+					yield* sendImmediate(frame, "unsubscribe");
+				}
+				for (const frame of Array.isArray(subscribe)
+					? subscribe
+					: [subscribe]) {
+					yield* sendImmediate(frame, "subscribe");
+				}
+			});
+
 		const sendOutbound = ({ frame, type }: OutboundMessage) =>
 			Effect.gen(function* () {
 				const ws = currentWS;
@@ -273,11 +306,21 @@ export const createVenueWS = <TKey, TFrame>(
 				return;
 			}
 
+			const resubs: TKey[] = [];
 			let applied = 0;
-			for (const { key, frame } of parsed.frames) {
+			for (const { key, frame, action = "write" } of parsed.frames) {
 				if (!isDesired(key)) continue;
+				if (action === "ignore") continue;
+				if (action === "resubscribe") {
+					cache.deleteCached(key);
+					resubs.push(key);
+					continue;
+				}
 				cache.setPriceSync(key, frame);
 				applied += 1;
+			}
+			if (resubs.length > 0) {
+				Runtime.runSync(runtime, resubscribeKeys(resubs));
 			}
 			recordTickHandle(venue, name, performance.now() - started, applied);
 		};

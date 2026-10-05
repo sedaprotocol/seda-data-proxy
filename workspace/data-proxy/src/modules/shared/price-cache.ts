@@ -30,9 +30,13 @@ const makeWaiter = <V>(): PriceWaiter<V> => {
 
 export interface PriceCache<K, V> {
 	getOrWaitPrice: (key: K) => Effect.Effect<V | null>;
+	/** Retrieves the cached value without waiting, returning undefined if not present. */
+	getCached: (key: K) => V | undefined;
 	setPriceSync: (key: K, price: V) => void;
 	/** Overwrites an existing entry without waking waiters. */
 	replaceCached: (key: K, price: V) => void;
+	/** Drops the cached value without resolving any waiters. */
+	deleteCached: (key: K) => void;
 	deletePrice: (key: K) => Effect.Effect<void>;
 	setPriceToError: (key: K, error: string) => Effect.Effect<void>;
 	size: () => number;
@@ -80,6 +84,11 @@ export const createPriceCache = <K, V>(options?: {
 				}
 			});
 
+		const getCached = (key: K): V | undefined => {
+			const cached = MutableHashMap.get(priceCache, key);
+			return Option.isSome(cached) ? cached.value : undefined;
+		};
+
 		const getOrWaitPrice = (key: K): Effect.Effect<V | null> =>
 			Effect.gen(function* () {
 				const cached = MutableHashMap.get(priceCache, key);
@@ -116,6 +125,10 @@ export const createPriceCache = <K, V>(options?: {
 				Effect.withSpan("priceCache.getOrWaitPrice", { attributes: { key } }),
 			);
 
+		const deleteCached = (key: K): void => {
+			MutableHashMap.remove(priceCache, key);
+		};
+
 		const deletePrice = (key: K) =>
 			Effect.sync(() => {
 				MutableHashMap.remove(priceCache, key);
@@ -125,9 +138,11 @@ export const createPriceCache = <K, V>(options?: {
 		const size = () => MutableHashMap.size(priceCache);
 
 		return {
+			getCached,
 			getOrWaitPrice,
 			setPriceSync,
 			replaceCached,
+			deleteCached,
 			deletePrice,
 			setPriceToError,
 			size,
