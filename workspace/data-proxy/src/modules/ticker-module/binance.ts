@@ -1,5 +1,8 @@
 import type { Effect, Schedule } from "effect";
-import type { BinanceModuleConfig } from "../../config/binance-module-config";
+import type {
+	BinanceModuleConfig,
+	BinanceStreamType,
+} from "../../config/binance-module-config";
 import { isRecord, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
@@ -28,8 +31,10 @@ export interface BinancePriceFrame {
 	[key: string]: unknown;
 }
 
-export const buildStreamName = (symbol: string, streamType: string): string =>
-	`${symbol.toLowerCase()}@${streamType}`;
+export const buildStreamName = (
+	symbol: string,
+	streamType: BinanceStreamType,
+): string => `${symbol.toLowerCase()}@${streamType}`;
 
 export const buildSubscribeFrame = (
 	streamNames: string[],
