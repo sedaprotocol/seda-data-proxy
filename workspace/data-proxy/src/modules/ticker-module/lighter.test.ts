@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Duration, Effect, LogLevel, Logger } from "effect";
+import {
+	Duration,
+	Effect,
+	LogLevel,
+	Logger,
+	TestClock,
+	TestContext,
+} from "effect";
 import type { Route } from "../../config/config-parser";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
@@ -67,6 +74,24 @@ class FakeWebSocket extends EventTarget {
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
+const waitForSocket = (maxYields = 100) =>
+	Effect.gen(function* () {
+		for (let i = 0; i < maxYields; i++) {
+			if (FakeWebSocket.instances.length > 0) {
+				return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+			}
+			yield* Effect.yieldNow();
+		}
+		throw new Error("Timed out waiting for FakeWebSocket construction");
+	});
+
+const tradeAt = (tradeId: number, timestamp: number) => ({
+	trade_id: tradeId,
+	price: "2181.83",
+	size: "0.1336",
+	timestamp,
+});
+
 const baseConfig: LighterModuleConfig = {
 	name: "lighter",
 	type: "lighter",
@@ -81,6 +106,7 @@ const baseConfig: LighterModuleConfig = {
 	symbolsCleanupTtl: Duration.hours(1),
 	symbolsCleanupInterval: Duration.seconds(30),
 	streamType: "ticker",
+	tradesKeepSeconds: 60,
 };
 
 const originalWebSocket = globalThis.WebSocket;
@@ -178,6 +204,113 @@ describe("LighterModuleService", () => {
 		);
 		expect(await afterError.json()).toEqual([
 			{ marketId: "1", [HAS_PRICE_KEY]: false },
+		]);
+	});
+
+	it("keeps a trade window and drops aged trades when the request is served", async () => {
+		const config: LighterModuleConfig = {
+			...baseConfig,
+			streamType: "trade",
+			tradesKeepSeconds: 60,
+			subscriptionSymbols: ["0"],
+		};
+
+		const program = Effect.gen(function* () {
+			const now = yield* TestClock.currentTimeMillis;
+			const early = tradeAt(1, now - 50_000);
+			const mid = tradeAt(2, now - 5_000);
+			const fresh = tradeAt(4, now - 1_000);
+			const liquidation = tradeAt(9, now - 5_000);
+
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			const ws = yield* waitForSocket();
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+
+			ws.triggerMessage(
+				JSON.stringify({
+					channel: "trade:0",
+					type: "update/trade",
+					trades: [early, { trade_id: 7, price: "7", size: "1" }, mid],
+					liquidation_trades: [tradeAt(8, now - 90_000), liquidation],
+				}),
+			);
+			ws.triggerMessage(
+				JSON.stringify({
+					channel: "trade:0",
+					type: "update/trade",
+					trades: [tradeAt(3, now - 70_000), fresh],
+					liquidation_trades: [],
+				}),
+			);
+
+			const request = () =>
+				Effect.gen(function* () {
+					const response = yield* svc.handleRequest(
+						routeFor("0"),
+						{},
+						new Request("http://x"),
+					);
+					return yield* Effect.promise(() => response.json());
+				});
+
+			const withinWindow = yield* request();
+			yield* TestClock.adjust(Duration.seconds(50));
+			const partlyAged = yield* request();
+			yield* TestClock.adjust(Duration.seconds(20));
+			const agedOut = yield* request();
+			return {
+				withinWindow,
+				partlyAged,
+				agedOut,
+				early,
+				mid,
+				fresh,
+				liquidation,
+			};
+		});
+
+		const {
+			withinWindow,
+			partlyAged,
+			agedOut,
+			early,
+			mid,
+			fresh,
+			liquidation,
+		} = await Effect.runPromise(
+			quiet(
+				program.pipe(
+					Effect.provide(LighterModuleService(config)),
+					Effect.provide(TestContext.TestContext),
+				),
+			),
+		);
+
+		expect(withinWindow).toEqual([
+			{
+				marketId: "0",
+				trades: [early, mid, fresh],
+				liquidation_trades: [liquidation],
+				[HAS_PRICE_KEY]: true,
+			},
+		]);
+		expect(partlyAged).toEqual([
+			{
+				marketId: "0",
+				trades: [mid, fresh],
+				liquidation_trades: [liquidation],
+				[HAS_PRICE_KEY]: true,
+			},
+		]);
+		expect(agedOut).toEqual([
+			{
+				marketId: "0",
+				trades: [],
+				liquidation_trades: [],
+				[HAS_PRICE_KEY]: true,
+			},
 		]);
 	});
 

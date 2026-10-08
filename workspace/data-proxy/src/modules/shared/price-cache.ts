@@ -42,13 +42,15 @@ export interface PriceCache<K, V> {
 	size: () => number;
 }
 
+export type PriceCacheApply<V> = (prev: V | undefined, next: V) => V;
+
 const replace = <V>(_prev: V | undefined, next: V): V => next;
 
 export const createPriceCache = <K, V>(options?: {
 	/** The timeout for a price wait. Defaults to 3 seconds. */
 	timeout?: Duration.Duration;
 	/** Produces the value to store from the cached value, if any, and the incoming one. */
-	apply?: (prev: V | undefined, next: V) => V;
+	apply?: PriceCacheApply<V>;
 }): Effect.Effect<PriceCache<K, V>> =>
 	Effect.sync(() => {
 		const waitTimeout =

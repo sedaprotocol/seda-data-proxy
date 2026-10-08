@@ -23,6 +23,8 @@ export const LighterModuleConfigSchema = v.strictObject({
 	// ping on a shorter cadence.
 	keepaliveInterval: keepaliveIntervalField("60 seconds"),
 	streamType: v.optional(v.picklist(LIGHTER_STREAM_TYPES), "ticker"),
+	// Used only for the streamType "trade" to drop trades older than this.
+	tradesKeepSeconds: v.optional(v.number(), 60),
 });
 
 export type LighterModuleConfig = v.InferOutput<

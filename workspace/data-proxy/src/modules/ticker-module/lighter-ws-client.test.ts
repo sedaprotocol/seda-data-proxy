@@ -416,6 +416,7 @@ const baseConfig: LighterModuleConfig = {
 	symbolsCleanupTtl: Duration.hours(1),
 	symbolsCleanupInterval: Duration.seconds(30),
 	streamType: "ticker",
+	tradesKeepSeconds: 60,
 };
 
 const originalWebSocket = globalThis.WebSocket;

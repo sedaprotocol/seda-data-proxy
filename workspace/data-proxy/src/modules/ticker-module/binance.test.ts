@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Duration, Effect, LogLevel, Logger } from "effect";
+import {
+	Duration,
+	Effect,
+	LogLevel,
+	Logger,
+	TestClock,
+	TestContext,
+} from "effect";
 import * as v from "valibot";
 import {
 	type BinanceModuleConfig,
@@ -44,6 +51,7 @@ const baseConfig: BinanceModuleConfig = {
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.minutes(2),
 	symbolsCleanupInterval: Duration.seconds(30),
+	tradesKeepSeconds: 60,
 };
 
 const buildRoute = () =>
@@ -207,6 +215,115 @@ describe("BinanceModuleService.handleRequest", () => {
 		const afterBody = await afterError.json();
 		expect(afterBody).toEqual([{ symbol: "BTCUSDT", __sedaHasPrice: false }]);
 	}, 10_000);
+
+	it("keeps a trade window and drops aged trades when the request is served", async () => {
+		const route = buildRoute();
+		const config: BinanceModuleConfig = {
+			...baseConfig,
+			streamType: "trade",
+			tradesKeepSeconds: 60,
+			subscriptionSymbols: ["BTCUSDT"],
+		};
+		const tradeAt = (id: number, time: number) => ({
+			e: "trade",
+			E: time,
+			s: "BTCUSDT",
+			t: id,
+			p: "67123.44",
+			q: "0.01",
+			T: time,
+			m: false,
+			M: true,
+		});
+
+		const program = Effect.gen(function* () {
+			const now = yield* TestClock.currentTimeMillis;
+			const early = tradeAt(1, now - 50_000);
+			const mid = tradeAt(2, now - 5_000);
+			const fresh = tradeAt(4, now - 1_000);
+			const svc = yield* ModuleService;
+			yield* svc.start();
+
+			let ws: FakeWebSocket | undefined;
+			for (let i = 0; i < 100 && ws === undefined; i++) {
+				ws = FakeWebSocket.instances[0];
+				if (ws === undefined) yield* Effect.yieldNow();
+			}
+			if (ws === undefined) throw new Error("Timed out waiting for WebSocket");
+			ws.triggerOpen();
+			yield* Effect.yieldNow();
+			ws.triggerMessage(
+				JSON.stringify({ stream: "btcusdt@trade", data: early }),
+			);
+			ws.triggerMessage(
+				JSON.stringify({
+					stream: "btcusdt@trade",
+					data: { e: "trade", s: "BTCUSDT", t: 7, p: "1", q: "1" },
+				}),
+			);
+			ws.triggerMessage(JSON.stringify({ stream: "btcusdt@trade", data: mid }));
+			ws.triggerMessage(
+				JSON.stringify({
+					stream: "btcusdt@trade",
+					data: tradeAt(3, now - 70_000),
+				}),
+			);
+			ws.triggerMessage(
+				JSON.stringify({ stream: "btcusdt@trade", data: fresh }),
+			);
+
+			const request = () =>
+				Effect.gen(function* () {
+					const response = yield* svc.handleRequest(
+						route,
+						{ symbols: "BTCUSDT" },
+						dummyRequest,
+					);
+					return yield* Effect.promise(() => response.json());
+				});
+
+			const withinWindow = yield* request();
+			yield* TestClock.adjust(Duration.seconds(50));
+			const partlyAged = yield* request();
+			yield* TestClock.adjust(Duration.seconds(20));
+			const agedOut = yield* request();
+			return { withinWindow, partlyAged, agedOut, early, mid, fresh };
+		});
+
+		const { withinWindow, partlyAged, agedOut, early, mid, fresh } =
+			await Effect.runPromise(
+				program.pipe(
+					Effect.provide(BinanceModuleService(config)),
+					Effect.provide(TestContext.TestContext),
+					Logger.withMinimumLogLevel(LogLevel.None),
+				),
+			);
+
+		expect(withinWindow).toEqual([
+			{
+				s: "BTCUSDT",
+				trades: [early, mid, fresh],
+				symbol: "BTCUSDT",
+				__sedaHasPrice: true,
+			},
+		]);
+		expect(partlyAged).toEqual([
+			{
+				s: "BTCUSDT",
+				trades: [mid, fresh],
+				symbol: "BTCUSDT",
+				__sedaHasPrice: true,
+			},
+		]);
+		expect(agedOut).toEqual([
+			{
+				s: "BTCUSDT",
+				trades: [],
+				symbol: "BTCUSDT",
+				__sedaHasPrice: true,
+			},
+		]);
+	});
 
 	it("rejects when more symbols than maxSymbolsPerRequest are requested", async () => {
 		const route = buildRoute();
