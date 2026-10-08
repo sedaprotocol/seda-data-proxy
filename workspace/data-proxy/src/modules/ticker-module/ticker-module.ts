@@ -5,7 +5,11 @@ import { createErrorResponse } from "../../controllers/create-error-response";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-import { type PriceCache, createPriceCache } from "../shared/price-cache";
+import {
+	type PriceCache,
+	type PriceCacheApply,
+	createPriceCache,
+} from "../shared/price-cache";
 import type { VenueWS } from "../shared/venue-ws";
 import { FailedToHandleTickerRequestError } from "./errors";
 
@@ -21,6 +25,17 @@ export interface TickerModuleServiceConfig {
 export const parseUppercaseSymbol = (token: string): string =>
 	token.toUpperCase();
 
+export type TickerModuleCacheApply<TFrame> = (
+	prev: TFrame | undefined,
+	next: TFrame,
+	now: number,
+) => TFrame;
+
+export type TickerModuleCachePostReadUpdate<TFrame> = (
+	cacheHit: TFrame,
+	now: number,
+) => TFrame;
+
 export interface CreateTickerModuleServiceParams<
 	TKey,
 	TFrame,
@@ -35,7 +50,16 @@ export interface CreateTickerModuleServiceParams<
 		config: TConfig,
 		cache: PriceCache<TKey, TFrame>,
 	) => Effect.Effect<VenueWS<TKey>, never, never>;
-	cacheApply?: (prev: TFrame | undefined, next: TFrame) => TFrame;
+	/**
+	 * Custom cache apply, used when replacing the cached frame with the incoming one is not enough.
+	 * `now` is the Effect clock in milliseconds, read on each write.
+	 */
+	cacheApply?: TickerModuleCacheApply<TFrame>;
+	/**
+	 * In case of a cache hit, the request handler calls this function to produce the value to
+	 * return as a result and update the cache with.
+	 */
+	cachePostReadUpdate?: TickerModuleCachePostReadUpdate<TFrame>;
 	extraInitLog?: Record<string, unknown>;
 }
 
@@ -65,6 +89,7 @@ export const createTickerModuleService = <
 				parseKey,
 				createWS,
 				cacheApply,
+				cachePostReadUpdate,
 				extraInitLog,
 			} = params;
 
@@ -74,9 +99,13 @@ export const createTickerModuleService = <
 				...extraInitLog,
 			});
 
-			const cache = yield* createPriceCache<TKey, TFrame>({
-				apply: cacheApply,
-			});
+			let apply: PriceCacheApply<TFrame> | undefined;
+			if (cacheApply !== undefined) {
+				const clock = yield* Clock.clockWith((clock) => Effect.succeed(clock));
+				apply = (prev, next) =>
+					cacheApply(prev, next, clock.unsafeCurrentTimeMillis());
+			}
+			const cache = yield* createPriceCache<TKey, TFrame>({ apply });
 			const ws = yield* createWS(config, cache);
 			const lastRequestToKey = MutableHashMap.empty<TKey, number>();
 
@@ -175,8 +204,20 @@ export const createTickerModuleService = <
 
 					const results = yield* Effect.forEach(
 						requested,
-						({ key }) =>
-							key === null ? Effect.succeed(null) : cache.getOrWaitPrice(key),
+						({ key }) => {
+							if (key === null) return Effect.succeed(null);
+							if (cachePostReadUpdate === undefined || !socketHealthy) {
+								return cache.getOrWaitPrice(key);
+							}
+							return Effect.gen(function* () {
+								const cached = yield* cache.getOrWaitPrice(key);
+								if (cached === null) return null;
+								const servedAt = yield* Clock.currentTimeMillis;
+								const kept = cachePostReadUpdate(cached, servedAt);
+								if (kept !== cached) cache.replaceCached(key, kept);
+								return kept;
+							});
+						},
 						{ concurrency: "unbounded" },
 					);
 

@@ -11,13 +11,107 @@ import {
 	type VenueWS,
 	createVenueWS,
 } from "../shared/venue-ws";
-import { createTickerModuleService } from "./ticker-module";
+import {
+	type CreateTickerModuleServiceParams,
+	createTickerModuleService,
+} from "./ticker-module";
 
 export const PING_FRAME = JSON.stringify({ type: "ping" });
 export const PONG_FRAME = JSON.stringify({ type: "pong" });
 
-export const LighterModuleService = (config: LighterModuleConfig) =>
-	createTickerModuleService({
+export interface LighterPriceFrame {
+	[key: string]: unknown;
+}
+
+const tradeTimestamp = (trade: unknown): number | null => {
+	if (!isRecord(trade)) return null;
+	const timestamp = trade.timestamp;
+	return typeof timestamp === "number" && Number.isFinite(timestamp)
+		? timestamp
+		: null;
+};
+
+/** Filters out trades whose timestamp (ms) is outside the window. */
+const retainLighterTradesWithinWindow = (
+	trades: readonly unknown[],
+	keepMillis: number,
+	now: number,
+): readonly unknown[] => {
+	const cutoff = now - keepMillis;
+	const kept = trades.filter((trade) => {
+		const timestamp = tradeTimestamp(trade);
+		return timestamp !== null && timestamp >= cutoff;
+	});
+	return kept.length === trades.length ? trades : kept;
+};
+
+const asTradeList = (value: unknown): readonly unknown[] | undefined =>
+	Array.isArray(value) ? value : undefined;
+
+const combineTrades = (
+	previous: readonly unknown[] | undefined,
+	incoming: readonly unknown[],
+): readonly unknown[] => {
+	if (previous === undefined) return incoming;
+	if (incoming.length === 0) return previous;
+	return previous.concat(incoming);
+};
+
+const windowTrades = (
+	previous: readonly unknown[] | undefined,
+	incoming: readonly unknown[],
+	keepMillis: number,
+	now: number,
+): readonly unknown[] =>
+	retainLighterTradesWithinWindow(
+		combineTrades(previous, incoming),
+		keepMillis,
+		now,
+	);
+
+/** Concatenates a trade batch onto the cached window. */
+const applyLighterTradeFrame = (
+	prev: LighterPriceFrame | undefined,
+	next: LighterPriceFrame,
+	keepMillis: number,
+	now: number,
+): LighterPriceFrame => {
+	const trades = windowTrades(
+		asTradeList(prev?.trades),
+		asTradeList(next.trades) ?? [],
+		keepMillis,
+		now,
+	);
+	const liquidationTrades = windowTrades(
+		asTradeList(prev?.liquidation_trades),
+		asTradeList(next.liquidation_trades) ?? [],
+		keepMillis,
+		now,
+	);
+
+	if (
+		prev !== undefined &&
+		trades === prev.trades &&
+		liquidationTrades === prev.liquidation_trades
+	) {
+		return prev;
+	}
+	if (
+		prev === undefined &&
+		trades === next.trades &&
+		liquidationTrades === next.liquidation_trades
+	) {
+		return next;
+	}
+	return { trades, liquidation_trades: liquidationTrades };
+};
+
+export const LighterModuleService = (config: LighterModuleConfig) => {
+	const params: CreateTickerModuleServiceParams<
+		number,
+		LighterPriceFrame,
+		LighterModuleConfig
+	> = {
 		venue: "lighter",
 		routeType: "lighter",
 		identityField: "marketId",
@@ -25,11 +119,22 @@ export const LighterModuleService = (config: LighterModuleConfig) =>
 		parseKey: parseMarketId,
 		createWS: createLighterWS,
 		extraInitLog: { streamType: config.streamType },
-	});
+	};
 
-export interface LighterPriceFrame {
-	[key: string]: unknown;
-}
+	if (config.streamType === "trade") {
+		const keepMillis = config.tradesKeepSeconds * 1000;
+		params.cacheApply = (prev, next, now) =>
+			applyLighterTradeFrame(prev, next, keepMillis, now);
+		params.cachePostReadUpdate = (cacheHit, now) =>
+			applyLighterTradeFrame(
+				cacheHit,
+				{ trades: [], liquidation_trades: [] },
+				keepMillis,
+				now,
+			);
+	}
+	return createTickerModuleService(params);
+};
 
 export const buildSubscribeFrame = (
 	marketId: number,
