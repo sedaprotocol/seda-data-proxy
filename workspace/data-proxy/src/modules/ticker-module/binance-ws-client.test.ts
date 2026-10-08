@@ -136,6 +136,7 @@ const baseConfig: BinanceModuleConfig = {
 	reconnectStableThreshold: Duration.seconds(30),
 	symbolsCleanupTtl: Duration.minutes(2),
 	symbolsCleanupInterval: Duration.seconds(30),
+	tradesKeepSeconds: 60,
 };
 
 let restoreWebSocket: (() => void) | undefined;

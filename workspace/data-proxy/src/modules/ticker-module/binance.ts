@@ -11,12 +11,17 @@ import {
 	createVenueWS,
 } from "../shared/venue-ws";
 import {
+	type CreateTickerModuleServiceParams,
 	createTickerModuleService,
 	parseUppercaseSymbol,
 } from "./ticker-module";
 
-export const BinanceModuleService = (config: BinanceModuleConfig) =>
-	createTickerModuleService({
+export const BinanceModuleService = (config: BinanceModuleConfig) => {
+	const params: CreateTickerModuleServiceParams<
+		string,
+		BinancePriceFrame,
+		BinanceModuleConfig
+	> = {
 		venue: "binance",
 		routeType: "binance",
 		identityField: "symbol",
@@ -24,7 +29,23 @@ export const BinanceModuleService = (config: BinanceModuleConfig) =>
 		parseKey: parseUppercaseSymbol,
 		createWS: createBinanceWS,
 		extraInitLog: { streamType: config.streamType },
-	});
+	};
+
+	if (config.streamType === "trade") {
+		const keepMillis = config.tradesKeepSeconds * 1000;
+		params.cacheApply = (prev, next, now) =>
+			applyBinanceTradeFrame(prev, next, keepMillis, now);
+		params.cachePostReadUpdate = (cacheHit, now) =>
+			applyBinanceTradeFrame(
+				cacheHit,
+				{ s: cacheHit.s, trades: [] },
+				keepMillis,
+				now,
+			);
+	}
+
+	return createTickerModuleService(params);
+};
 
 export interface BinancePriceFrame {
 	s: string;
@@ -46,8 +67,59 @@ export const buildUnsubscribeFrame = (
 	id: number,
 ): string => JSON.stringify({ method: "UNSUBSCRIBE", params: streamNames, id });
 
+const tradeTime = (trade: unknown): number | null => {
+	if (!isRecord(trade)) return null;
+	const time = trade.T;
+	return typeof time === "number" && Number.isFinite(time) ? time : null;
+};
+
+/** Drops trades whose `T` (ms) is outside the window */
+const retainTradesWithinWindow = (
+	trades: readonly unknown[],
+	keepMillis: number,
+	now: number,
+): readonly unknown[] => {
+	const cutoff = now - keepMillis;
+	const kept = trades.filter((trade) => {
+		const time = tradeTime(trade);
+		return time !== null && time >= cutoff;
+	});
+	return kept.length === trades.length ? trades : kept;
+};
+
+const asTradeList = (value: unknown): readonly unknown[] | undefined =>
+	Array.isArray(value) ? value : undefined;
+
+const combineTrades = (
+	previous: readonly unknown[] | undefined,
+	incoming: readonly unknown[],
+): readonly unknown[] => {
+	if (previous === undefined) return incoming;
+	if (incoming.length === 0) return previous;
+	return previous.concat(incoming);
+};
+
+/** Concatenates a trade batch onto the cached window. */
+const applyBinanceTradeFrame = (
+	prev: BinancePriceFrame | undefined,
+	next: BinancePriceFrame,
+	keepMillis: number,
+	now: number,
+): BinancePriceFrame => {
+	const trades = retainTradesWithinWindow(
+		combineTrades(asTradeList(prev?.trades), asTradeList(next.trades) ?? []),
+		keepMillis,
+		now,
+	);
+	if (prev !== undefined && trades === prev.trades) return prev;
+	if (prev === undefined && trades === next.trades) return next;
+	const symbol = next.s.length > 0 ? next.s : prev?.s;
+	return { s: symbol ?? "", trades };
+};
+
 export const parseInboundFrame = (
 	raw: string,
+	streamType: BinanceStreamType,
 ): VenueParsedInbound<string, BinancePriceFrame> | null => {
 	const json = parseJsonRecord(raw);
 	if (!json) return null;
@@ -71,14 +143,14 @@ export const parseInboundFrame = (
 		return null;
 	}
 
+	const frame =
+		streamType === "trade"
+			? { s: payload.s, trades: [payload] }
+			: (payload as BinancePriceFrame);
+
 	return {
 		kind: "tickers",
-		frames: [
-			{
-				key: payload.s.toUpperCase(),
-				frame: payload as BinancePriceFrame,
-			},
-		],
+		frames: [{ key: payload.s.toUpperCase(), frame }],
 	};
 };
 
@@ -101,6 +173,6 @@ export const createBinanceWS = (
 			buildSubscribeFrame(streamNamesFor(keys), nextControlId()),
 		buildUnsubscribeFrame: (keys) =>
 			buildUnsubscribeFrame(streamNamesFor(keys), nextControlId()),
-		parseInboundFrame,
+		parseInboundFrame: (raw) => parseInboundFrame(raw, config.streamType),
 	});
 };

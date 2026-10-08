@@ -18,6 +18,8 @@ export const BinanceModuleConfigSchema = v.strictObject({
 		maxMessagesWindow: "1 second",
 	}),
 	streamType: v.optional(v.picklist(BINANCE_STREAM_TYPES), "bookTicker"),
+	// Drop trades older than this when streamType is "trade".
+	tradesKeepSeconds: v.optional(v.number(), 10),
 });
 
 export type BinanceModuleConfig = v.InferOutput<
