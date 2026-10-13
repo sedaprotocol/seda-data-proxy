@@ -44,7 +44,7 @@ export interface VenueWS<TKey = string> {
 	hasError(): Effect.Effect<boolean, never, never>;
 }
 
-export type InboundFrameAction = "write" | "ignore" | "resubscribe";
+export type InboundFrameAction = "write" | "ignore" | "resubscribe" | "reseed";
 
 export type ParsedTickersFrame<TKey, TFrame> = {
 	key: TKey;
@@ -52,6 +52,8 @@ export type ParsedTickersFrame<TKey, TFrame> = {
 	/**
 	 * Omitted means write. `ignore` drops the frame. `resubscribe`
 	 * clears the cached value and subscribes again for a snapshot.
+	 * `reseed` clears the cached value and asks `seed.restart` for 
+	 * a fresh snapshot without changing the socket subscription.
 	 */
 	action?: InboundFrameAction;
 };
@@ -87,6 +89,17 @@ export interface CreateVenueWSParams<TKey, TFrame> {
 	buildSubscribeFrame: (keys: TKey[]) => string | string[];
 	buildUnsubscribeFrame: (keys: TKey[]) => string | string[];
 	parseInboundFrame: (raw: string) => VenueParsedInbound<TKey, TFrame> | null;
+	/**
+	 * Optional snapshot source for venues whose socket does not send one.
+	 * `start` runs for newly subscribed keys and for every desired key on
+	 * reconnect. `stop` runs for removed keys and for every desired key when
+	 * the socket closes after it has opened. `restart` runs on `reseed`.
+	 */
+	seed?: {
+		start: (keys: TKey[]) => Effect.Effect<void, never, never>;
+		stop: (keys: TKey[]) => Effect.Effect<void, never, never>;
+		restart: (keys: TKey[]) => Effect.Effect<void, never, never>;
+	};
 }
 
 export const createVenueWS = <TKey, TFrame>(
@@ -101,6 +114,7 @@ export const createVenueWS = <TKey, TFrame>(
 			buildSubscribeFrame,
 			buildUnsubscribeFrame,
 			parseInboundFrame,
+			seed,
 		} = params;
 		const { name, wsUrl, maxMessages, maxMessagesWindow } = config;
 		const reconnectSchedule =
@@ -118,6 +132,9 @@ export const createVenueWS = <TKey, TFrame>(
 		const desiredKeys = MutableHashMap.empty<TKey, true>();
 		let currentWS: WebSocket | null = null;
 		let unhealthy = false;
+		// A close before the first open must not cancel a seed that subscribe
+		// already started; there is no reconnect yet to start it again.
+		let opened = false;
 		const outbound = yield* Queue.unbounded<OutboundMessage>();
 		const activeSubscriptions = Metric.gauge(`${venue}_active_subscriptions`, {
 			description: `Number of active ${venue} WebSocket stream subscriptions`,
@@ -151,6 +168,12 @@ export const createVenueWS = <TKey, TFrame>(
 
 		const isDesired = (key: TKey): boolean =>
 			Option.isSome(MutableHashMap.get(desiredKeys, key));
+
+		const desiredKeyList = (): TKey[] => {
+			const keys: TKey[] = [];
+			for (const [key] of desiredKeys) keys.push(key);
+			return keys;
+		};
 
 		const enqueue = (frame: string, type: OutboundMessageType) =>
 			Queue.offer(outbound, { frame, type }).pipe(Effect.asVoid);
@@ -252,6 +275,7 @@ export const createVenueWS = <TKey, TFrame>(
 				if (fresh.length === 0) return;
 				yield* setActiveSubscriptions();
 				yield* enqueueFrames(buildSubscribeFrame(fresh), "subscribe");
+				if (seed !== undefined) yield* seed.start(fresh);
 			});
 
 		const unsubscribe = (keys: TKey[]) =>
@@ -265,6 +289,7 @@ export const createVenueWS = <TKey, TFrame>(
 				if (removed.length === 0) return;
 				yield* setActiveSubscriptions();
 				yield* enqueueFrames(buildUnsubscribeFrame(removed), "unsubscribe");
+				if (seed !== undefined) yield* seed.stop(removed);
 			});
 
 		const hasError = () => Effect.sync(() => unhealthy);
@@ -274,17 +299,22 @@ export const createVenueWS = <TKey, TFrame>(
 				yield* Effect.logInfo(`${venue} WS open`, { name });
 				unhealthy = false;
 				currentWS = ws;
-				const keys: TKey[] = [];
-				for (const [key] of desiredKeys) keys.push(key);
+				const keys = desiredKeyList();
 				if (keys.length > 0) {
 					yield* enqueueFrames(buildSubscribeFrame(keys), "subscribe");
+					if (opened && seed !== undefined) yield* seed.start(keys);
 				}
+				opened = true;
 			});
 
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
 				unhealthy = true;
 				currentWS = null;
+				if (opened && seed !== undefined) {
+					const keys = desiredKeyList();
+					if (keys.length > 0) yield* seed.stop(keys);
+				}
 				// Drop queued frames so a reconnect isn't preceded by a stale backlog.
 				yield* clearOutbound();
 				yield* Deferred.fail(closed, undefined);
@@ -307,6 +337,7 @@ export const createVenueWS = <TKey, TFrame>(
 			}
 
 			const resubs: TKey[] = [];
+			const reseeds: TKey[] = [];
 			let applied = 0;
 			for (const { key, frame, action = "write" } of parsed.frames) {
 				if (!isDesired(key)) continue;
@@ -316,11 +347,19 @@ export const createVenueWS = <TKey, TFrame>(
 					resubs.push(key);
 					continue;
 				}
+				if (action === "reseed") {
+					cache.deleteCached(key);
+					reseeds.push(key);
+					continue;
+				}
 				cache.setPriceSync(key, frame);
 				applied += 1;
 			}
 			if (resubs.length > 0) {
 				Runtime.runSync(runtime, resubscribeKeys(resubs));
+			}
+			if (reseeds.length > 0 && seed !== undefined) {
+				Runtime.runSync(runtime, seed.restart(reseeds));
 			}
 			recordTickHandle(venue, name, performance.now() - started, applied);
 		};

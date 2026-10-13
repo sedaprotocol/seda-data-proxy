@@ -15,6 +15,12 @@ import {
 	parseInboundFrame,
 } from "./binance";
 
+type DepthRestSnapshot = {
+	lastUpdateId: number;
+	bids: Array<[string, string]>;
+	asks: Array<[string, string]>;
+};
+
 const btcBook: BinancePriceFrame = {
 	u: 400900217,
 	s: "BTCUSDT",
@@ -36,7 +42,13 @@ const ethBook: BinancePriceFrame = {
 describe("buildStreamName", () => {
 	it("lowercases the symbol and appends the stream type", () => {
 		expect(buildStreamName("BTCUSDT", "bookTicker")).toBe("btcusdt@bookTicker");
-		expect(buildStreamName("ethusdt", "aggTrade")).toBe("ethusdt@aggTrade");
+		expect(buildStreamName("ethusdt", "trade")).toBe("ethusdt@trade");
+		expect(buildStreamName("BTCUSDT", "depth@100ms")).toBe(
+			"btcusdt@depth@100ms",
+		);
+		expect(buildStreamName("BTCUSDT", "depth@1000ms")).toBe(
+			"btcusdt@depth@1000ms",
+		);
 	});
 });
 
@@ -65,21 +77,24 @@ describe("buildSubscribeFrame / buildUnsubscribeFrame", () => {
 describe("parseInboundFrame", () => {
 	it("unwraps a combined-stream envelope", () => {
 		const raw = JSON.stringify({ stream: "btcusdt@bookTicker", data: btcBook });
-		expect(parseInboundFrame(raw)).toEqual({
+		expect(parseInboundFrame(raw, "bookTicker")).toEqual({
 			kind: "tickers",
 			frames: [{ key: "BTCUSDT", frame: btcBook }],
 		});
 	});
 
 	it("accepts a bare (raw-stream) payload", () => {
-		expect(parseInboundFrame(JSON.stringify(ethBook))).toEqual({
+		expect(parseInboundFrame(JSON.stringify(ethBook), "bookTicker")).toEqual({
 			kind: "tickers",
 			frames: [{ key: "ETHUSDT", frame: ethBook }],
 		});
 	});
 
 	it("uppercases the symbol so cache keys stay consistent", () => {
-		const result = parseInboundFrame(JSON.stringify({ s: "btcusdt", b: "1" }));
+		const result = parseInboundFrame(
+			JSON.stringify({ s: "btcusdt", b: "1" }),
+			"bookTicker",
+		);
 		expect(result).toMatchObject({
 			kind: "tickers",
 			frames: [{ key: "BTCUSDT" }],
@@ -88,7 +103,7 @@ describe("parseInboundFrame", () => {
 
 	it("returns null for a control ack with no symbol", () => {
 		expect(
-			parseInboundFrame(JSON.stringify({ result: null, id: 1 })),
+			parseInboundFrame(JSON.stringify({ result: null, id: 1 }), "bookTicker"),
 		).toBeNull();
 	});
 
@@ -101,6 +116,7 @@ describe("parseInboundFrame", () => {
 						msg: "Invalid JSON: key must be a string at line 1 column 2",
 					},
 				}),
+				"bookTicker",
 			),
 		).toEqual({
 			kind: "error",
@@ -110,11 +126,13 @@ describe("parseInboundFrame", () => {
 	});
 
 	it("returns null for malformed JSON", () => {
-		expect(parseInboundFrame("not json")).toBeNull();
+		expect(parseInboundFrame("not json", "bookTicker")).toBeNull();
 	});
 
 	it("returns null when the payload has no string symbol", () => {
-		expect(parseInboundFrame(JSON.stringify({ b: "1", a: "2" }))).toBeNull();
+		expect(
+			parseInboundFrame(JSON.stringify({ b: "1", a: "2" }), "bookTicker"),
+		).toBeNull();
 	});
 });
 
@@ -290,6 +308,219 @@ describe("createBinanceWS", () => {
 		const frame = parseControl(ws.sent[1]);
 		expect(frame.method).toBe("UNSUBSCRIBE");
 		expect(frame.params).toEqual(["btcusdt@bookTicker"]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+});
+
+const depthUpdate = (
+	symbol: string,
+	U: number,
+	u: number,
+	b: Array<[string, string]> = [],
+	a: Array<[string, string]> = [],
+) =>
+	JSON.stringify({
+		stream: `${symbol.toLowerCase()}@depth@100ms`,
+		data: { e: "depthUpdate", s: symbol, U, u, b, a },
+	});
+
+const createSnapshotFeed = () => {
+	const pending: Array<{
+		resolve: (book: DepthRestSnapshot) => void;
+		reject: (error: Error) => void;
+	}> = [];
+	const queued: DepthRestSnapshot[] = [];
+	let calls = 0;
+	const original = globalThis.fetch;
+	globalThis.fetch = (async (_input, init) => {
+		calls += 1;
+		const signal = init?.signal ?? undefined;
+		const book = await new Promise<DepthRestSnapshot>((resolve, reject) => {
+			const abort = () => {
+				reject(new DOMException("The operation was aborted", "AbortError"));
+			};
+			if (signal?.aborted) {
+				abort();
+				return;
+			}
+			const next = queued.shift();
+			if (next !== undefined) {
+				resolve(next);
+				return;
+			}
+			const waiter = { resolve, reject };
+			pending.push(waiter);
+			signal?.addEventListener(
+				"abort",
+				() => {
+					const index = pending.indexOf(waiter);
+					if (index !== -1) pending.splice(index, 1);
+					abort();
+				},
+				{ once: true },
+			);
+		});
+		return new Response(JSON.stringify(book), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}) as typeof fetch;
+
+	const deliver = (book: DepthRestSnapshot) => {
+		const waiter = pending.shift();
+		if (waiter !== undefined) waiter.resolve(book);
+		else queued.push(book);
+	};
+	return {
+		deliver,
+		calls: () => calls,
+		restore: () => {
+			globalThis.fetch = original;
+		},
+	};
+};
+
+describe("createBinanceWS depth", () => {
+	const depthConfig: BinanceModuleConfig = {
+		...baseConfig,
+		streamType: "depth@100ms",
+		subscriptionSymbols: ["BTCUSDT"],
+	};
+	let restoreFetch: (() => void) | undefined;
+
+	afterEach(() => {
+		restoreFetch?.();
+		restoreFetch = undefined;
+	});
+
+	const startDepth = (
+		feed: ReturnType<typeof createSnapshotFeed>,
+		preSubscribed: string[] = ["BTCUSDT"],
+	) =>
+		Effect.gen(function* () {
+			restoreFetch = feed.restore;
+			const cache = yield* createPriceCache<string, BinancePriceFrame>();
+			const ws = yield* createBinanceWS(
+				depthConfig,
+				cache,
+				Schedule.spaced(Duration.minutes(10)),
+			);
+			yield* ws.subscribe(preSubscribed);
+			const fiber = yield* ws.start();
+			return { cache, ws, fiber };
+		}).pipe(Logger.withMinimumLogLevel(LogLevel.None));
+
+	it("subscribes to the depth stream and waits to publish until a diff bridges the snapshot", async () => {
+		const feed = createSnapshotFeed();
+		const { cache, fiber } = await Effect.runPromise(startDepth(feed));
+		await flush();
+		const ws = FakeWebSocket.instances[0];
+		ws.triggerOpen();
+		await flush();
+
+		expect(parseControl(ws.sent[0]).params).toEqual(["btcusdt@depth@100ms"]);
+		expect(feed.calls()).toBe(1);
+		expect(cache.size()).toBe(0);
+
+		ws.triggerMessage(
+			depthUpdate("BTCUSDT", 101, 102, [
+				["1", "0"],
+				["3", "1"],
+			]),
+		);
+		await flush();
+		expect(cache.size()).toBe(0);
+
+		feed.deliver({
+			lastUpdateId: 100,
+			bids: [
+				["1", "5"],
+				["3", "1"],
+			],
+			asks: [["2", "5"]],
+		});
+		await flush();
+
+		expect(await Effect.runPromise(cache.getOrWaitPrice("BTCUSDT"))).toEqual({
+			s: "BTCUSDT",
+			lastUpdateId: 102,
+			bids: [["3", "1"]],
+			asks: [["2", "5"]],
+		});
+
+		ws.triggerMessage(depthUpdate("BTCUSDT", 103, 103, [], [["2", "9"]]));
+		await flush();
+		expect(feed.calls()).toBe(1);
+		expect(await Effect.runPromise(cache.getOrWaitPrice("BTCUSDT"))).toEqual({
+			s: "BTCUSDT",
+			lastUpdateId: 103,
+			bids: [["3", "1"]],
+			asks: [["2", "9"]],
+		});
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("refetches the snapshot after a sequence gap and keeps the gapped diff", async () => {
+		const feed = createSnapshotFeed();
+		const { cache, fiber } = await Effect.runPromise(startDepth(feed));
+		await flush();
+		FakeWebSocket.instances[0].triggerOpen();
+		await flush();
+
+		feed.deliver({ lastUpdateId: 100, bids: [["1", "5"]], asks: [] });
+		await flush();
+		FakeWebSocket.instances[0].triggerMessage(
+			depthUpdate("BTCUSDT", 101, 101, [["1", "8"]]),
+		);
+		await flush();
+		expect(cache.getCached("BTCUSDT")).toMatchObject({ lastUpdateId: 101 });
+
+		FakeWebSocket.instances[0].triggerMessage(
+			depthUpdate("BTCUSDT", 110, 111, [["8", "1"]]),
+		);
+		await flush();
+		expect(cache.getCached("BTCUSDT")).toBeUndefined();
+		expect(feed.calls()).toBe(2);
+
+		feed.deliver({ lastUpdateId: 109, bids: [["1", "8"]], asks: [] });
+		await flush();
+		expect(await Effect.runPromise(cache.getOrWaitPrice("BTCUSDT"))).toEqual({
+			s: "BTCUSDT",
+			lastUpdateId: 111,
+			bids: [
+				["8", "1"],
+				["1", "8"],
+			],
+			asks: [],
+		});
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("drops a snapshot that arrives after unsubscribe", async () => {
+		const feed = createSnapshotFeed();
+		const {
+			cache,
+			ws: service,
+			fiber,
+		} = await Effect.runPromise(startDepth(feed));
+		await flush();
+		FakeWebSocket.instances[0].triggerOpen();
+		await flush();
+		expect(feed.calls()).toBe(1);
+
+		await Effect.runPromise(service.unsubscribe(["BTCUSDT"]));
+		await flush();
+		feed.deliver({ lastUpdateId: 100, bids: [["1", "5"]], asks: [] });
+		await flush();
+		FakeWebSocket.instances[0].triggerMessage(
+			depthUpdate("BTCUSDT", 101, 101, [["1", "8"]]),
+		);
+		await flush();
+
+		expect(cache.size()).toBe(0);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});

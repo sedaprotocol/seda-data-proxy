@@ -1,4 +1,4 @@
-import type { Effect, Schedule } from "effect";
+import { type Effect, Match, type Schedule } from "effect";
 import type {
 	BinanceModuleConfig,
 	BinanceStreamType,
@@ -6,10 +6,12 @@ import type {
 import { isRecord, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
+	type ParsedTickerFrames,
 	type VenueParsedInbound,
 	type VenueWS,
 	createVenueWS,
 } from "../shared/venue-ws";
+import { type DepthSync, createDepthSync } from "./binance-depth";
 import {
 	type CreateTickerModuleServiceParams,
 	createTickerModuleService,
@@ -117,41 +119,81 @@ const applyBinanceTradeFrame = (
 	return { s: symbol ?? "", trades };
 };
 
+const readErrorFrame = (
+	json: Record<string, unknown>,
+): {
+	kind: "error";
+	code: string | number | null;
+	message: string | null;
+} | null => {
+	const err = json.error;
+	if (!isRecord(err)) return null;
+	return {
+		kind: "error",
+		code: typeof err.code === "number" ? err.code : null,
+		message: typeof err.msg === "string" ? err.msg : null,
+	};
+};
+
+const unwrapPayload = (
+	json: Record<string, unknown>,
+): Record<string, unknown> =>
+	typeof json.stream === "string" && isRecord(json.data) ? json.data : json;
+
+const readSymbolFrame = (
+	payload: Record<string, unknown>,
+	symbol: string,
+): ParsedTickerFrames<string, BinancePriceFrame> => [
+	{
+		key: symbol.toUpperCase(),
+		frame: payload as BinancePriceFrame,
+	},
+];
+
+const readTradeFrame = (
+	payload: Record<string, unknown>,
+	symbol: string,
+): ParsedTickerFrames<string, BinancePriceFrame> => [
+	{
+		key: symbol.toUpperCase(),
+		frame: { s: symbol, trades: [payload] },
+	},
+];
+
+const readDepthFrame = (
+	payload: Record<string, unknown>,
+	symbol: string,
+	depth: DepthSync | undefined,
+): ParsedTickerFrames<string, BinancePriceFrame> | null => {
+	if (depth === undefined) return null;
+	return depth.ingest(payload, symbol);
+};
+
 export const parseInboundFrame = (
 	raw: string,
 	streamType: BinanceStreamType,
+	depth?: DepthSync,
 ): VenueParsedInbound<string, BinancePriceFrame> | null => {
 	const json = parseJsonRecord(raw);
 	if (!json) return null;
 
-	const err = json.error;
-	if (isRecord(err)) {
-		return {
-			kind: "error",
-			code: typeof err.code === "number" ? err.code : null,
-			message: typeof err.msg === "string" ? err.msg : null,
-		};
-	}
+	const errorFrame = readErrorFrame(json);
+	if (errorFrame) return errorFrame;
 
-	// Combined streams wrap the payload as { stream, data }; raw streams send it bare.
-	let payload: unknown = json;
-	if (typeof json.stream === "string" && isRecord(json.data)) {
-		payload = json.data;
-	}
+	const payload = unwrapPayload(json);
+	if (typeof payload.s !== "string" || payload.s.length === 0) return null;
 
-	if (!isRecord(payload) || typeof payload.s !== "string") {
-		return null;
-	}
+	const symbol = payload.s;
+	const frames = Match.value(streamType).pipe(
+		Match.when("bookTicker", () => readSymbolFrame(payload, symbol)),
+		Match.when("trade", () => readTradeFrame(payload, symbol)),
+		Match.when("depth@100ms", () => readDepthFrame(payload, symbol, depth)),
+		Match.when("depth@1000ms", () => readDepthFrame(payload, symbol, depth)),
+		Match.exhaustive,
+	);
+	if (frames === null) return null;
 
-	const frame =
-		streamType === "trade"
-			? { s: payload.s, trades: [payload] }
-			: (payload as BinancePriceFrame);
-
-	return {
-		kind: "tickers",
-		frames: [{ key: payload.s.toUpperCase(), frame }],
-	};
+	return { kind: "tickers", frames };
 };
 
 export const createBinanceWS = (
@@ -164,15 +206,22 @@ export const createBinanceWS = (
 	const streamNamesFor = (symbols: string[]) =>
 		symbols.map((symbol) => buildStreamName(symbol, config.streamType));
 
+	const depth =
+		config.streamType.split("@")[0] === "depth"
+			? createDepthSync(cache)
+			: undefined;
+
 	return createVenueWS({
 		venue: "binance",
 		config,
 		cache,
 		reconnectSchedule,
+		seed: depth,
 		buildSubscribeFrame: (keys) =>
 			buildSubscribeFrame(streamNamesFor(keys), nextControlId()),
 		buildUnsubscribeFrame: (keys) =>
 			buildUnsubscribeFrame(streamNamesFor(keys), nextControlId()),
-		parseInboundFrame: (raw) => parseInboundFrame(raw, config.streamType),
+		parseInboundFrame: (raw) =>
+			parseInboundFrame(raw, config.streamType, depth),
 	});
 };

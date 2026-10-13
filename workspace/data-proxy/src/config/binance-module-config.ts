@@ -5,7 +5,12 @@ import {
 	validateTickerModuleRoute,
 } from "./ticker-module-config";
 
-export const BINANCE_STREAM_TYPES = ["bookTicker", "trade"] as const;
+export const BINANCE_STREAM_TYPES = [
+	"bookTicker",
+	"trade",
+	"depth@100ms",
+	"depth@1000ms",
+] as const;
 
 export type BinanceStreamType = (typeof BINANCE_STREAM_TYPES)[number];
 
