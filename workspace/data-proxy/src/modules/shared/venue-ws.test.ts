@@ -28,6 +28,19 @@ const startClient = (options?: {
 	maxMessagesWindow?: Duration.Duration;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	preSubscribed?: string[];
+	seed?: {
+		start: (keys: string[]) => Effect.Effect<void, never, never>;
+		stop: (keys: string[]) => Effect.Effect<void, never, never>;
+		restart: (keys: string[]) => Effect.Effect<void, never, never>;
+	};
+	parseInboundFrame?: (raw: string) => {
+		kind: "tickers";
+		frames: Array<{
+			key: string;
+			frame: Record<string, unknown>;
+			action?: "write" | "ignore" | "resubscribe" | "reseed";
+		}>;
+	} | null;
 }) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<string, Record<string, unknown>>();
@@ -54,21 +67,24 @@ const startClient = (options?: {
 			buildSubscribeFrame: (keys) => JSON.stringify({ op: "subscribe", keys }),
 			buildUnsubscribeFrame: (keys) =>
 				JSON.stringify({ op: "unsubscribe", keys }),
-			parseInboundFrame: (raw) => {
-				let json: unknown;
-				try {
-					json = JSON.parse(raw);
-				} catch {
-					return null;
-				}
-				if (typeof json !== "object" || json === null) return null;
-				const record = json as Record<string, unknown>;
-				if (typeof record.s !== "string") return null;
-				return {
-					kind: "tickers" as const,
-					frames: [{ key: record.s, frame: record }],
-				};
-			},
+			seed: options?.seed,
+			parseInboundFrame:
+				options?.parseInboundFrame ??
+				((raw) => {
+					let json: unknown;
+					try {
+						json = JSON.parse(raw);
+					} catch {
+						return null;
+					}
+					if (typeof json !== "object" || json === null) return null;
+					const record = json as Record<string, unknown>;
+					if (typeof record.s !== "string") return null;
+					return {
+						kind: "tickers" as const,
+						frames: [{ key: record.s, frame: record }],
+					};
+				}),
 		});
 		if (options?.preSubscribed !== undefined) {
 			yield* ws.subscribe(options.preSubscribed);
@@ -472,6 +488,67 @@ describe("createVenueWS", () => {
 
 		await new Promise<void>((r) => setTimeout(r, 80));
 		expect(ws.sent.some((raw) => raw === "ping")).toBe(true);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
+	it("seeds new keys, reseeds without a socket frame, and reseeds on reconnect", async () => {
+		const calls: string[] = [];
+		const note =
+			(label: string) =>
+			(keys: string[]): Effect.Effect<void, never, never> =>
+				Effect.sync(() => {
+					calls.push(`${label}:${keys.join(",")}`);
+				});
+		const { cache, fiber } = await Effect.runPromise(
+			startClient({
+				preSubscribed: ["BTC"],
+				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
+				seed: {
+					start: note("start"),
+					stop: note("stop"),
+					restart: note("restart"),
+				},
+				parseInboundFrame: () => ({
+					kind: "tickers",
+					frames: [
+						{
+							key: "BTC",
+							frame: { s: "BTC" },
+							action: "reseed",
+						},
+					],
+				}),
+			}),
+		);
+		await flush();
+		const ws1 = FakeWebSocket.instances[0];
+		ws1.triggerOpen();
+		await flush();
+
+		expect(calls).toEqual(["start:BTC"]);
+		expect(ws1.sent.length).toBe(1);
+
+		ws1.triggerMessage(JSON.stringify({ s: "BTC" }));
+		await flush();
+		expect(calls).toEqual(["start:BTC", "restart:BTC"]);
+		expect(cache.size()).toBe(0);
+		expect(ws1.sent.length).toBe(1);
+
+		ws1.triggerClose();
+		await flush();
+		expect(calls).toEqual(["start:BTC", "restart:BTC", "stop:BTC"]);
+
+		await new Promise<void>((r) => setTimeout(r, 40));
+		const ws2 = FakeWebSocket.instances[1];
+		ws2.triggerOpen();
+		await flush();
+		expect(calls).toEqual([
+			"start:BTC",
+			"restart:BTC",
+			"stop:BTC",
+			"start:BTC",
+		]);
 
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});

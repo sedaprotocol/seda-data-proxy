@@ -1,6 +1,6 @@
 # Ticker module
 
-Shared HTTP + cache + idle-cleanup loop for public ticker venues. Each module supplies only its WebSocket protocol and a `parseKey` that turns request tokens into cache keys; request handling, price caching, and subscription lifecycle are the same.
+A ticker module is created with `createTickerModuleService`, which takes a `CreateTickerModuleServiceParams` object. It provides shared functionality for public ticker modules, such as subscription lifecycle handling, caching, and HTTP request handling.
 
 ## Overview
 
@@ -45,10 +45,10 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Venue | Default `wsUrl` | Default `maxMessages` / `maxMessagesWindow` | Extra fields |
 | --- | --- | --- | --- |
-| Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `trade`. No keepalive. `tradesKeepSeconds` (default `60`) is how many seconds of trades to keep when `streamType` is `"trade"`, using each trade's `T` (ms). |
+| Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `trade`, `depth@100ms`, `depth@1000ms`. `tradesKeepSeconds` (default `60`) is how many seconds of trades to keep when `streamType` is `"trade"`. |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
-| Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). Subscribe and unsubscribe send one symbol per frame since Bybit rejects the whole args list when any symbol is invalid. |
-| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. Keys are numeric market ids. `tradesKeepSeconds` (default `60`) is how many seconds of executed trades to keep when `streamType` is `"trade"`. |
+| Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). |
+| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. `tradesKeepSeconds` (default `60`) is how many seconds of executed trades to keep when `streamType` is `"trade"`. |
 
 ### Route
 
@@ -182,7 +182,7 @@ Lighter (identity field `marketId`):
 | Field | Present when | Description |
 | --- | --- | --- |
 | Identity (`symbol`, `instId`, or `marketId`) | always | The raw request token from `fetchFromModule` (original casing). |
-| Venue ticker fields | `__sedaHasPrice: true` | Relayed from the cached frame. |
+| Venue ticker fields | `__sedaHasPrice: true` | Relayed from the cached data. |
 | `__sedaHasPrice` | always | `true` when a cached price was returned; `false` on wait timeout, miss, or unhealthy socket. |
 
 Requests with more symbols than `maxSymbolsPerRequest` return HTTP 400.
