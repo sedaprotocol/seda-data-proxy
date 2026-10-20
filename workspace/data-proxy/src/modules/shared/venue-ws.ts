@@ -52,7 +52,7 @@ export type ParsedTickersFrame<TKey, TFrame> = {
 	/**
 	 * Omitted means write. `ignore` drops the frame. `resubscribe`
 	 * clears the cached value and subscribes again for a snapshot.
-	 * `reseed` clears the cached value and asks `seed.restart` for 
+	 * `reseed` clears the cached value and asks `seed.restart` for
 	 * a fresh snapshot without changing the socket subscription.
 	 */
 	action?: InboundFrameAction;

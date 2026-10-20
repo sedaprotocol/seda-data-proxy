@@ -45,10 +45,10 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Venue | Default `wsUrl` | Default `maxMessages` / `maxMessagesWindow` | Extra fields |
 | --- | --- | --- | --- |
-| Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `trade`, `depth@100ms`, `depth@1000ms`. `tradesKeepSeconds` (default `60`) is how many seconds of trades to keep when `streamType` is `"trade"`. |
+| Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `trade`, `depth@100ms`, `depth@1000ms`. No keepalive. `tradesKeepSeconds` (default `60`) is how many seconds of trades to keep when `streamType` is `"trade"`, using each trade's `T` (ms). |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
-| Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). |
-| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. `tradesKeepSeconds` (default `60`) is how many seconds of executed trades to keep when `streamType` is `"trade"`. |
+| Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). Subscribe and unsubscribe send one symbol per frame since Bybit rejects the whole args list when any symbol is invalid. |
+| Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. Keys are numeric market ids. `tradesKeepSeconds` (default `60`) is how many seconds of executed trades to keep when `streamType` is `"trade"`. |
 
 ### Route
 
