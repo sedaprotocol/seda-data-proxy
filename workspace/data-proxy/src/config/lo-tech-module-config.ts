@@ -6,10 +6,12 @@ export const LO_TECH_DATA_TYPE_PRICE = "PRICE" as const;
 export const LO_TECH_EXCHANGE_PATH_PARAM = "exchange" as const;
 export const LO_TECH_EXCHANGE_US_EQUITIES = "us_equities" as const;
 export const LO_TECH_EXCHANGE_FUTURES = "futures" as const;
+export const LO_TECH_COMPUTE_INDEX = "compute_index" as const;
 
 export const DEFAULT_LO_TECH_SUPPORTED_EXCHANGES = [
 	LO_TECH_EXCHANGE_US_EQUITIES,
 	LO_TECH_EXCHANGE_FUTURES,
+	LO_TECH_COMPUTE_INDEX,
 ] as const;
 
 export type LoTechExchange =

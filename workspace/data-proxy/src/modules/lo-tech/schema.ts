@@ -28,6 +28,9 @@ export const LoTechDataPriceSchema = v.object({
 	spread: v.number(),
 	expiry_date: v.optional(v.string()),
 	roll_date: v.optional(v.string()),
+	sequence_id: v.optional(v.number()),
+	trading_day_of_month: v.optional(v.number()),
+	trading_days_in_month: v.optional(v.number()),
 });
 
 export type LoTechDataPrice = v.InferOutput<typeof LoTechDataPriceSchema>;

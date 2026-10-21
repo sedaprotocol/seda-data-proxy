@@ -8,7 +8,7 @@ import {
 } from "./lo-tech";
 
 const moduleConfig = {
-	supportedExchanges: ["us_equities", "futures"],
+	supportedExchanges: ["us_equities", "futures", "compute_index"],
 };
 
 describe("lo-tech price feed keys", () => {
@@ -52,7 +52,7 @@ describe("resolveLoTechExchange", () => {
 		if (result._tag === "Left") {
 			expect(result.left).toBeInstanceOf(FailedToHandleLoTechRequestError);
 			expect(result.left.error).toBe(
-				'Unsupported LO:TECH exchange "invalid_exchange". Supported exchanges: us_equities, futures',
+				'Unsupported LO:TECH exchange "invalid_exchange". Supported exchanges: us_equities, futures, compute_index',
 			);
 		}
 	});

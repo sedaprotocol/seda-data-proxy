@@ -450,7 +450,11 @@ describe("parseConfig", () => {
 			}
 			expect(module.loTechApiKey).toBe("lo-tech-secret");
 			expect(module.priceFeeds[0]?.exchange).toBe("us_equities");
-			expect(module.supportedExchanges).toEqual(["us_equities", "futures"]);
+			expect(module.supportedExchanges).toEqual([
+				"us_equities",
+				"futures",
+				"compute_index",
+			]);
 			delete process.env.LOTECH_API_KEY;
 		});
 
@@ -479,7 +483,7 @@ describe("parseConfig", () => {
 			);
 
 			expect(result).toBeErrResult(
-				'Unsupported LO:TECH exchange "binance". Supported exchanges: us_equities, futures',
+				'Unsupported LO:TECH exchange "binance". Supported exchanges: us_equities, futures, compute_index',
 			);
 			delete process.env.LOTECH_API_KEY;
 		});

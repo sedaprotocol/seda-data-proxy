@@ -45,4 +45,32 @@ describe("LoTechDataMessageSchema", () => {
 		expect(result.output.data.symbol).toBe("WTIN6");
 		expect(result.output.data.generic_symbol).toBe("WTI/1");
 	});
+
+	it("should parse compute_index price messages", () => {
+		const result = v.safeParse(LoTechDataMessageSchema, {
+			egress_ts: 1792601959700133,
+			data: {
+				type: "PRICE",
+				symbol: "O|SICI-USD:SPOT",
+				sequence_id: 3,
+				ingress_ts: 1792600337776931,
+				publish_ts: 1792600337776931,
+				transaction_ts: 1792598400000000,
+				price: 113.045421,
+				spread: 0.0001,
+				trading_day_of_month: 15,
+				trading_days_in_month: 22,
+			},
+		});
+
+		expect(result.success).toBe(true);
+		if (!result.success) {
+			throw new Error(v.summarize(result.issues));
+		}
+
+		expect(result.output.data.symbol).toBe("O|SICI-USD:SPOT");
+		expect(result.output.data.sequence_id).toBe(3);
+		expect(result.output.data.trading_day_of_month).toBe(15);
+		expect(result.output.data.trading_days_in_month).toBe(22);
+	});
 });
