@@ -17,6 +17,7 @@ import { type ModuleHandlers, ModuleService } from "./modules/module";
 import { PmInsightsModuleService } from "./modules/pm-insights/pm-insights";
 import { PythLazerModuleService } from "./modules/pyth-lazer/pyth-lazer";
 import { BinanceModuleService } from "./modules/ticker-module/binance";
+import { BinanceFuturesModuleService } from "./modules/ticker-module/binance-futures";
 import { BybitModuleService } from "./modules/ticker-module/bybit";
 import { LighterModuleService } from "./modules/ticker-module/lighter";
 import { OkxModuleService } from "./modules/ticker-module/okx";
@@ -74,6 +75,9 @@ export const startProxyServer = (
 				Match.when({ type: "binance" }, (m) =>
 					Layer.memoize(BinanceModuleService(m)),
 				),
+				Match.when({ type: "binance-futures" }, (m) =>
+					Layer.memoize(BinanceFuturesModuleService(m)),
+				),
 				Match.when({ type: "lighter" }, (m) =>
 					Layer.memoize(LighterModuleService(m)),
 				),
@@ -104,6 +108,7 @@ export const startProxyServer = (
 				route.type === "volmex" ||
 				route.type === "pm-insights" ||
 				route.type === "binance" ||
+				route.type === "binance-futures" ||
 				route.type === "lighter" ||
 				route.type === "okx" ||
 				route.type === "bybit"
