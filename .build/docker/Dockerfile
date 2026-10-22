@@ -13,7 +13,7 @@ COPY . .
 
 RUN bun build --production --sourcemap=inline ./workspace/data-proxy/src/index.ts --outfile dataproxy.mjs --target=node
 
-FROM node:24-alpine
+FROM node:24.22.1-alpine
 
 WORKDIR /app
 
