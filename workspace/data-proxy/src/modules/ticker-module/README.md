@@ -29,7 +29,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Field | Required | Default | Description |
 | --- | --- | --- | --- |
-| `type` | yes | — | `"binance"`, `"bybit"`, `"okx"`, or `"lighter"` |
+| `type` | yes | — | `"binance"`, `"binance-futures"`, `"bybit"`, `"okx"`, or `"lighter"` |
 | `name` | yes | — | Module name referenced by routes as `moduleName`. |
 | `wsUrl` | no | venue default (below) | Public WebSocket URL. |
 | `subscriptionSymbols` | no | `[]` | Tokens to subscribe to on start (strings; Lighter uses market ids such as `"1"`). |
@@ -46,6 +46,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 | Venue | Default `wsUrl` | Default `maxMessages` / `maxMessagesWindow` | Extra fields |
 | --- | --- | --- | --- |
 | Binance | `wss://stream.binance.com:9443/stream` | `5` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `trade`, `depth@100ms`, `depth@1000ms`. No keepalive. `tradesKeepSeconds` (default `60`) is how many seconds of trades to keep when `streamType` is `"trade"`, using each trade's `T` (ms). |
+| Binance Futures | `wss://fstream.binance.com/stream` (legacy combined-stream URL; Binance is splitting this into routed `/public` and `/market` endpoints, with the legacy URL decommissioned 2026-04-23) | `10` / `"1 second"` | `streamType` (default `"bookTicker"`): `bookTicker`, `aggTrade`, `depth`, `depth@500ms`, `depth@100ms`. Futures has no documented per-trade `trade` stream, so `aggTrade` (aggregate trades) is used instead. No keepalive. `tradesKeepSeconds` (default `10`) is how many seconds of trades to keep when `streamType` is `"aggTrade"`, using each trade's `T` (ms). |
 | OKX | `wss://ws.okx.com:8443/ws/v5/public` | `480` / `"1 hour"` | `keepaliveInterval` (default `"20 seconds"`). |
 | Bybit | `wss://stream.bybit.com/v5/public/spot` | `5` / `"1 second"` | `keepaliveInterval` (default `"15 seconds"`). Subscribe and unsubscribe send one symbol per frame since Bybit rejects the whole args list when any symbol is invalid. |
 | Lighter | `wss://mainnet.zklighter.elliot.ai/stream?readonly=true` (The `readonly` query parameter avoids geo-restriction) | `180` / `"1 minute"` | `keepaliveInterval` (default `"60 seconds"`). `streamType` (default `"ticker"`): `ticker`, `order_book`, `trade`. Keys are numeric market ids. `tradesKeepSeconds` (default `60`) is how many seconds of executed trades to keep when `streamType` is `"trade"`. |
@@ -54,7 +55,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | Must match the module (`"binance"`, `"bybit"`, `"okx"`, or `"lighter"`). |
+| `type` | yes | Must match the module (`"binance"`, `"binance-futures"`, `"bybit"`, `"okx"`, or `"lighter"`). |
 | `moduleName` | yes | Name of a configured ticker module. |
 | `path` | yes | Proxy path (supports `{:param}` path params). |
 | `method` | no | HTTP method(s); typically `GET`. |
@@ -66,6 +67,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 {
   "modules": [
     { "type": "binance", "name": "binance" },
+    { "type": "binance-futures", "name": "binance-futures" },
     { "type": "okx", "name": "okx" },
     { "type": "bybit", "name": "bybit" },
     { "type": "lighter", "name": "lighter" }
@@ -75,6 +77,13 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
       "type": "binance",
       "moduleName": "binance",
       "path": "/binance/:symbols",
+      "method": ["GET"],
+      "fetchFromModule": "{:symbols}"
+    },
+    {
+      "type": "binance-futures",
+      "moduleName": "binance-futures",
+      "path": "/binance-futures/:symbols",
       "method": ["GET"],
       "fetchFromModule": "{:symbols}"
     },
@@ -105,6 +114,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 
 ```bash
 curl -s "http://127.0.0.1:5384/proxy/binance/BTCUSDT,ETHUSDT" | jq .
+curl -s "http://127.0.0.1:5384/proxy/binance-futures/BTCUSDT,ETHUSDT" | jq .
 curl -s "http://127.0.0.1:5384/proxy/okx/BTC-USDT,ETH-USDT" | jq .
 curl -s "http://127.0.0.1:5384/proxy/bybit/BTCUSDT,ETHUSDT" | jq .
 curl -s "http://127.0.0.1:5384/proxy/lighter/1,0" | jq .
@@ -131,6 +141,21 @@ Binance (`bookTicker`; identity field `symbol`):
   {
     "symbol": "DOGEUSDT",
     "__sedaHasPrice": false
+  }
+]
+```
+
+Binance or Binance Futures (`depth*`; identity field `symbol`): the cached value is the locally-maintained order book, not a raw socket frame. It is absent (only `__sedaHasPrice: false`) until a REST snapshot has been bridged by a WebSocket diff.
+
+```jsonc
+[
+  {
+    "s": "BTCUSDT",
+    "lastUpdateId": 400900230,
+    "bids": [["67123.40", "1.2"], ["67123.30", "0.5"]],
+    "asks": [["67123.46", "0.8"], ["67123.50", "2.0"]],
+    "symbol": "BTCUSDT",
+    "__sedaHasPrice": true
   }
 ]
 ```
@@ -199,6 +224,7 @@ For another public ticker feed:
 ## Notes
 
 - Binance docs: https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
+- Binance Futures docs: https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams (note the 2026-04-23 cutover to routed `/public` and `/market` endpoints)
 - OKX tickers channel: https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-tickers-channel
 - Bybit ticker stream: https://bybit-exchange.github.io/docs/v5/websocket/public/ticker
 - Lighter: https://apidocs.lighter.xyz/docs/websocket-reference

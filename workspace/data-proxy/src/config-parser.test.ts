@@ -884,6 +884,47 @@ describe("parseConfig", () => {
 			expect(module.wsUrl).toBe("wss://ws.okx.com:8443/ws/v5/public");
 		});
 
+		it("should default a binance-futures module to the combined futures WS and bookTicker", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [{ name: "binance_futures", type: "binance-futures" }],
+					routes: [
+						{
+							type: "binance-futures",
+							moduleName: "binance_futures",
+							path: "/binance-futures/:symbols",
+							fetchFromModule: "{:symbols}",
+						},
+					],
+				}),
+			);
+
+			assertIsOkResult(result);
+			const module = result.value.config.modules[0];
+			if (module.type !== "binance-futures") {
+				throw new Error(`expected binance-futures, got ${module.type}`);
+			}
+			expect(module.wsUrl).toBe("wss://fstream.binance.com/stream");
+			expect(module.streamType).toBe("bookTicker");
+		});
+
+		it("rejects a binance-futures module with an unsupported streamType", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					modules: [
+						{
+							name: "binance_futures",
+							type: "binance-futures",
+							streamType: "trade",
+						},
+					],
+					routes: [],
+				}),
+			);
+
+			assertIsErrorResult(result);
+		});
+
 		it("rejects duplicate module names", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
