@@ -74,6 +74,7 @@ Set the env var named by `hydromancerApiKeyEnvKey`. Config parsing fails if it i
 | `tradesWaitTimeout` | no | `"1 second"` | How long a `trades` request waits for the first trade before returning `null`. |
 | `tradesCleanupTtl` | no | `"2 minutes"` | Idle time before an unused `trades` subscription is cleaned up. |
 | `tradesCleanupInterval` | no | `"30 seconds"` | How often `trades` idle cleanup runs. |
+| `priceCacheTtl` | no | `"1 hour"` | A cached `l2Book` or `trades` value not updated by the WS for this long is dropped. `"infinity"` disables expiry. |
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
 | `reconnectStableThreshold` | no | `"30 seconds"` | Connected duration before reconnect backoff resets. |
 | `restFetchTimeout` | no | `"15 seconds"` | Timeout for REST `/info` calls. |

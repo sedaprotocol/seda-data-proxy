@@ -48,7 +48,7 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			const priceCache = yield* createPriceCache<
 				DxFeedKey,
 				DxFeedFullEventData
-			>();
+			>({ ttl: config.priceCacheTtl });
 			const subscriptions = MutableHashMap.empty<DxFeedKey, number>();
 			const unsubscribeByKey = MutableHashMap.empty<DxFeedKey, () => void>();
 			const newSubscriptionRequests = yield* Queue.unbounded<{

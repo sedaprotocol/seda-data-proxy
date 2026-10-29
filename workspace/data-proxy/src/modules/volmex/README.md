@@ -33,6 +33,7 @@ Unlike subscription-based modules, Volmex keeps the latest price for **all** sym
 | `maxSymbolsPerRequest` | no | `100` | Max symbols allowed in a single WS request. |
 | `reconnectDelayMs` | no | `1000` | Passed to Socket.IO as `reconnectionDelay` (ms between reconnect attempts). |
 | `restFetchTimeout` | no | `15 seconds` | Timeout for REST proxy fetches (`number` ms or duration string). |
+| `priceCacheTtl` | no | `1 hour` | A cached price not updated by the WS for this long is dropped. `"infinity"` disables expiry. |
 
 ### Route (WebSocket)
 

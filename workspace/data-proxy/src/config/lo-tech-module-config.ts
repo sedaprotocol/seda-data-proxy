@@ -1,5 +1,6 @@
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 export const LO_TECH_DATA_TYPE_PRICE = "PRICE" as const;
@@ -66,6 +67,7 @@ export const LoTechModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	priceCacheTtl: priceCacheTtlField,
 	reconnectDelayMs: v.optional(v.number(), 1000),
 	type: v.literal("lo-tech"),
 });

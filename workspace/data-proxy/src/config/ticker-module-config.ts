@@ -1,5 +1,6 @@
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 const durationField = (defaultValue: string, invalidMessage: string) =>
@@ -44,6 +45,7 @@ export const tickerModuleBaseFields = (defaults: {
 		"30 seconds",
 		"Invalid symbols cleanup interval",
 	),
+	priceCacheTtl: priceCacheTtlField,
 });
 
 export const keepaliveIntervalField = (defaultValue: string) =>

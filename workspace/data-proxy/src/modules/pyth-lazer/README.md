@@ -31,6 +31,7 @@ Pyth cannot append feeds to an existing subscription id, so a grow sends a **new
 | `maxFeedsPerRequest` | no | `100` | Max feed IDs / symbols allowed in a single request. |
 | `priceFeedsCleanupTtl` | no | `"1 hour"` | Idle time before an unused price feed is cleaned up. |
 | `priceFeedsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |
+| `priceCacheTtl` | no | `"1 hour"` | A cached price not updated by the WS for this long is dropped. `"infinity"` disables expiry. |
 
 ### Route
 

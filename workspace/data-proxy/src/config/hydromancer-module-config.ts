@@ -1,6 +1,7 @@
 import { tryParseSync } from "@seda-protocol/utils";
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 export const HydromancerModuleConfigSchema = v.strictObject({
@@ -125,6 +126,7 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	priceCacheTtl: priceCacheTtlField,
 });
 
 export interface HydromancerModuleConfig

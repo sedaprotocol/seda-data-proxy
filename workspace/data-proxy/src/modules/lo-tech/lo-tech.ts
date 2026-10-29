@@ -90,10 +90,9 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				PriceFeedKey,
 				number
 			>();
-			const priceCache = yield* createPriceCache<
-				PriceFeedKey,
-				LoTechDataPrice
-			>();
+			const priceCache = yield* createPriceCache<PriceFeedKey, LoTechDataPrice>(
+				{ ttl: config.priceCacheTtl },
+			);
 			const exchanges = new Set(
 				config.priceFeeds.map((priceFeed) => priceFeed.exchange),
 			);
