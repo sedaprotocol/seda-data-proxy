@@ -69,17 +69,27 @@ export const LoTechSubscriptionFailureCode = 14;
 export const LoTechSubscriptionFailureSchema = v.object({
 	error: v.string(),
 	code: v.literal(LoTechSubscriptionFailureCode),
-	id: v.number(),
+	// Null for failed UNSUBSCRIBE requests, which carry no id.
+	id: v.nullable(v.number()),
 	info: v.object({
 		type: v.literal("subscription_failure"),
+		// e.g. `topic_parse_error` (with `raw` and `message`) or `topic_not_subscribed` (with `topic`).
 		failures: v.array(
 			v.object({
-				type: v.literal("topic_parse_error"),
-				raw: v.object({
-					symbol: v.string(),
-					type: v.literal(LO_TECH_DATA_TYPE_PRICE),
-				}),
-				message: v.string(),
+				type: v.string(),
+				raw: v.optional(
+					v.object({
+						symbol: v.string(),
+						type: v.string(),
+					}),
+				),
+				topic: v.optional(
+					v.object({
+						symbol: v.string(),
+						type: v.string(),
+					}),
+				),
+				message: v.optional(v.string()),
 			}),
 		),
 		succeeded: v.array(

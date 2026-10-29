@@ -31,6 +31,57 @@ describe("parseInboundFrame", () => {
 		});
 	});
 
+	it("classifies a topic_parse_error subscription failure", () => {
+		const message = {
+			egress_ts: 1,
+			error: {
+				error: "Some subscriptions failed",
+				code: 14,
+				id: 3,
+				info: {
+					type: "subscription_failure",
+					failures: [
+						{
+							type: "topic_parse_error",
+							raw: { symbol: "NOPE", type: "PRICE" },
+							message: "unknown symbol",
+						},
+					],
+					succeeded: [],
+				},
+			},
+		};
+		expect(parseInboundFrame(JSON.stringify(message))).toEqual({
+			kind: "error",
+			msg: message,
+		});
+	});
+
+	it("classifies a topic_not_subscribed failure for an unsubscribe without id", () => {
+		const message = {
+			egress_ts: 1793247501424132,
+			error: {
+				error: "Some subscriptions failed",
+				code: 14,
+				id: null,
+				info: {
+					type: "subscription_failure",
+					failures: [
+						{
+							type: "topic_not_subscribed",
+							topic: { type: "PRICE", symbol: "NVDA" },
+						},
+					],
+					succeeded: [],
+				},
+			},
+		};
+		expect(parseInboundFrame(JSON.stringify(message))).toEqual({
+			kind: "error",
+			msg: message,
+		});
+	});
+
 	it("classifies a pong", () => {
 		expect(parseInboundFrame(JSON.stringify({ pong: true }))).toEqual({
 			kind: "pong",

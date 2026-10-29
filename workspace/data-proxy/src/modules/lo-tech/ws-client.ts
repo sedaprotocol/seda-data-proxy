@@ -47,6 +47,8 @@ export type LoTechWebSocketServiceDeps = {
 	runtime: Runtime.Runtime<never>;
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
+	/* Runs on every socket close. LO:TECH drops all subscriptions with the socket. */
+	onDisconnected?: () => Effect.Effect<void>;
 	handleDataMessage: (data: LoTechParsedData) => void;
 	handleAckMessage: (data: LoTechAck) => Effect.Effect<void>;
 	handleErrorMessage: (data: LoTechErrorMessage) => Effect.Effect<void>;
@@ -137,6 +139,7 @@ export const makeLoTechWebSocketService = (
 			exchange,
 			runtime,
 			onConnected,
+			onDisconnected,
 			handleDataMessage,
 			handleAckMessage,
 			handleErrorMessage,
@@ -304,6 +307,16 @@ export const makeLoTechWebSocketService = (
 					}
 					if (activeSocket === socket) {
 						activeSocket = null;
+					}
+					if (onDisconnected !== undefined) {
+						Runtime.runSync(
+							runtime,
+							onDisconnected().pipe(
+								Effect.catchAll((err) =>
+									Effect.logError("LO:TECH onDisconnected failed", { err }),
+								),
+							),
+						);
 					}
 					resolve();
 				});

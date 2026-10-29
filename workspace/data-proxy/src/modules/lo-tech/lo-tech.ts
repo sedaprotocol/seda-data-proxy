@@ -137,12 +137,40 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					if (msg.error.code === LoTechSubscriptionFailureCode) {
 						yield* Effect.logInfo("Subscription request failed", {
 							id: msg.error.id,
+							failures: msg.error.info.failures,
 						});
-						MutableHashMap.remove(priceFeedIds, msg.error.id);
+						// Unsubscribe requests carry no id, so their failures have none either.
+						if (msg.error.id !== null) {
+							MutableHashMap.remove(priceFeedIds, msg.error.id);
+						}
 						return;
 					}
 
 					yield* Effect.logWarning("Unexpected LO:TECH error message", { msg });
+				});
+
+			// LO:TECH forgets subscriptions when the socket closes. Forget them here too and
+			// queue a resubscribe, so the new socket subscribes again and the cache can't
+			// serve a price that is no longer being updated.
+			const handleDisconnect = (exchange: string) =>
+				Effect.gen(function* () {
+					const dropped: PriceFeedKey[] = [];
+					for (const [key, priceFeedId] of priceFeeds) {
+						if (parsePriceFeedKey(key).exchange !== exchange) continue;
+						dropped.push(key);
+						MutableHashMap.remove(priceFeedIds, priceFeedId);
+					}
+					if (dropped.length === 0) return;
+
+					yield* Effect.logWarning(
+						"LO:TECH websocket closed; resubscribing price feeds",
+						{ exchange, count: dropped.length },
+					);
+					for (const key of dropped) {
+						MutableHashMap.remove(priceFeeds, key);
+						priceCache.deleteCached(key);
+						yield* newPriceFeedQueue.offer(parsePriceFeedKey(key));
+					}
 				});
 
 			const getOrCreateWs = (exchange: string) =>
@@ -161,6 +189,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						config,
 						exchange,
 						runtime,
+						onDisconnected: () => handleDisconnect(exchange),
 						handleDataMessage: handleDataMessage(exchange),
 						handleAckMessage,
 						handleErrorMessage,
