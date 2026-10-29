@@ -38,6 +38,7 @@ Duration fields accept a number (ms) or a duration string (`"30 seconds"`).
 | `maxMessagesWindow` | no | venue default (below) | Rolling window for `maxMessages`. |
 | `symbolsCleanupTtl` | no | `"1 hour"` | Idle time before an unused subscription is cleaned up. |
 | `symbolsCleanupInterval` | no | `"30 seconds"` | How often idle cleanup runs. |
+| `priceCacheTtl` | no | `"1 hour"` | A cached frame not updated by the WS for this long is dropped. `"infinity"` disables expiry. |
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
 | `reconnectStableThreshold` | no | `"30 seconds"` | Connected duration before reconnect backoff resets. |
 

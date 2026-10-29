@@ -141,7 +141,7 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 			const priceCache = yield* createPriceCache<
 				PriceFeedSubscriptionKey,
 				CachedPriceFeed
-			>();
+			>({ ttl: config.priceCacheTtl });
 			// The timestamp of the last request to the price feed
 			const lastRequestToPriceFeed = MutableHashMap.empty<
 				PriceFeedSubscriptionKey,

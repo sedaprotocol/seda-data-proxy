@@ -1,5 +1,6 @@
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 export const dxfeedEventTypes = [
@@ -57,6 +58,7 @@ export const DxFeedModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	priceCacheTtl: priceCacheTtlField,
 	type: v.literal("dxfeed"),
 });
 

@@ -1,6 +1,7 @@
-import { Data, Duration, Effect, MutableHashMap, Option } from "effect";
+import { Clock, Data, Duration, Effect, MutableHashMap, Option } from "effect";
 
 const PRICE_WAIT_TIMEOUT_MS = 3_000;
+export const DEFAULT_PRICE_CACHE_TTL = Duration.hours(1);
 
 export class FailedToGetPriceError extends Data.TaggedError(
 	"FailedToGetPriceError",
@@ -46,107 +47,134 @@ export type PriceCacheApply<V> = (prev: V | undefined, next: V) => V;
 
 const replace = <V>(_prev: V | undefined, next: V): V => next;
 
+interface CacheEntry<V> {
+	value: V;
+	updatedAt: number;
+}
+
 export const createPriceCache = <K, V>(options?: {
 	/** The timeout for a price wait. Defaults to 3 seconds. */
 	timeout?: Duration.Duration;
 	/** Produces the value to store from the cached value, if any, and the incoming one. */
 	apply?: PriceCacheApply<V>;
+	/** An entry not written for this long is treated as absent and removed. Defaults to 1 hour; `Duration.infinity` never expires. */
+	ttl?: Duration.Duration;
 }): Effect.Effect<PriceCache<K, V>> =>
-	Effect.sync(() => {
-		const waitTimeout =
-			options?.timeout ?? Duration.millis(PRICE_WAIT_TIMEOUT_MS);
-		const apply = options?.apply ?? replace;
-		const priceCache = MutableHashMap.empty<K, V>();
-		const priceWaiters = MutableHashMap.empty<K, PriceWaiter<V>>();
+	Clock.clockWith((clock) =>
+		Effect.sync(() => {
+			const waitTimeout =
+				options?.timeout ?? Duration.millis(PRICE_WAIT_TIMEOUT_MS);
+			const apply = options?.apply ?? replace;
+			const ttlMs = Duration.toMillis(options?.ttl ?? DEFAULT_PRICE_CACHE_TTL);
+			const priceCache = MutableHashMap.empty<K, CacheEntry<V>>();
+			const priceWaiters = MutableHashMap.empty<K, PriceWaiter<V>>();
 
-		/** WS ingest write. Avoids the Effect interpreter on the tick path. */
-		const setPriceSync = (key: K, price: V): void => {
-			const prev = MutableHashMap.get(priceCache, key);
-			const next = apply(Option.isSome(prev) ? prev.value : undefined, price);
-			MutableHashMap.set(priceCache, key, next);
+			/** Returns the live entry for `key`, removing it if it has expired. */
+			const getEntry = (key: K): CacheEntry<V> | undefined => {
+				const entry = MutableHashMap.get(priceCache, key);
+				if (Option.isNone(entry)) return undefined;
+				if (clock.unsafeCurrentTimeMillis() - entry.value.updatedAt > ttlMs) {
+					MutableHashMap.remove(priceCache, key);
+					return undefined;
+				}
+				return entry.value;
+			};
 
-			const waiter = MutableHashMap.get(priceWaiters, key);
-			if (Option.isSome(waiter)) {
-				MutableHashMap.remove(priceWaiters, key);
-				waiter.value.resolve(next);
-			}
-		};
+			/** WS ingest write. Avoids the Effect interpreter on the tick path. */
+			const setPriceSync = (key: K, price: V): void => {
+				const next = apply(getEntry(key)?.value, price);
+				MutableHashMap.set(priceCache, key, {
+					value: next,
+					updatedAt: clock.unsafeCurrentTimeMillis(),
+				});
 
-		const replaceCached = (key: K, price: V): void => {
-			if (Option.isNone(MutableHashMap.get(priceCache, key))) return;
-			MutableHashMap.set(priceCache, key, price);
-		};
-
-		const setPriceToError = (key: K, error: string) =>
-			Effect.sync(() => {
 				const waiter = MutableHashMap.get(priceWaiters, key);
 				if (Option.isSome(waiter)) {
 					MutableHashMap.remove(priceWaiters, key);
-					waiter.value.reject(new FailedToGetPriceError({ error }));
+					waiter.value.resolve(next);
 				}
-			});
+			};
 
-		const getCached = (key: K): V | undefined => {
-			const cached = MutableHashMap.get(priceCache, key);
-			return Option.isSome(cached) ? cached.value : undefined;
-		};
-
-		const getOrWaitPrice = (key: K): Effect.Effect<V | null> =>
-			Effect.gen(function* () {
-				const cached = MutableHashMap.get(priceCache, key);
-				if (Option.isSome(cached)) {
-					return cached.value;
-				}
-
-				const existingWaiter = MutableHashMap.get(priceWaiters, key);
-				let pending: PriceWaiter<V>;
-				if (Option.isSome(existingWaiter)) {
-					pending = existingWaiter.value;
-				} else {
-					pending = makeWaiter<V>();
-					MutableHashMap.set(priceWaiters, key, pending);
-				}
-
-				return yield* Effect.tryPromise({
-					try: () => pending.promise,
-					catch: (error) =>
-						error instanceof FailedToGetPriceError
-							? error
-							: new FailedToGetPriceError({ error }),
+			/** Keeps the entry's write time, so post-read rewrites do not extend its TTL. */
+			const replaceCached = (key: K, price: V): void => {
+				const entry = getEntry(key);
+				if (entry === undefined) return;
+				MutableHashMap.set(priceCache, key, {
+					value: price,
+					updatedAt: entry.updatedAt,
 				});
-			}).pipe(
-				Effect.timeoutFail({
-					duration: waitTimeout,
-					onTimeout: () =>
-						new FailedToGetPriceError({
-							error: `Timed out waiting for price of key ${key}`,
-						}),
-				}),
-				Effect.tapError(() => deletePrice(key)),
-				Effect.catchTag("FailedToGetPriceError", () => Effect.succeed(null)),
-				Effect.withSpan("priceCache.getOrWaitPrice", { attributes: { key } }),
-			);
+			};
 
-		const deleteCached = (key: K): void => {
-			MutableHashMap.remove(priceCache, key);
-		};
+			const setPriceToError = (key: K, error: string) =>
+				Effect.sync(() => {
+					const waiter = MutableHashMap.get(priceWaiters, key);
+					if (Option.isSome(waiter)) {
+						MutableHashMap.remove(priceWaiters, key);
+						waiter.value.reject(new FailedToGetPriceError({ error }));
+					}
+				});
 
-		const deletePrice = (key: K) =>
-			Effect.sync(() => {
+			const getCached = (key: K): V | undefined => getEntry(key)?.value;
+
+			const getOrWaitPrice = (key: K): Effect.Effect<V | null> =>
+				Effect.gen(function* () {
+					const cached = getEntry(key);
+					if (cached !== undefined) {
+						return cached.value;
+					}
+
+					const existingWaiter = MutableHashMap.get(priceWaiters, key);
+					let pending: PriceWaiter<V>;
+					if (Option.isSome(existingWaiter)) {
+						pending = existingWaiter.value;
+					} else {
+						pending = makeWaiter<V>();
+						MutableHashMap.set(priceWaiters, key, pending);
+					}
+
+					return yield* Effect.tryPromise({
+						try: () => pending.promise,
+						catch: (error) =>
+							error instanceof FailedToGetPriceError
+								? error
+								: new FailedToGetPriceError({ error }),
+					});
+				}).pipe(
+					Effect.timeoutFail({
+						duration: waitTimeout,
+						onTimeout: () =>
+							new FailedToGetPriceError({
+								error: `Timed out waiting for price of key ${key}`,
+							}),
+					}),
+					Effect.tapError(() => deletePrice(key)),
+					Effect.catchTag("FailedToGetPriceError", () => Effect.succeed(null)),
+					Effect.withSpan("priceCache.getOrWaitPrice", {
+						attributes: { key },
+					}),
+				);
+
+			const deleteCached = (key: K): void => {
 				MutableHashMap.remove(priceCache, key);
-				MutableHashMap.remove(priceWaiters, key);
-			});
+			};
 
-		const size = () => MutableHashMap.size(priceCache);
+			const deletePrice = (key: K) =>
+				Effect.sync(() => {
+					MutableHashMap.remove(priceCache, key);
+					MutableHashMap.remove(priceWaiters, key);
+				});
 
-		return {
-			getCached,
-			getOrWaitPrice,
-			setPriceSync,
-			replaceCached,
-			deleteCached,
-			deletePrice,
-			setPriceToError,
-			size,
-		};
-	});
+			const size = () => MutableHashMap.size(priceCache);
+
+			return {
+				getCached,
+				getOrWaitPrice,
+				setPriceSync,
+				replaceCached,
+				deleteCached,
+				deletePrice,
+				setPriceToError,
+				size,
+			};
+		}),
+	);

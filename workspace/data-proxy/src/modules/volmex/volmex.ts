@@ -19,7 +19,9 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 			yield* Effect.logInfo("Initializing Volmex module");
 
 			const runtime = yield* Effect.runtime();
-			const priceCache = yield* createPriceCache<string, VolmexDataPrice>();
+			const priceCache = yield* createPriceCache<string, VolmexDataPrice>({
+				ttl: config.priceCacheTtl,
+			});
 
 			const updatePrice = (data: VolmexDataPrice): void => {
 				const started = performance.now();

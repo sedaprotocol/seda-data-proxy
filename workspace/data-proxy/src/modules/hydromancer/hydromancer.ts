@@ -55,11 +55,13 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 			const cache = yield* createFreshnessCache<string, AssetCtx>();
 			const bookCache = yield* createPriceCache<string, BookSnapshot>({
 				timeout: config.l2BookWaitTimeout,
+				ttl: config.priceCacheTtl,
 			});
 			const clock = yield* Clock.clockWith((clock) => Effect.succeed(clock));
 			const tradesKeepMillis = config.tradesKeepSeconds * 1000;
 			const tradesCache = yield* createPriceCache<string, readonly Trade[]>({
 				timeout: config.tradesWaitTimeout,
+				ttl: config.priceCacheTtl,
 				apply: (prev, next) =>
 					retainTradesWithinWindow(
 						prev === undefined ? next : prev.concat(next),

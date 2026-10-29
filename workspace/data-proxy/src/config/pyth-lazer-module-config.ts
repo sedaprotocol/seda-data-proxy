@@ -2,6 +2,7 @@ import type { Channel } from "@pythnetwork/pyth-lazer-sdk";
 import { Duration, Effect, Option } from "effect";
 import * as v from "valibot";
 import { isU32 } from "../utils/number";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 export const PYTH_LAZER_DEFAULT_CHANNEL = "fixed_rate@200ms" as const;
@@ -74,6 +75,7 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	priceCacheTtl: priceCacheTtlField,
 	type: v.literal("pyth-lazer"),
 });
 

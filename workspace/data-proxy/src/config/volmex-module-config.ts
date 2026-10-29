@@ -1,5 +1,6 @@
 import { Duration, Effect, Option, type Redacted } from "effect";
 import * as v from "valibot";
+import { priceCacheTtlField } from "./price-cache-ttl-config";
 import { RouteSchema } from "./route-config";
 
 export const VolmexModuleConfigSchema = v.strictObject({
@@ -21,6 +22,7 @@ export const VolmexModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	priceCacheTtl: priceCacheTtlField,
 	type: v.literal("volmex"),
 });
 

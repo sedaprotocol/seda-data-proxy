@@ -20,6 +20,7 @@ export interface TickerModuleServiceConfig {
 	maxSymbolsPerRequest: number;
 	symbolsCleanupTtl: Duration.Duration;
 	symbolsCleanupInterval: Duration.Duration;
+	priceCacheTtl: Duration.Duration;
 }
 
 export const parseUppercaseSymbol = (token: string): string =>
@@ -105,7 +106,10 @@ export const createTickerModuleService = <
 				apply = (prev, next) =>
 					cacheApply(prev, next, clock.unsafeCurrentTimeMillis());
 			}
-			const cache = yield* createPriceCache<TKey, TFrame>({ apply });
+			const cache = yield* createPriceCache<TKey, TFrame>({
+				apply,
+				ttl: config.priceCacheTtl,
+			});
 			const ws = yield* createWS(config, cache);
 			const lastRequestToKey = MutableHashMap.empty<TKey, number>();
 
