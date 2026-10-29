@@ -150,8 +150,8 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 				});
 
 			// LO:TECH forgets subscriptions when the socket closes. Forget them here too and
-			// queue a resubscribe, so the new socket subscribes again and the cache can't
-			// serve a price that is no longer being updated.
+			// queue a resubscribe so the new socket subscribes again. Cached prices are kept
+			// and keep being served until the resubscribed feeds deliver fresh ones.
 			const handleDisconnect = (exchange: string) =>
 				Effect.gen(function* () {
 					const dropped: PriceFeedKey[] = [];
@@ -162,13 +162,12 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 					}
 					if (dropped.length === 0) return;
 
-					yield* Effect.logWarning(
-						"LO:TECH websocket closed; resubscribing price feeds",
+					yield* Effect.logFatal(
+						"LO:TECH websocket closed; serving cached prices and resubscribing price feeds",
 						{ exchange, count: dropped.length },
 					);
 					for (const key of dropped) {
 						MutableHashMap.remove(priceFeeds, key);
-						priceCache.deleteCached(key);
 						yield* newPriceFeedQueue.offer(parsePriceFeedKey(key));
 					}
 				});

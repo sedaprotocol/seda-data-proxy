@@ -121,6 +121,16 @@ const fetchPrice = Effect.gen(function* () {
 	return body[0];
 });
 
+const fetchPriceUntil = (price: number) =>
+	Effect.gen(function* () {
+		for (let i = 0; i < 2000; i++) {
+			const body = yield* fetchPrice;
+			if (body.price === price) return body;
+			yield* Effect.sleep(Duration.millis(1));
+		}
+		return yield* Effect.die(new Error(`Timed out waiting for price ${price}`));
+	});
+
 const servers: Server[] = [];
 
 afterEach(() => {
@@ -144,7 +154,7 @@ describe("LoTechModuleService reconnects", () => {
 				waitFor(() => fake.subscribes.length >= 2, "resubscribe"),
 			);
 
-			const after = yield* fetchPrice;
+			const after = yield* fetchPriceUntil(200);
 			return { before, after };
 		}).pipe(
 			Effect.provide(LoTechModuleService(configFor(fake))),
@@ -162,9 +172,13 @@ describe("LoTechModuleService reconnects", () => {
 		);
 	}, 10_000);
 
-	it("does not serve the cached price while LO:TECH is unreachable", async () => {
+	it("serves the cached price and logs fatal while LO:TECH is unreachable", async () => {
 		const fake = startFakeLoTech();
 		servers.push(fake.server);
+		const fatalLogs: unknown[] = [];
+		const captureFatal = Logger.make(({ logLevel, message }) => {
+			if (logLevel === LogLevel.Fatal) fatalLogs.push(message);
+		});
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
@@ -182,17 +196,18 @@ describe("LoTechModuleService reconnects", () => {
 			yield* Effect.promise(() =>
 				waitFor(() => fake.subscribes.length >= 2, "resubscribe"),
 			);
-			const after = yield* fetchPrice;
+			const after = yield* fetchPriceUntil(300);
 			return { before, during, after };
 		}).pipe(
 			Effect.provide(LoTechModuleService(configFor(fake))),
-			Logger.withMinimumLogLevel(LogLevel.None),
+			Effect.provide(Logger.replace(Logger.defaultLogger, captureFatal)),
 		);
 
 		const { before, during, after } = await Effect.runPromise(program);
 
 		expect(before).toMatchObject({ price: 100, [HAS_PRICE_KEY]: true });
-		expect(during).toEqual({ symbol: SYMBOL, [HAS_PRICE_KEY]: false });
+		expect(during).toMatchObject({ price: 100, [HAS_PRICE_KEY]: true });
 		expect(after).toMatchObject({ price: 300, [HAS_PRICE_KEY]: true });
+		expect(fatalLogs.length).toBeGreaterThanOrEqual(1);
 	}, 15_000);
 });
