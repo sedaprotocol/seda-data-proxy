@@ -13,11 +13,26 @@ export class FakeWebSocket extends EventTarget {
 	url: string;
 	readyState = FakeWebSocket.CONNECTING;
 	sent: string[] = [];
+	private readonly listenedTypes = new Set<string>();
 
 	constructor(url: string) {
 		super();
 		this.url = url;
 		FakeWebSocket.instances.push(this);
+	}
+
+	override addEventListener(
+		type: string,
+		listener: EventListenerOrEventListenerObject | null,
+		options?: boolean | AddEventListenerOptions,
+	): void {
+		this.listenedTypes.add(type);
+		super.addEventListener(type, listener, options);
+	}
+
+	/** The client can construct a socket and attach its listeners in separate scheduler ticks. */
+	hasListener(type: string): boolean {
+		return this.listenedTypes.has(type);
 	}
 
 	send(data: string): void {

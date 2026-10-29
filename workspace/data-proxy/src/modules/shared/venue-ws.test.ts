@@ -9,6 +9,15 @@ import { createVenueWS } from "./venue-ws";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
+const waitForSocket = async (index: number): Promise<FakeWebSocket> => {
+	for (let attempt = 0; attempt < 200; attempt++) {
+		const ws = FakeWebSocket.instances[index];
+		if (ws?.hasListener("open")) return ws;
+		await new Promise<void>((r) => setTimeout(r, 5));
+	}
+	throw new Error(`WebSocket #${index} was never created and listened to`);
+};
+
 const parseControl = (raw: string) =>
 	JSON.parse(raw) as { op: string; keys: string[] };
 
@@ -368,10 +377,7 @@ describe("createVenueWS", () => {
 		await flush();
 
 		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
-
-		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
-		const ws2 = FakeWebSocket.instances[1];
+		const ws2 = await waitForSocket(1);
 		expect(ws2).not.toBe(ws1);
 
 		ws2.triggerOpen();
@@ -399,9 +405,7 @@ describe("createVenueWS", () => {
 		});
 
 		ws1.triggerClose();
-		await new Promise<void>((r) => setTimeout(r, 40));
-
-		const ws2 = FakeWebSocket.instances[1];
+		const ws2 = await waitForSocket(1);
 		ws2.triggerOpen();
 		await flush();
 		expect(parseControl(ws2.sent[0])).toEqual({
@@ -432,9 +436,7 @@ describe("createVenueWS", () => {
 		ws1.triggerOpen();
 		await flush();
 
-		await new Promise<void>((r) => setTimeout(r, 40));
-		expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
-		const ws2 = FakeWebSocket.instances[1];
+		const ws2 = await waitForSocket(1);
 		ws2.triggerOpen();
 		await flush();
 
@@ -539,8 +541,7 @@ describe("createVenueWS", () => {
 		await flush();
 		expect(calls).toEqual(["start:BTC", "restart:BTC", "stop:BTC"]);
 
-		await new Promise<void>((r) => setTimeout(r, 40));
-		const ws2 = FakeWebSocket.instances[1];
+		const ws2 = await waitForSocket(1);
 		ws2.triggerOpen();
 		await flush();
 		expect(calls).toEqual([
