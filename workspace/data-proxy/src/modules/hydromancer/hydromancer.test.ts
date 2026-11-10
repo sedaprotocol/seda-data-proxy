@@ -38,6 +38,8 @@ const baseConfig: HydromancerModuleConfig = {
 	coinsCleanupTtl: Duration.minutes(2),
 	coinsCleanupInterval: Duration.seconds(30),
 	restFetchTimeout: Duration.seconds(15),
+	restMaxRetries: 3,
+	restRetryBaseDelay: Duration.millis(1),
 	l2BookSubscriptionCoins: [],
 	l2BookMaxCoinsPerRequest: 20,
 	l2BookWaitTimeout: Duration.seconds(1),
@@ -378,6 +380,92 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(502);
 	});
 
+	it("does not retry a non-transient 5xx", async () => {
+		const fetchMock = mock(
+			async () => new Response("internal", { status: 500 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"]);
+		expect(response.status).toBe(502);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries a transient 503 and returns the recovered response", async () => {
+		let calls = 0;
+		const fetchMock = mock(async () => {
+			calls++;
+			if (calls < 3) {
+				return new Response(
+					"upstream connect error or disconnect/reset before headers. reset reason: remote connection failure",
+					{ status: 503 },
+				);
+			}
+			return new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 });
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"]);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(await response.json()).toEqual({ BTC: btcCtx });
+	});
+
+	it("retries a connection error and returns the recovered response", async () => {
+		let calls = 0;
+		const fetchMock = mock(async () => {
+			calls++;
+			if (calls === 1) throw new TypeError("fetch failed");
+			return new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 });
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"]);
+		expect(response.status).toBe(200);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("gives up after restMaxRetries and surfaces the upstream error", async () => {
+		const fetchMock = mock(
+			async () => new Response("upstream down", { status: 503 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"]);
+		expect(response.status).toBe(502);
+		// 1 initial attempt + 3 retries.
+		expect(fetchMock).toHaveBeenCalledTimes(4);
+		const body = (await response.json()) as { data_proxy_error: string };
+		expect(body.data_proxy_error).toContain("Hydromancer responded 503");
+		expect(body.data_proxy_error).toContain("upstream down");
+	});
+
+	it("does not retry when restMaxRetries is 0", async () => {
+		const fetchMock = mock(
+			async () => new Response("upstream down", { status: 503 }),
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle({ ...baseConfig, restMaxRetries: 0 }, [
+			"BTC",
+		]);
+		expect(response.status).toBe(502);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not retry a timeout", async () => {
+		const fetchMock = mock(async () => {
+			const error = new Error("aborted");
+			error.name = "TimeoutError";
+			throw error;
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandle(baseConfig, ["BTC"]);
+		expect(response.status).toBe(504);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("returns 504 when the fetch times out", async () => {
 		globalThis.fetch = mock(async () => {
 			const error = new Error("aborted");
@@ -488,6 +576,25 @@ describe("HydromancerModuleService.handleRequest (non-assetContext)", () => {
 				signal: expect.anything(),
 			},
 		);
+	});
+
+	it("retries a transient 503 on the forwarded REST path", async () => {
+		let calls = 0;
+		const fetchMock = mock(async () => {
+			calls++;
+			return calls === 1
+				? new Response("upstream connect error", { status: 503 })
+				: new Response('{"ok":true}', { status: 200 });
+		});
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const response = await callHandleRaw(
+			baseConfig,
+			JSON.stringify({ type: "fundingHistory", coin: "BTC" }),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe('{"ok":true}');
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("returns 400 when no body is given", async () => {

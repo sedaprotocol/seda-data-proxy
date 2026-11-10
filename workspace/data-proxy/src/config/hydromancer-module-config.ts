@@ -66,6 +66,19 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	// Extra attempts after the first for transient REST failures (502/503/504 or
+	// a connection error). 0 disables retrying.
+	restMaxRetries: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0)), 3),
+	// Base delay of the exponential (jittered) backoff between REST retries.
+	restRetryBaseDelay: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "200 millis"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid restRetryBaseDelay duration"),
+			),
+		),
+	),
 	l2BookSubscriptionCoins: v.optional(v.array(v.string()), []),
 	l2BookMaxCoinsPerRequest: v.optional(v.number(), 10),
 	l2BookNSigFigs: v.optional(v.number()),

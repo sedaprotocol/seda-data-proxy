@@ -78,6 +78,8 @@ Set the env var named by `hydromancerApiKeyEnvKey`. Config parsing fails if it i
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
 | `reconnectStableThreshold` | no | `"30 seconds"` | Connected duration before reconnect backoff resets. |
 | `restFetchTimeout` | no | `"15 seconds"` | Timeout for REST `/info` calls. |
+| `restMaxRetries` | no | `3` | Extra attempts after the first for transient REST failures (HTTP 502/503/504 or a connection error). Timeouts are not retried. `0` disables retrying. |
+| `restRetryBaseDelay` | no | `"200 millis"` | Base delay of the jittered exponential backoff between REST retries (200ms, 400ms, 800ms, ...). |
 
 ### Route
 
