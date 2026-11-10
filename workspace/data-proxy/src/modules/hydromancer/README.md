@@ -20,7 +20,7 @@ For `assetContext` HTTP requests the handler:
 
 Requests with more coins than `maxCoinsPerRequest` return HTTP 400.
 
-A REST `/info` call (this fallback, or a body forwarded upstream) that comes back 502, 503, or 504, or fails to connect, is retried 3 times, waiting 200ms, 400ms, then 800ms. A timeout is not retried.
+A REST `/info` call (this fallback, or a body forwarded upstream) that comes back with any 5xx, or fails to connect, is retried 3 times, waiting 200ms, 400ms, then 800ms. A timeout is not retried.
 
 For `l2Book` HTTP requests the handler:
 

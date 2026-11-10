@@ -13,9 +13,7 @@ export type BatchAssetContexts = v.InferOutput<typeof BatchResponseSchema>;
 
 export const REST_MAX_COINS_PER_REQUEST = 20;
 
-// Hydromancer's edge sometimes resets the connection before headers (a 502,
-// 503, or 504). `/info` is a read, so those are safe to replay.
-const RETRYABLE_UPSTREAM_STATUSES = new Set([502, 503, 504]);
+// `/info` is a read, so an upstream 5xx is safe to replay.
 
 export const executeHydromancerRestRequest = (
 	config: HydromancerModuleConfig,
@@ -49,7 +47,7 @@ export const executeHydromancerRestRequest = (
 			},
 		});
 
-		if (!RETRYABLE_UPSTREAM_STATUSES.has(response.status)) {
+		if (response.status < 500) {
 			return response;
 		}
 
@@ -69,7 +67,8 @@ export const executeHydromancerRestRequest = (
 			}),
 		);
 	}).pipe(
-		// A timeout is 504 and a body-read failure is 500, so neither is retried.
+		// Retryable failures are stamped 502 above. A timeout stays 504 and a
+		// body-read failure stays 500, so neither is retried.
 		// Schedule.exponential("200 millis") waits 200ms, 400ms, then 800ms.
 		Effect.retry({
 			times: 3,
