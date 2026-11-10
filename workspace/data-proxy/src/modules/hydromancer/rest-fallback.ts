@@ -1,5 +1,5 @@
 import { tryParseSync } from "@seda-protocol/utils";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Schedule } from "effect";
 import * as v from "valibot";
 import {
 	AssetCtxSchema,
@@ -14,79 +14,70 @@ export type BatchAssetContexts = v.InferOutput<typeof BatchResponseSchema>;
 export const REST_MAX_COINS_PER_REQUEST = 20;
 
 // Hydromancer's edge sometimes resets the connection before headers (a 502,
-// 503, or 504). `/info` is a read, so the call is replayed after these waits.
+// 503, or 504). `/info` is a read, so those are safe to replay.
 const RETRYABLE_UPSTREAM_STATUSES = new Set([502, 503, 504]);
-const REST_RETRY_DELAYS = [
-	Duration.millis(200),
-	Duration.millis(400),
-	Duration.millis(800),
-];
 
 export const executeHydromancerRestRequest = (
 	config: HydromancerModuleConfig,
 	rawBody: unknown,
-): Effect.Effect<Response, FailedToHandleHydromancerRequestError> =>
-	Effect.gen(function* () {
-		const url = new URL("/info", config.restBaseUrl);
-		const timeoutMs = Duration.toMillis(config.restFetchTimeout);
-		const body =
-			typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
+): Effect.Effect<Response, FailedToHandleHydromancerRequestError> => {
+	const url = new URL("/info", config.restBaseUrl);
+	const timeoutMs = Duration.toMillis(config.restFetchTimeout);
+	const body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
-		for (let attempt = 0; ; attempt++) {
-			const result = yield* Effect.either(
-				Effect.tryPromise({
-					try: () =>
-						fetch(url, {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: `Bearer ${config.hydromancerApiKey}`,
-							},
-							body,
-							signal: AbortSignal.timeout(timeoutMs),
-						}),
-					catch: (error) => {
-						const isTimeout =
-							error instanceof Error && error.name === "TimeoutError";
-						return new FailedToHandleHydromancerRequestError({
-							error: isTimeout
-								? `Hydromancer REST timed out after ${timeoutMs}ms`
-								: `Failed to fetch from Hydromancer: ${error}`,
-							status: isTimeout ? 504 : 502,
-						});
-					},
-				}),
-			);
-
-			const delay = REST_RETRY_DELAYS[attempt];
-			if (result._tag === "Left") {
-				// A timeout already spent restFetchTimeout, so it is not retried.
-				if (result.left.status === 504 || delay === undefined) {
-					return yield* Effect.fail(result.left);
-				}
-				yield* Effect.logWarning("Hydromancer REST request failed, retrying", {
-					error: result.left.message,
-				});
-				yield* Effect.sleep(delay);
-				continue;
-			}
-
-			const response = result.right;
-			if (
-				response.ok ||
-				!RETRYABLE_UPSTREAM_STATUSES.has(response.status) ||
-				delay === undefined
-			) {
-				return response;
-			}
-
-			yield* Effect.logWarning("Hydromancer REST request failed, retrying", {
-				status: response.status,
+	return Effect.tryPromise({
+		try: () =>
+			fetch(url, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${config.hydromancerApiKey}`,
+				},
+				body,
+				signal: AbortSignal.timeout(timeoutMs),
+			}),
+		catch: (error) => {
+			const isTimeout = error instanceof Error && error.name === "TimeoutError";
+			return new FailedToHandleHydromancerRequestError({
+				error: isTimeout
+					? `Hydromancer REST timed out after ${timeoutMs}ms`
+					: `Failed to fetch from Hydromancer: ${error}`,
+				status: isTimeout ? 504 : 502,
 			});
-			yield* Effect.promise(() => response.body?.cancel() ?? Promise.resolve());
-			yield* Effect.sleep(delay);
-		}
-	}).pipe(Effect.withSpan("executeHydromancerRestRequest"));
+		},
+	}).pipe(
+		Effect.flatMap((response) => {
+			if (!RETRYABLE_UPSTREAM_STATUSES.has(response.status)) {
+				return Effect.succeed(response);
+			}
+			return Effect.tryPromise({
+				try: () => response.text(),
+				catch: (error) =>
+					new FailedToHandleHydromancerRequestError({
+						error: `Failed to read Hydromancer response: ${error}`,
+						status: 500,
+					}),
+			}).pipe(
+				Effect.flatMap((text) =>
+					Effect.fail(
+						new FailedToHandleHydromancerRequestError({
+							error: `Hydromancer responded ${response.status}: ${text}`,
+							status: 502,
+						}),
+					),
+				),
+			);
+		}),
+		// A timeout is 504 and a body-read failure is 500, so neither is retried.
+		// Schedule.exponential("200 millis") waits 200ms, 400ms, then 800ms.
+		Effect.retry({
+			times: 3,
+			schedule: Schedule.exponential("200 millis"),
+			while: (error) => error.status === 502,
+		}),
+		Effect.withSpan("executeHydromancerRestRequest"),
+	);
+};
 
 const fetchAssetContextsChunkFromRest = (
 	config: HydromancerModuleConfig,
