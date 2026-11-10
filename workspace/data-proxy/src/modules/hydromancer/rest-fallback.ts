@@ -25,49 +25,50 @@ export const executeHydromancerRestRequest = (
 	const timeoutMs = Duration.toMillis(config.restFetchTimeout);
 	const body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
-	return Effect.tryPromise({
-		try: () =>
-			fetch(url, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${config.hydromancerApiKey}`,
-				},
-				body,
-				signal: AbortSignal.timeout(timeoutMs),
+	return Effect.gen(function* () {
+		const response = yield* Effect.tryPromise({
+			try: () =>
+				fetch(url, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${config.hydromancerApiKey}`,
+					},
+					body,
+					signal: AbortSignal.timeout(timeoutMs),
+				}),
+			catch: (error) => {
+				const isTimeout =
+					error instanceof Error && error.name === "TimeoutError";
+				return new FailedToHandleHydromancerRequestError({
+					error: isTimeout
+						? `Hydromancer REST timed out after ${timeoutMs}ms`
+						: `Failed to fetch from Hydromancer: ${error}`,
+					status: isTimeout ? 504 : 502,
+				});
+			},
+		});
+
+		if (!RETRYABLE_UPSTREAM_STATUSES.has(response.status)) {
+			return response;
+		}
+
+		const text = yield* Effect.tryPromise({
+			try: () => response.text(),
+			catch: (error) =>
+				new FailedToHandleHydromancerRequestError({
+					error: `Failed to read Hydromancer response: ${error}`,
+					status: 500,
+				}),
+		});
+
+		return yield* Effect.fail(
+			new FailedToHandleHydromancerRequestError({
+				error: `Hydromancer responded ${response.status}: ${text}`,
+				status: 502,
 			}),
-		catch: (error) => {
-			const isTimeout = error instanceof Error && error.name === "TimeoutError";
-			return new FailedToHandleHydromancerRequestError({
-				error: isTimeout
-					? `Hydromancer REST timed out after ${timeoutMs}ms`
-					: `Failed to fetch from Hydromancer: ${error}`,
-				status: isTimeout ? 504 : 502,
-			});
-		},
+		);
 	}).pipe(
-		Effect.flatMap((response) => {
-			if (!RETRYABLE_UPSTREAM_STATUSES.has(response.status)) {
-				return Effect.succeed(response);
-			}
-			return Effect.tryPromise({
-				try: () => response.text(),
-				catch: (error) =>
-					new FailedToHandleHydromancerRequestError({
-						error: `Failed to read Hydromancer response: ${error}`,
-						status: 500,
-					}),
-			}).pipe(
-				Effect.flatMap((text) =>
-					Effect.fail(
-						new FailedToHandleHydromancerRequestError({
-							error: `Hydromancer responded ${response.status}: ${text}`,
-							status: 502,
-						}),
-					),
-				),
-			);
-		}),
 		// A timeout is 504 and a body-read failure is 500, so neither is retried.
 		// Schedule.exponential("200 millis") waits 200ms, 400ms, then 800ms.
 		Effect.retry({
