@@ -38,8 +38,6 @@ const baseConfig: HydromancerModuleConfig = {
 	coinsCleanupTtl: Duration.minutes(2),
 	coinsCleanupInterval: Duration.seconds(30),
 	restFetchTimeout: Duration.seconds(15),
-	restMaxRetries: 3,
-	restRetryBaseDelay: Duration.millis(1),
 	l2BookSubscriptionCoins: [],
 	l2BookMaxCoinsPerRequest: 20,
 	l2BookWaitTimeout: Duration.seconds(1),
@@ -425,7 +423,7 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
-	it("gives up after restMaxRetries and surfaces the upstream error", async () => {
+	it("gives up after 3 retries and surfaces the upstream error", async () => {
 		const fetchMock = mock(
 			async () => new Response("upstream down", { status: 503 }),
 		);
@@ -438,19 +436,6 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		const body = (await response.json()) as { data_proxy_error: string };
 		expect(body.data_proxy_error).toContain("Hydromancer responded 503");
 		expect(body.data_proxy_error).toContain("upstream down");
-	});
-
-	it("does not retry when restMaxRetries is 0", async () => {
-		const fetchMock = mock(
-			async () => new Response("upstream down", { status: 503 }),
-		);
-		globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-		const response = await callHandle({ ...baseConfig, restMaxRetries: 0 }, [
-			"BTC",
-		]);
-		expect(response.status).toBe(502);
-		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not retry a timeout", async () => {
