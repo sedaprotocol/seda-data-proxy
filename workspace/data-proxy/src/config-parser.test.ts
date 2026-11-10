@@ -5,6 +5,7 @@ import {
 } from "@seda-protocol/utils/testing";
 import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
 import { parseConfig } from "./config/config-parser";
+import { DEFAULT_FAST_ALLOWED_CLIENTS } from "./constants";
 
 describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
@@ -1095,15 +1096,9 @@ describe("parseConfig", () => {
 	});
 
 	describe("fastOnly", () => {
-		it("defaults fastOnly to true", () => {
+		it("defaults fastOnly to true and fills in the official FAST clients", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
-					sedaFast: {
-						enable: true,
-						allowedClients: [
-							"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
-						],
-					},
 					routes: [
 						{
 							path: "/test",
@@ -1116,12 +1111,42 @@ describe("parseConfig", () => {
 			expect(result).toBeOkResult();
 			assertIsOkResult(result);
 			expect(result.value.config.fastOnly).toBe(true);
+			expect(result.value.config.sedaFast).toEqual({
+				enable: true,
+				allowedClients: [...DEFAULT_FAST_ALLOWED_CLIENTS],
+			});
 		});
 
-		it("rejects fastOnly when sedaFast is not enabled", () => {
+		it("uses the official FAST clients when allowedClients is omitted", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
 					fastOnly: true,
+					sedaFast: {
+						enable: true,
+					},
+					routes: [
+						{
+							path: "/test",
+							upstreamUrl: "https://example.com/test",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+			assertIsOkResult(result);
+			expect(result.value.config.sedaFast?.allowedClients).toEqual([
+				...DEFAULT_FAST_ALLOWED_CLIENTS,
+			]);
+		});
+
+		it("rejects fastOnly when sedaFast is disabled", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					fastOnly: true,
+					sedaFast: {
+						enable: false,
+					},
 					routes: [
 						{
 							path: "/test",
@@ -1134,6 +1159,26 @@ describe("parseConfig", () => {
 			expect(result).toBeErrResult(
 				"fastOnly requires sedaFast.enable to be true",
 			);
+		});
+
+		it("accepts the official testnet and mainnet FAST clients", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					fastOnly: true,
+					sedaFast: {
+						enable: true,
+						allowedClients: [...DEFAULT_FAST_ALLOWED_CLIENTS],
+					},
+					routes: [
+						{
+							path: "/test",
+							upstreamUrl: "https://example.com/test",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
 		});
 
 		it("accepts fastOnly when sedaFast is enabled", () => {

@@ -6,6 +6,7 @@ import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
 import {
+	DEFAULT_FAST_ALLOWED_CLIENTS,
 	DEFAULT_HTTP_METHODS,
 	DEFAULT_PROXY_ROUTE_GROUP,
 	DEFAULT_VERIFICATION_MAX_RETRIES,
@@ -132,16 +133,19 @@ const ConfigSchema = v.strictObject(
 		sedaFast: v.optional(
 			v.object({
 				enable: v.boolean(),
-				allowedClients: v.pipe(
-					v.array(Secp256k1PublicKeySchema),
-					v.minLength(
-						1,
-						"At least one allowed client is required when SEDA FAST is enabled",
+				allowedClients: v.optional(
+					v.pipe(
+						v.array(Secp256k1PublicKeySchema),
+						v.minLength(
+							1,
+							"At least one allowed client is required when SEDA FAST is enabled",
+						),
+						v.check((clients) => {
+							const unique = new Set(clients);
+							return unique.size === clients.length;
+						}, "Duplicate public keys are not allowed"),
 					),
-					v.check((clients) => {
-						const unique = new Set(clients);
-						return unique.size === clients.length;
-					}, "Duplicate public keys are not allowed"),
+					[...DEFAULT_FAST_ALLOWED_CLIENTS],
 				),
 				maxProofAgeMs: v.optional(
 					v.pipe(
@@ -652,18 +656,30 @@ export const parseConfig = (
 			modules.push(resolved.right);
 		}
 
-		if (config.sedaFast?.enable) {
-			if (config.sedaFast.allowedClients.length === 0) {
-				return [
-					Result.err(
-						"sedaFast.allowedClients must be provided if sedaFast.enable is true",
-					),
-					hasWarnings,
-				];
-			}
+		// fastOnly has no chain registration, so SEDA FAST has to be on.
+		// A missing block gets the official testnet and mainnet clients.
+		const sedaFast = config.sedaFast
+			? {
+					...config.sedaFast,
+					allowedClients: [...config.sedaFast.allowedClients],
+				}
+			: config.fastOnly
+				? {
+						enable: true,
+						allowedClients: [...DEFAULT_FAST_ALLOWED_CLIENTS],
+					}
+				: undefined;
+
+		if (sedaFast?.enable && sedaFast.allowedClients.length === 0) {
+			return [
+				Result.err(
+					"sedaFast.allowedClients must be provided if sedaFast.enable is true",
+				),
+				hasWarnings,
+			];
 		}
 
-		if (config.fastOnly && !config.sedaFast?.enable) {
+		if (config.fastOnly && !sedaFast?.enable) {
 			return [
 				Result.err("fastOnly requires sedaFast.enable to be true"),
 				hasWarnings,
@@ -671,7 +687,7 @@ export const parseConfig = (
 		}
 
 		return [
-			Result.ok({ config: { ...config, modules }, envSecrets }),
+			Result.ok({ config: { ...config, modules, sedaFast }, envSecrets }),
 			hasWarnings,
 		];
 	});
