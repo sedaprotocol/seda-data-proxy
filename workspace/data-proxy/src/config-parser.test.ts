@@ -10,6 +10,7 @@ describe("parseConfig", () => {
 	it("should check if route parameters are correctly used in the url", async () => {
 		const [result] = Effect.runSync(
 			parseConfig({
+				fastOnly: false,
 				routes: [
 					{
 						path: "/:coinA/:coinB",
@@ -28,6 +29,7 @@ describe("parseConfig", () => {
 
 		const [result] = Effect.runSync(
 			parseConfig({
+				fastOnly: false,
 				routes: [
 					{
 						path: "/:coinA/:coinB",
@@ -90,6 +92,7 @@ describe("parseConfig", () => {
 
 		const [result2] = Effect.runSync(
 			parseConfig({
+				fastOnly: false,
 				routes: [
 					{
 						path: "/:coinA/:coinB",
@@ -162,6 +165,7 @@ describe("parseConfig", () => {
 	it("should allow * paths", async () => {
 		const [result] = Effect.runSync(
 			parseConfig({
+				fastOnly: false,
 				routes: [
 					{
 						path: "/:coinA/*",
@@ -235,6 +239,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -283,6 +288,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -330,6 +336,7 @@ describe("parseConfig", () => {
 		it("should resolve a dxfeed module without an auth token env key", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -377,6 +384,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -428,6 +436,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -493,6 +502,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -578,6 +588,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -603,6 +614,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [
 						{
 							type: "volmex",
@@ -695,6 +707,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -783,6 +796,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -837,6 +851,7 @@ describe("parseConfig", () => {
 
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					routes: [],
 					modules: [
 						{
@@ -865,6 +880,7 @@ describe("parseConfig", () => {
 		it("should default an okx module to the production public ticker WS", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					modules: [{ name: "okx", type: "okx" }],
 					routes: [
 						{
@@ -914,6 +930,7 @@ describe("parseConfig", () => {
 		it("allows several routes to share one module name", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					modules: [{ name: "lighter", type: "lighter" }],
 					routes: [
 						{
@@ -1012,6 +1029,7 @@ describe("parseConfig", () => {
 		it("accepts an enabled multi endpoint", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
+					fastOnly: false,
 					modules: [{ name: "bin", type: "binance" }],
 					multiEndpoint: { enable: true },
 					routes: [
@@ -1077,6 +1095,29 @@ describe("parseConfig", () => {
 	});
 
 	describe("fastOnly", () => {
+		it("defaults fastOnly to true", () => {
+			const [result] = Effect.runSync(
+				parseConfig({
+					sedaFast: {
+						enable: true,
+						allowedClients: [
+							"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+						],
+					},
+					routes: [
+						{
+							path: "/test",
+							upstreamUrl: "https://example.com/test",
+						},
+					],
+				}),
+			);
+
+			expect(result).toBeOkResult();
+			assertIsOkResult(result);
+			expect(result.value.config.fastOnly).toBe(true);
+		});
+
 		it("rejects fastOnly when sedaFast is not enabled", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
