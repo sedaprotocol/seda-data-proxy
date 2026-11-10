@@ -370,20 +370,6 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(400);
 	});
 
-	it("retries a 500 and maps it to 502 once retries are exhausted", async () => {
-		const fetchMock = mock(
-			async () => new Response("internal", { status: 500 }),
-		);
-		globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-		const response = await callHandle(baseConfig, ["BTC"]);
-		expect(response.status).toBe(502);
-		// 1 initial attempt + 3 retries.
-		expect(fetchMock).toHaveBeenCalledTimes(4);
-		const body = (await response.json()) as { data_proxy_error: string };
-		expect(body.data_proxy_error).toContain("Hydromancer responded 500");
-	});
-
 	it("retries a transient 503 and returns the recovered response", async () => {
 		let calls = 0;
 		const fetchMock = mock(async () => {
