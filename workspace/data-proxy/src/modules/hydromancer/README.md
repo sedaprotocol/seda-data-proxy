@@ -20,7 +20,7 @@ For `assetContext` HTTP requests the handler:
 
 Requests with more coins than `maxCoinsPerRequest` return HTTP 400.
 
-A REST `/info` call (this fallback, or a body forwarded upstream) that comes back with any 5xx, or fails to connect, is retried 3 times, waiting 200ms, 400ms, then 800ms. A timeout is not retried.
+A REST `/info` call (this fallback, or a body forwarded upstream) that comes back with any 5xx, or fails to connect, is retried 3 times. The waits are `restRetryBaseDelay`, then twice that, then four times that. A timeout is not retried.
 
 For `l2Book` HTTP requests the handler:
 
@@ -80,6 +80,7 @@ Set the env var named by `hydromancerApiKeyEnvKey`. Config parsing fails if it i
 | `reconnectMaxBackoff` | no | `"30 seconds"` | Cap on WS reconnect backoff. |
 | `reconnectStableThreshold` | no | `"30 seconds"` | Connected duration before reconnect backoff resets. |
 | `restFetchTimeout` | no | `"15 seconds"` | Timeout for REST `/info` calls. |
+| `restRetryBaseDelay` | no | `"200 millis"` | Base delay for REST retries. The next two waits are double and quadruple this value. |
 
 ### Route
 

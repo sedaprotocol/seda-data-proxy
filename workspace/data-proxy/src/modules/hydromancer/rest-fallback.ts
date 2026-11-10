@@ -69,10 +69,10 @@ export const executeHydromancerRestRequest = (
 	}).pipe(
 		// Retryable failures are stamped 502 above. A timeout stays 504 and a
 		// body-read failure stays 500, so neither is retried.
-		// Schedule.exponential("200 millis") waits 200ms, 400ms, then 800ms.
+		// The base delay doubles each retry: 200ms, 400ms, 800ms by default.
 		Effect.retry({
 			times: 3,
-			schedule: Schedule.exponential("200 millis"),
+			schedule: Schedule.exponential(config.restRetryBaseDelay),
 			while: (error) => error.status === 502,
 		}),
 		Effect.withSpan("executeHydromancerRestRequest"),

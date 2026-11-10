@@ -290,6 +290,7 @@ const baseConfig: HydromancerModuleConfig = {
 	coinsCleanupTtl: Duration.minutes(2),
 	coinsCleanupInterval: Duration.seconds(30),
 	restFetchTimeout: Duration.seconds(15),
+	restRetryBaseDelay: Duration.millis(1),
 	l2BookSubscriptionCoins: [],
 	l2BookMaxCoinsPerRequest: 20,
 	l2BookWaitTimeout: Duration.seconds(1),

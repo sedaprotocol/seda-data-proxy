@@ -3,7 +3,7 @@ import {
 	assertIsErrorResult,
 	assertIsOkResult,
 } from "@seda-protocol/utils/testing";
-import { Effect, LogLevel, Logger, Redacted } from "effect";
+import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
 import { parseConfig } from "./config/config-parser";
 
 describe("parseConfig", () => {
@@ -856,6 +856,7 @@ describe("parseConfig", () => {
 				throw new Error(`expected hydromancer, got ${module.type}`);
 			}
 			expect(module.hydromancerApiKey).toBe("hydromancer-secret");
+			expect(Duration.toMillis(module.restRetryBaseDelay)).toBe(200);
 			expect(result.value.envSecrets.has("hydromancer-secret")).toBe(true);
 
 			delete process.env.HYDROMANCER_API_KEY;

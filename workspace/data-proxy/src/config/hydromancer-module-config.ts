@@ -66,6 +66,16 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
+	// Base delay for REST retries. The next two waits are 2x and 4x this value.
+	restRetryBaseDelay: v.pipe(
+		v.optional(v.union([v.number(), v.string()]), "200 millis"),
+		v.transform((value) =>
+			Option.getOrThrowWith(
+				Duration.decodeUnknown(value),
+				() => new Error("Invalid restRetryBaseDelay duration"),
+			),
+		),
+	),
 	l2BookSubscriptionCoins: v.optional(v.array(v.string()), []),
 	l2BookMaxCoinsPerRequest: v.optional(v.number(), 10),
 	l2BookNSigFigs: v.optional(v.number()),
