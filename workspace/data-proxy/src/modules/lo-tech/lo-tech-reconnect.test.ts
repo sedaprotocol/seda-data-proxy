@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Server, ServerWebSocket } from "bun";
-import { Duration, Effect, LogLevel, Logger } from "effect";
+import { Duration, Effect, Layer, LogLevel, Logger } from "effect";
 import * as v from "valibot";
 import {
 	type LoTechModuleConfig,
 	LoTechModuleRouteSchema,
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
+import {
+	SocketHealth,
+	SocketHealthRegistry,
+	WS_DISCONNECT_GRACE_MS,
+} from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { LoTechModuleService } from "./lo-tech";
 
@@ -209,5 +214,47 @@ describe("LoTechModuleService reconnects", () => {
 		expect(during).toMatchObject({ price: 100, [HAS_PRICE_KEY]: true });
 		expect(after).toMatchObject({ price: 300, [HAS_PRICE_KEY]: true });
 		expect(fatalLogs.length).toBeGreaterThanOrEqual(1);
+	}, 15_000);
+
+	it("reports the exchange socket to health only after it stays down for the grace", async () => {
+		const fake = startFakeLoTech();
+		servers.push(fake.server);
+		const registry = new SocketHealthRegistry();
+		const layer = LoTechModuleService(configFor(fake)).pipe(
+			Layer.provide(Layer.succeed(SocketHealth, registry)),
+		);
+		const staleLater = () => registry.staleSockets(Date.now() + 60_000);
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+
+			// The exchange socket is opened lazily by the first request, outside the
+			// layer's context, so this fails if the registry was not captured up front.
+			yield* fetchPrice;
+			expect(staleLater()).toEqual([]);
+
+			fake.down = true;
+			fake.dropConnections();
+			yield* Effect.promise(() =>
+				waitFor(() => staleLater().length === 1, "socket reported down"),
+			);
+			const closedAt = Date.now();
+			expect(registry.staleSockets(closedAt)).toEqual([]);
+			expect(registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS)).toEqual([
+				{
+					module: "lotech",
+					venue: "lo-tech:compute_index",
+					disconnectedForMs: expect.any(Number),
+				},
+			]);
+
+			fake.down = false;
+			yield* Effect.promise(() =>
+				waitFor(() => staleLater().length === 0, "socket reconnected"),
+			);
+		}).pipe(Effect.provide(layer), Logger.withMinimumLogLevel(LogLevel.None));
+
+		await Effect.runPromise(program);
 	}, 15_000);
 });
