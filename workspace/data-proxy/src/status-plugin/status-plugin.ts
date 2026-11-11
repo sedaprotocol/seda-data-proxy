@@ -4,6 +4,7 @@ import { Effect, Either, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
+import type { SocketHealthRegistry } from "../services/socket-health";
 import { getVersions } from "../utils/versions";
 import type { Context } from "./types";
 
@@ -12,6 +13,7 @@ export const statusPlugin = (
 	dataProxy: DataProxy,
 	options: Config["statusEndpoints"],
 	config: Config,
+	socketHealth: SocketHealthRegistry,
 ) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime();
@@ -44,11 +46,18 @@ export const statusPlugin = (
 					Runtime.runPromise(
 						runtime,
 						Effect.gen(function* () {
-							let healthy = true;
+							const now = Date.now();
+							const stale = socketHealth.staleSockets(now);
+							for (const socket of socketHealth.newlyStale(now)) {
+								yield* Effect.logWarning(
+									"Websocket disconnected past health grace",
+									socket,
+								);
+							}
 
-							if (config.fastOnly) {
-								healthy = true;
-							} else {
+							let healthy = stale.length === 0;
+
+							if (!config.fastOnly) {
 								const chainId = yield* Effect.either(
 									getRpcChainId(dataProxy.options.rpcUrl),
 								);
@@ -56,15 +65,20 @@ export const statusPlugin = (
 									Either.isRight(chainId) &&
 									chainId.right === dataProxy.options.chainId;
 
-								healthy = hasCorrectChainId;
+								healthy = healthy && hasCorrectChainId;
 							}
 
-							set.status = healthy ? 200 : 500;
+							const status = healthy ? 200 : 500;
+							set.status = status;
 
-							return Response.json({
-								status: healthy ? "healthy" : "unhealthy",
-								metrics: context.getMetrics(),
-							});
+							return Response.json(
+								{
+									status: healthy ? "healthy" : "unhealthy",
+									metrics: context.getMetrics(),
+									...(stale.length > 0 ? { sockets: stale } : {}),
+								},
+								{ status },
+							);
 						}),
 					),
 				);

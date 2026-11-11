@@ -791,6 +791,7 @@ describe("proxy server", () => {
 				const response = await fetch(`${proxyUrl}/status/health`);
 				const result = await response.json();
 
+				expect(response.status).toBe(200);
 				expect(result).toEqual(expected);
 			}
 
