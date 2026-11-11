@@ -68,17 +68,13 @@ export const statusPlugin = (
 								healthy = healthy && hasCorrectChainId;
 							}
 
-							const status = healthy ? 200 : 500;
-							set.status = status;
+							set.status = healthy ? 200 : 500;
 
-							return Response.json(
-								{
-									status: healthy ? "healthy" : "unhealthy",
-									metrics: context.getMetrics(),
-									...(stale.length > 0 ? { sockets: stale } : {}),
-								},
-								{ status },
-							);
+							return Response.json({
+								status: healthy ? "healthy" : "unhealthy",
+								metrics: context.getMetrics(),
+								...(stale.length > 0 ? { sockets: stale } : {}),
+							});
 						}),
 					),
 				);

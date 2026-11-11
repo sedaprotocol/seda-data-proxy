@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
+import { Duration, Effect, Layer, LogLevel, Logger, Redacted } from "effect";
 import * as v from "valibot";
 import {
 	type VolmexModuleConfig,
 	VolmexModuleRouteSchema,
 } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
+import {
+	SocketHealth,
+	SocketHealthRegistry,
+	WS_DISCONNECT_GRACE_MS,
+} from "../../services/socket-health";
 import { ModuleService } from "../module";
 
 type FakeSocketOptions = {
@@ -373,4 +378,41 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(504);
 	});
+});
+
+describe("VolmexModuleService socket health", () => {
+	it("reports the socket to health only after it stays down for the grace", async () => {
+		const registry = new SocketHealthRegistry();
+		const layer = VolmexModuleService(baseConfig).pipe(
+			Layer.provide(Layer.succeed(SocketHealth, registry)),
+		);
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+			yield* Effect.promise(() =>
+				waitFor(() => FakeSocket.instances.length >= 1, "Socket.IO instance"),
+			);
+			const socket = FakeSocket.instances[0];
+
+			socket.trigger("connect");
+			expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+
+			socket.trigger("disconnect", "transport close");
+			const closedAt = Date.now();
+			expect(registry.staleSockets(closedAt)).toEqual([]);
+			expect(registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS)).toEqual([
+				{
+					module: "volmex",
+					venue: "volmex",
+					disconnectedForMs: expect.any(Number),
+				},
+			]);
+
+			socket.trigger("connect");
+			expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+		}).pipe(Effect.provide(layer), quiet);
+
+		await Effect.runPromise(program);
+	}, 10_000);
 });
