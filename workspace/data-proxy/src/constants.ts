@@ -18,10 +18,13 @@ export const JSON_PATH_HEADER_KEY = "x-seda-json-path";
 export const DEFAULT_VERIFICATION_MAX_RETRIES = 2;
 export const DEFAULT_VERIFICATION_RETRY_DELAY = 1000;
 
-// Official SEDA FAST client keys. Mainnet publishes two; testnet publishes one.
+// Official SEDA FAST client keys.
 export const DEFAULT_FAST_ALLOWED_CLIENTS = [
+	// mainnet
 	"02c7cc8570d26bb3cf066ed5e14cf049e531248554aa4ee9ef619c2070d8e127bb",
+	// mainnet
 	"0220c300a6700844c84297ff9168e130c008da83d2db6f5b78ab44bd8724c3c82b",
+	// testnet
 	"021eacf821d4d21ad61515fc1212ca75739730bf0abcf4925045e3ebde0f93a7e8",
 ];
 
