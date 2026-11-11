@@ -22,6 +22,7 @@ import { LighterModuleService } from "./modules/ticker-module/lighter";
 import { OkxModuleService } from "./modules/ticker-module/okx";
 import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
+import { SocketHealth, SocketHealthRegistry } from "./services/socket-health";
 import { StatusContext, statusPlugin } from "./status-plugin";
 import { createOptionsResponse } from "./utils/create-headers";
 import { withIncomingTrace } from "./utils/with-incoming-trace";
@@ -39,6 +40,8 @@ export const startProxyServer = (
 	Effect.gen(function* () {
 		const serviceName = yield* DATA_PROXY_ID;
 		const runtime = yield* Effect.runtime<HttpClientService>();
+		const socketHealth = new SocketHealthRegistry();
+		const socketHealthLayer = Layer.succeed(SocketHealth, socketHealth);
 		const modules = MutableHashMap.empty<
 			string,
 			Layer.Layer<ModuleService, unknown, never>
@@ -49,7 +52,7 @@ export const startProxyServer = (
 
 		// Initialize the modules and start them
 		for (const moduleConfig of config.modules) {
-			const moduleLayer = yield* Match.value(moduleConfig).pipe(
+			const memoized = yield* Match.value(moduleConfig).pipe(
 				Match.when({ type: "pyth-lazer" }, (m) =>
 					Layer.memoize(PythLazerModuleService(m)),
 				),
@@ -83,6 +86,7 @@ export const startProxyServer = (
 				),
 				Match.exhaustive,
 			);
+			const moduleLayer = memoized.pipe(Layer.provide(socketHealthLayer));
 
 			yield* Effect.gen(function* () {
 				const moduleService = yield* ModuleService;
@@ -174,6 +178,7 @@ export const startProxyServer = (
 				dataProxy,
 				config.statusEndpoints,
 				config,
+				socketHealth,
 			),
 		);
 		const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;

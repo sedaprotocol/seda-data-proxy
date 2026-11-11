@@ -11,6 +11,7 @@ import {
 	Schedule,
 	Stream,
 } from "effect";
+import { SocketHealth, watchSocket } from "../../services/socket-health";
 import { forkInboundControl } from "./inbound-control";
 import type { PriceCache } from "./price-cache";
 import { recordTickHandle } from "./tick-metrics";
@@ -129,6 +130,10 @@ export const createVenueWS = <TKey, TFrame>(
 		);
 
 		const runtime = yield* Effect.runtime<never>();
+		const socketWatch = watchSocket(yield* Effect.serviceOption(SocketHealth), {
+			module: name,
+			venue,
+		});
 		const desiredKeys = MutableHashMap.empty<TKey, true>();
 		let currentWS: WebSocket | null = null;
 		let unhealthy = false;
@@ -298,6 +303,7 @@ export const createVenueWS = <TKey, TFrame>(
 			Effect.gen(function* () {
 				yield* Effect.logInfo(`${venue} WS open`, { name });
 				unhealthy = false;
+				socketWatch.connected();
 				currentWS = ws;
 				const keys = desiredKeyList();
 				if (keys.length > 0) {
@@ -310,6 +316,7 @@ export const createVenueWS = <TKey, TFrame>(
 		const handleDisconnect = (closed: Deferred.Deferred<void, void>) =>
 			Effect.gen(function* () {
 				unhealthy = true;
+				socketWatch.disconnected();
 				currentWS = null;
 				if (opened && seed !== undefined) {
 					const keys = desiredKeyList();
