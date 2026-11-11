@@ -3,7 +3,10 @@ import { asyncToEffect } from "../utils/effect-utils";
 
 export const getRpcChainId = (rpc: string) =>
 	Effect.gen(function* () {
-		const url = new URL("/status", rpc);
+		const url = yield* Effect.try({
+			try: () => new URL("/status", rpc),
+			catch: (error) => error,
+		});
 		const response = yield* asyncToEffect(fetch(url));
 		const data = yield* asyncToEffect(response.json());
 

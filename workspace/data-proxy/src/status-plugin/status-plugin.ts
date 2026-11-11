@@ -73,9 +73,10 @@ export const statusPlugin = (
 					Runtime.runPromise(
 						runtime,
 						Effect.gen(function* () {
-							const chainId = yield* Effect.either(
-								getRpcChainId(dataProxy.options.rpcUrl),
-							);
+							// fastOnly can run with no network, so there is no RPC URL to query.
+							const chainId = dataProxy.options.rpcUrl
+								? yield* Effect.either(getRpcChainId(dataProxy.options.rpcUrl))
+								: Either.left("RPC URL is not configured");
 
 							return Response.json({
 								pubKey: context.getPublicKey(),
