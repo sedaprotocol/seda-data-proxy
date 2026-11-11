@@ -145,7 +145,8 @@ const ConfigSchema = v.strictObject(
 							return unique.size === clients.length;
 						}, "Duplicate public keys are not allowed"),
 					),
-					[...DEFAULT_FAST_ALLOWED_CLIENTS],
+					// A function so every parsed config gets its own array.
+					() => [...DEFAULT_FAST_ALLOWED_CLIENTS],
 				),
 				maxProofAgeMs: v.optional(
 					v.pipe(
@@ -658,17 +659,13 @@ export const parseConfig = (
 
 		// fastOnly has no chain registration, so SEDA FAST has to be on.
 		// A missing block gets the official testnet and mainnet clients.
-		const sedaFast = config.sedaFast
-			? {
-					...config.sedaFast,
-					allowedClients: [...config.sedaFast.allowedClients],
-				}
-			: config.fastOnly
-				? {
-						enable: true,
-						allowedClients: [...DEFAULT_FAST_ALLOWED_CLIENTS],
-					}
-				: undefined;
+		let sedaFast = config.sedaFast;
+		if (!sedaFast && config.fastOnly) {
+			sedaFast = {
+				enable: true,
+				allowedClients: [...DEFAULT_FAST_ALLOWED_CLIENTS],
+			};
+		}
 
 		if (sedaFast?.enable && sedaFast.allowedClients.length === 0) {
 			return [
