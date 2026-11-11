@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { createPriceCache } from "../shared/price-cache";
 import {
 	type LighterPriceFrame,
@@ -441,6 +442,7 @@ const startService = (
 		const ws = yield* createLighterWS(
 			config,
 			cache,
+			new SocketHealthRegistry(),
 			reconnectSchedule ?? Schedule.spaced(Duration.minutes(10)),
 		);
 		if (preSubscribed.length > 0) {

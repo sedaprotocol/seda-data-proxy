@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
-import {
-	SocketHealth,
-	SocketHealthRegistry,
-} from "../../services/socket-health";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
@@ -41,6 +38,7 @@ const startClient = (options?: {
 	maxMessagesWindow?: Duration.Duration;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	preSubscribed?: string[];
+	health?: SocketHealthRegistry;
 	seed?: {
 		start: (keys: string[]) => Effect.Effect<void, never, never>;
 		stop: (keys: string[]) => Effect.Effect<void, never, never>;
@@ -68,6 +66,7 @@ const startClient = (options?: {
 				reconnectStableThreshold: Duration.seconds(30),
 			},
 			cache,
+			health: options?.health ?? new SocketHealthRegistry(),
 			reconnectSchedule:
 				options?.reconnectSchedule ?? Schedule.spaced(Duration.minutes(10)),
 			keepalive:
@@ -189,7 +188,8 @@ describe("createVenueWS", () => {
 			startClient({
 				preSubscribed: ["BTC"],
 				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
-			}).pipe(Effect.provideService(SocketHealth, registry)),
+				health: registry,
+			}),
 		);
 		await flush();
 		const ws1 = FakeWebSocket.instances[0];
@@ -279,6 +279,7 @@ describe("createVenueWS", () => {
 						reconnectStableThreshold: Duration.seconds(30),
 					},
 					cache,
+					health: new SocketHealthRegistry(),
 					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
 					buildSubscribeFrame: (keys) =>
 						keys.map((key) => JSON.stringify({ op: "subscribe", keys: [key] })),
@@ -326,6 +327,7 @@ describe("createVenueWS", () => {
 						reconnectStableThreshold: Duration.seconds(30),
 					},
 					cache,
+					health: new SocketHealthRegistry(),
 					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
 					keepalive: {
 						interval: Duration.minutes(10),

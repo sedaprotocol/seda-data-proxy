@@ -14,8 +14,11 @@ import {
 	HydromancerModuleRouteSchema,
 	type Trade,
 } from "../../config/hydromancer-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { HydromancerModuleService } from "./hydromancer";
+
+const socketHealth = new SocketHealthRegistry();
 import { REST_MAX_COINS_PER_REQUEST } from "./rest-fallback";
 import { buildSubscribeFrame, buildUnsubscribeFrame } from "./ws-client";
 
@@ -146,7 +149,9 @@ const callHandle = (
 		);
 	});
 	return runSilently(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config, socketHealth)),
+		),
 	);
 };
 
@@ -165,7 +170,9 @@ const callHandleRaw = (config: HydromancerModuleConfig, rawBody: string) => {
 		);
 	});
 	return runSilently(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config, socketHealth)),
+		),
 	);
 };
 
@@ -197,7 +204,9 @@ const callHandleSequence = (
 		return responses;
 	});
 	return runSilently(
-		program.pipe(Effect.provide(HydromancerModuleService(config))),
+		program.pipe(
+			Effect.provide(HydromancerModuleService(config, socketHealth)),
+		),
 	);
 };
 
@@ -576,7 +585,9 @@ describe("HydromancerModuleService.handleRequest (non-assetContext)", () => {
 					{},
 					new Request("http://proxy.local/info", { method: "POST" }),
 				);
-			}).pipe(Effect.provide(HydromancerModuleService(baseConfig))),
+			}).pipe(
+				Effect.provide(HydromancerModuleService(baseConfig, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(400);
@@ -748,7 +759,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		const result = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(result.status).toBe(200);
@@ -782,7 +795,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		const sent = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		// Only one subscribe frame, even though handleRequest was called twice.
@@ -823,7 +838,9 @@ describe("HydromancerModuleService demand-driven subscriptions", () => {
 		});
 
 		const { afterSubscribe, afterCleanup } = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(afterSubscribe).toEqual([
@@ -887,7 +904,9 @@ describe("HydromancerModuleService REST fallback when WS is errored", () => {
 		});
 
 		await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(restCalls).toEqual([["BTC"], ["BTC"]]);
@@ -936,7 +955,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		});
 
 		const { response, sentOnOpen } = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(sentOnOpen).toEqual([buildSubscribeFrame("l2Book", "BTC")]);
@@ -968,7 +989,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(200);
@@ -1004,7 +1027,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(200);
@@ -1034,7 +1059,9 @@ describe("HydromancerModuleService l2Book flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(400);
@@ -1083,7 +1110,9 @@ describe("HydromancerModuleService trades flow", () => {
 		});
 
 		const { response, sentOnOpen } = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(sentOnOpen).toEqual([buildSubscribeFrame("trades", "BTC")]);
@@ -1115,7 +1144,9 @@ describe("HydromancerModuleService trades flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(200);
@@ -1151,7 +1182,9 @@ describe("HydromancerModuleService trades flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(200);
@@ -1228,7 +1261,7 @@ describe("HydromancerModuleService trades flow", () => {
 		const { withinWindow, agedOut, btcBatch, ethLater, btcLater } =
 			await runSilently(
 				program.pipe(
-					Effect.provide(HydromancerModuleService(config)),
+					Effect.provide(HydromancerModuleService(config, socketHealth)),
 					Effect.provide(TestContext.TestContext),
 				),
 			);
@@ -1263,7 +1296,9 @@ describe("HydromancerModuleService trades flow", () => {
 		});
 
 		const response = await runSilently(
-			program.pipe(Effect.provide(HydromancerModuleService(config))),
+			program.pipe(
+				Effect.provide(HydromancerModuleService(config, socketHealth)),
+			),
 		);
 
 		expect(response.status).toBe(400);

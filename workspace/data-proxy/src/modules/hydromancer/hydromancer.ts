@@ -16,6 +16,7 @@ import {
 	parseHydromancerBody,
 } from "../../config/hydromancer-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createFreshnessCache } from "../shared/freshness-cache";
@@ -38,7 +39,10 @@ export const retainTradesWithinWindow = (
 	return kept.length === trades.length ? trades : kept;
 };
 
-export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
+export const HydromancerModuleService = (
+	config: HydromancerModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
@@ -75,6 +79,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				cache,
 				bookCache,
 				tradesCache,
+				health,
 			);
 
 			const lastRequestToCoin = MutableHashMap.empty<string, number>();

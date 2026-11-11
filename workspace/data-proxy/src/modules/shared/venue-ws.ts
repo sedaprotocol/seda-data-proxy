@@ -11,7 +11,7 @@ import {
 	Schedule,
 	Stream,
 } from "effect";
-import { SocketHealth, watchSocket } from "../../services/socket-health";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { forkInboundControl } from "./inbound-control";
 import type { PriceCache } from "./price-cache";
 import { recordTickHandle } from "./tick-metrics";
@@ -80,6 +80,7 @@ export interface CreateVenueWSParams<TKey, TFrame> {
 	venue: string;
 	config: VenueWSConfig;
 	cache: PriceCache<TKey, TFrame>;
+	health: SocketHealthRegistry;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	keepalive?: {
 		interval: VenueWSConfig["reconnectMaxBackoff"];
@@ -130,10 +131,7 @@ export const createVenueWS = <TKey, TFrame>(
 		);
 
 		const runtime = yield* Effect.runtime<never>();
-		const socketWatch = watchSocket(yield* Effect.serviceOption(SocketHealth), {
-			module: name,
-			venue,
-		});
+		const socketWatch = params.health.track({ module: name, venue });
 		const desiredKeys = MutableHashMap.empty<TKey, true>();
 		let currentWS: WebSocket | null = null;
 		let unhealthy = false;

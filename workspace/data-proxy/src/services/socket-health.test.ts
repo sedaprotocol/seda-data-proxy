@@ -1,10 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Context, Effect, Layer, Option } from "effect";
-import {
-	SocketHealth,
-	SocketHealthRegistry,
-	WS_DISCONNECT_GRACE_MS,
-} from "./socket-health";
+import { SocketHealthRegistry, WS_DISCONNECT_GRACE_MS } from "./socket-health";
 
 const identity = { module: "binance-main", venue: "binance" };
 
@@ -87,37 +82,5 @@ describe("SocketHealthRegistry", () => {
 		watch.disconnected(WS_DISCONNECT_GRACE_MS);
 
 		expect(registry.newlyStale(WS_DISCONNECT_GRACE_MS * 2)).toHaveLength(1);
-	});
-
-	it("is visible inside a module layer that does not require it", async () => {
-		class Probe extends Context.Tag("SocketHealthProbe")<
-			Probe,
-			Option.Option<SocketHealthRegistry>
-		>() {}
-
-		const registry = new SocketHealthRegistry();
-		const memoized = await Effect.runPromise(
-			Layer.memoize(
-				Layer.effect(
-					Probe,
-					Effect.gen(function* () {
-						return yield* Effect.serviceOption(SocketHealth);
-					}),
-				),
-			).pipe(Effect.scoped),
-		);
-		const layer = memoized.pipe(
-			Layer.provide(Layer.succeed(SocketHealth, registry)),
-		);
-		const seen = await Effect.runPromise(
-			Effect.gen(function* () {
-				return yield* Probe;
-			}).pipe(Effect.provide(layer), Effect.scoped),
-		);
-
-		expect(Option.isSome(seen)).toBe(true);
-		if (Option.isSome(seen)) {
-			expect(seen.value).toBe(registry);
-		}
 	});
 });

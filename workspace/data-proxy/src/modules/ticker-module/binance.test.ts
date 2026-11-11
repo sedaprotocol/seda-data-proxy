@@ -12,12 +12,15 @@ import {
 	type BinanceModuleConfig,
 	BinanceModuleRouteSchema,
 } from "../../config/binance-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
 } from "../shared/fake-websocket.test-helpers";
 import { BinanceModuleService } from "./binance";
+
+const socketHealth = new SocketHealthRegistry();
 import type { BinancePriceFrame } from "./binance";
 
 const btcBook: BinancePriceFrame = {
@@ -105,7 +108,7 @@ describe("BinanceModuleService.handleRequest", () => {
 			yield* svc.start();
 			return yield* svc.handleRequest(route, params, dummyRequest);
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(BinanceModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -153,7 +156,7 @@ describe("BinanceModuleService.handleRequest", () => {
 			const r2 = yield* svc.handleRequest(route, params, dummyRequest);
 			return [r1, r2] as const;
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(BinanceModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -190,7 +193,7 @@ describe("BinanceModuleService.handleRequest", () => {
 			const afterError = yield* svc.handleRequest(route, params, dummyRequest);
 			return [fresh, afterError] as const;
 		}).pipe(
-			Effect.provide(BinanceModuleService(baseConfig)),
+			Effect.provide(BinanceModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -293,7 +296,7 @@ describe("BinanceModuleService.handleRequest", () => {
 		const { withinWindow, partlyAged, agedOut, early, mid, fresh } =
 			await Effect.runPromise(
 				program.pipe(
-					Effect.provide(BinanceModuleService(config)),
+					Effect.provide(BinanceModuleService(config, socketHealth)),
 					Effect.provide(TestContext.TestContext),
 					Logger.withMinimumLogLevel(LogLevel.None),
 				),
@@ -340,7 +343,7 @@ describe("BinanceModuleService.handleRequest", () => {
 				dummyRequest,
 			);
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(BinanceModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -365,7 +368,7 @@ describe("BinanceModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(BinanceModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -399,7 +402,7 @@ describe("BinanceModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BinanceModuleService(config)),
+			Effect.provide(BinanceModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 

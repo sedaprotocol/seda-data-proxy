@@ -3,6 +3,7 @@ import type {
 	BinanceModuleConfig,
 	BinanceStreamType,
 } from "../../config/binance-module-config";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { isRecord, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
@@ -18,7 +19,10 @@ import {
 	parseUppercaseSymbol,
 } from "./ticker-module";
 
-export const BinanceModuleService = (config: BinanceModuleConfig) => {
+export const BinanceModuleService = (
+	config: BinanceModuleConfig,
+	health: SocketHealthRegistry,
+) => {
 	const params: CreateTickerModuleServiceParams<
 		string,
 		BinancePriceFrame,
@@ -29,7 +33,7 @@ export const BinanceModuleService = (config: BinanceModuleConfig) => {
 		identityField: "symbol",
 		config,
 		parseKey: parseUppercaseSymbol,
-		createWS: createBinanceWS,
+		createWS: (config, cache) => createBinanceWS(config, cache, health),
 		extraInitLog: { streamType: config.streamType },
 	};
 
@@ -199,6 +203,7 @@ export const parseInboundFrame = (
 export const createBinanceWS = (
 	config: BinanceModuleConfig,
 	cache: PriceCache<string, BinancePriceFrame>,
+	health: SocketHealthRegistry,
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ): Effect.Effect<VenueWS, never, never> => {
 	let controlId = 0;
@@ -215,6 +220,7 @@ export const createBinanceWS = (
 		venue: "binance",
 		config,
 		cache,
+		health,
 		reconnectSchedule,
 		seed: depth,
 		buildSubscribeFrame: (keys) =>

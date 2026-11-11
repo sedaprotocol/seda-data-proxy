@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Server, ServerWebSocket } from "bun";
-import { Duration, Effect, Layer, LogLevel, Logger } from "effect";
+import { Duration, Effect, LogLevel, Logger } from "effect";
 import * as v from "valibot";
 import {
 	type LoTechModuleConfig,
@@ -8,12 +8,13 @@ import {
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import {
-	SocketHealth,
 	SocketHealthRegistry,
 	WS_DISCONNECT_GRACE_MS,
 } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { LoTechModuleService } from "./lo-tech";
+
+const socketHealth = new SocketHealthRegistry();
 
 const SYMBOL = "O|SICI-USD:SPOT";
 
@@ -162,7 +163,7 @@ describe("LoTechModuleService reconnects", () => {
 			const after = yield* fetchPriceUntil(200);
 			return { before, after };
 		}).pipe(
-			Effect.provide(LoTechModuleService(configFor(fake))),
+			Effect.provide(LoTechModuleService(configFor(fake), socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -204,7 +205,7 @@ describe("LoTechModuleService reconnects", () => {
 			const after = yield* fetchPriceUntil(300);
 			return { before, during, after };
 		}).pipe(
-			Effect.provide(LoTechModuleService(configFor(fake))),
+			Effect.provide(LoTechModuleService(configFor(fake), socketHealth)),
 			Effect.provide(Logger.replace(Logger.defaultLogger, captureFatal)),
 		);
 
@@ -220,17 +221,13 @@ describe("LoTechModuleService reconnects", () => {
 		const fake = startFakeLoTech();
 		servers.push(fake.server);
 		const registry = new SocketHealthRegistry();
-		const layer = LoTechModuleService(configFor(fake)).pipe(
-			Layer.provide(Layer.succeed(SocketHealth, registry)),
-		);
 		const staleLater = () => registry.staleSockets(Date.now() + 60_000);
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 
-			// The exchange socket is opened lazily by the first request, outside the
-			// layer's context, so this fails if the registry was not captured up front.
+			// The exchange socket is opened by the first request, after start().
 			yield* fetchPrice;
 			expect(staleLater()).toEqual([]);
 
@@ -253,7 +250,10 @@ describe("LoTechModuleService reconnects", () => {
 			yield* Effect.promise(() =>
 				waitFor(() => staleLater().length === 0, "socket reconnected"),
 			);
-		}).pipe(Effect.provide(layer), Logger.withMinimumLogLevel(LogLevel.None));
+		}).pipe(
+			Effect.provide(LoTechModuleService(configFor(fake), registry)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		);
 
 		await Effect.runPromise(program);
 	}, 15_000);

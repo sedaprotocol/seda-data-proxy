@@ -18,7 +18,6 @@ import type {
 	Trade,
 } from "../../config/hydromancer-module-config";
 import {
-	SocketHealth,
 	SocketHealthRegistry,
 	WS_DISCONNECT_GRACE_MS,
 } from "../../services/socket-health";
@@ -324,7 +323,8 @@ afterEach(() => {
 const startService = (
 	config: HydromancerModuleConfig,
 	preSubscribed: string[] = config.subscriptionCoins,
-	options?: Parameters<typeof createHydromancerWS>[4],
+	options?: Parameters<typeof createHydromancerWS>[5],
+	health: SocketHealthRegistry = new SocketHealthRegistry(),
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createFreshnessCache<string, AssetCtx>();
@@ -344,6 +344,7 @@ const startService = (
 			cache,
 			bookCache,
 			tradesCache,
+			health,
 			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
 		);
 		for (const coin of preSubscribed) {
@@ -697,7 +698,8 @@ describe("createHydromancerWS", () => {
 					baseConfig,
 					baseConfig.subscriptionCoins,
 					{ reconnectSchedule: fastSchedule },
-				).pipe(Effect.provideService(SocketHealth, registry));
+					registry,
+				);
 				yield* waitForInstances(1);
 
 				const ws1 = FakeWebSocket.instances[0];
