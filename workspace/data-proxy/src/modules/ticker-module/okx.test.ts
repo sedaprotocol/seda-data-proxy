@@ -5,12 +5,15 @@ import {
 	type OkxModuleConfig,
 	OkxModuleRouteSchema,
 } from "../../config/okx-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
 } from "../shared/fake-websocket.test-helpers";
 import { OkxModuleService, type OkxPriceFrame } from "./okx";
+
+const socketHealth = new SocketHealthRegistry();
 
 const btcTicker: OkxPriceFrame = {
 	instType: "SPOT",
@@ -112,7 +115,7 @@ describe("OkxModuleService.handleRequest", () => {
 			yield* svc.start();
 			return yield* svc.handleRequest(route, params, dummyRequest);
 		}).pipe(
-			Effect.provide(OkxModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -155,7 +158,7 @@ describe("OkxModuleService.handleRequest", () => {
 			const r2 = yield* svc.handleRequest(route, params, dummyRequest);
 			return [r1, r2] as const;
 		}).pipe(
-			Effect.provide(OkxModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -188,7 +191,7 @@ describe("OkxModuleService.handleRequest", () => {
 			const afterError = yield* svc.handleRequest(route, params, dummyRequest);
 			return [fresh, afterError] as const;
 		}).pipe(
-			Effect.provide(OkxModuleService(baseConfig)),
+			Effect.provide(OkxModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -225,7 +228,7 @@ describe("OkxModuleService.handleRequest", () => {
 				dummyRequest,
 			);
 		}).pipe(
-			Effect.provide(OkxModuleService(config)),
+			Effect.provide(OkxModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -250,7 +253,7 @@ describe("OkxModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(OkxModuleService(config)),
+			Effect.provide(OkxModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -283,7 +286,7 @@ describe("OkxModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(OkxModuleService(config)),
+			Effect.provide(OkxModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 

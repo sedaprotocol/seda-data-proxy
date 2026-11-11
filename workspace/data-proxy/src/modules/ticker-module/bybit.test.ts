@@ -5,12 +5,15 @@ import {
 	type BybitModuleConfig,
 	BybitModuleRouteSchema,
 } from "../../config/bybit-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
 } from "../shared/fake-websocket.test-helpers";
 import { BybitModuleService, type BybitPriceFrame } from "./bybit";
+
+const socketHealth = new SocketHealthRegistry();
 
 const btcTicker: BybitPriceFrame = {
 	symbol: "BTCUSDT",
@@ -118,7 +121,7 @@ describe("BybitModuleService.handleRequest", () => {
 			yield* svc.start();
 			return yield* svc.handleRequest(route, params, dummyRequest);
 		}).pipe(
-			Effect.provide(BybitModuleService(baseConfig)),
+			Effect.provide(BybitModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -161,7 +164,7 @@ describe("BybitModuleService.handleRequest", () => {
 			const second = yield* svc.handleRequest(route, params, dummyRequest);
 			return [first, second] as const;
 		}).pipe(
-			Effect.provide(BybitModuleService(baseConfig)),
+			Effect.provide(BybitModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -198,7 +201,7 @@ describe("BybitModuleService.handleRequest", () => {
 			const r2 = yield* svc.handleRequest(route, params, dummyRequest);
 			return [r1, r2] as const;
 		}).pipe(
-			Effect.provide(BybitModuleService(baseConfig)),
+			Effect.provide(BybitModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -231,7 +234,7 @@ describe("BybitModuleService.handleRequest", () => {
 			const afterError = yield* svc.handleRequest(route, params, dummyRequest);
 			return [fresh, afterError] as const;
 		}).pipe(
-			Effect.provide(BybitModuleService(baseConfig)),
+			Effect.provide(BybitModuleService(baseConfig, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -268,7 +271,7 @@ describe("BybitModuleService.handleRequest", () => {
 				dummyRequest,
 			);
 		}).pipe(
-			Effect.provide(BybitModuleService(config)),
+			Effect.provide(BybitModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -293,7 +296,7 @@ describe("BybitModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BybitModuleService(config)),
+			Effect.provide(BybitModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -326,7 +329,7 @@ describe("BybitModuleService lifecycle", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 		}).pipe(
-			Effect.provide(BybitModuleService(config)),
+			Effect.provide(BybitModuleService(config, socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 

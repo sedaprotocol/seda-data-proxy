@@ -1,5 +1,6 @@
 import type { Effect, Schedule } from "effect";
 import type { OkxModuleConfig } from "../../config/okx-module-config";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { isRecord, mapDataItems, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import { createVenueWS } from "../shared/venue-ws";
@@ -13,14 +14,20 @@ export const TICKERS_CHANNEL = "tickers";
 export const PING_FRAME = "ping";
 export const PONG_FRAME = "pong";
 
-export const OkxModuleService = (config: OkxModuleConfig) =>
+export const OkxModuleService = (
+	config: OkxModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	createTickerModuleService({
 		venue: "okx",
 		routeType: "okx",
 		identityField: "instId",
 		config,
 		parseKey: parseUppercaseSymbol,
-		createWS: createOkxWS,
+		createWS: (
+			config: OkxModuleConfig,
+			cache: PriceCache<string, OkxPriceFrame>,
+		) => createOkxWS(config, cache, health),
 	});
 
 export interface OkxPriceFrame {
@@ -88,6 +95,7 @@ export const parseInboundFrame = (
 export const createOkxWS = (
 	config: OkxModuleConfig,
 	cache: PriceCache<string, OkxPriceFrame>,
+	health: SocketHealthRegistry,
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ): Effect.Effect<VenueWS, never, never> => {
 	let controlId = 0;
@@ -97,6 +105,7 @@ export const createOkxWS = (
 		venue: "okx",
 		config,
 		cache,
+		health,
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,

@@ -42,6 +42,8 @@ export const statusPlugin = (
 					});
 				});
 
+				// Readiness probe. One stale socket fails this process, and restarting
+				// it does not bring a remote venue back.
 				group.get("health", async ({ set }) =>
 					Runtime.runPromise(
 						runtime,

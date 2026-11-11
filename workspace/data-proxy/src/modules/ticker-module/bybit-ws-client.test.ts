@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
 import type { BybitModuleConfig } from "../../config/bybit-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
@@ -259,7 +260,12 @@ const startService = (
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<string, BybitPriceFrame>();
-		const ws = yield* createBybitWS(config, cache, reconnectSchedule);
+		const ws = yield* createBybitWS(
+			config,
+			cache,
+			new SocketHealthRegistry(),
+			reconnectSchedule,
+		);
 		yield* ws.subscribe(preSubscribed);
 		const fiber = yield* ws.start();
 		return { cache, ws, fiber };

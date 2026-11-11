@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
 import type { BinanceModuleConfig } from "../../config/binance-module-config";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
@@ -178,7 +179,12 @@ const startService = (
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createPriceCache<string, BinancePriceFrame>();
-		const ws = yield* createBinanceWS(config, cache, reconnectSchedule);
+		const ws = yield* createBinanceWS(
+			config,
+			cache,
+			new SocketHealthRegistry(),
+			reconnectSchedule,
+		);
 		yield* ws.subscribe(preSubscribed);
 		const fiber = yield* ws.start();
 		return { cache, ws, fiber };
@@ -404,6 +410,7 @@ describe("createBinanceWS depth", () => {
 			const ws = yield* createBinanceWS(
 				depthConfig,
 				cache,
+				new SocketHealthRegistry(),
 				Schedule.spaced(Duration.minutes(10)),
 			);
 			yield* ws.subscribe(preSubscribed);

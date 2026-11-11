@@ -1,5 +1,3 @@
-import { Context, Option } from "effect";
-
 /** A socket must stay disconnected this long before `/health` reports it. */
 export const WS_DISCONNECT_GRACE_MS = 30_000;
 
@@ -13,11 +11,6 @@ export interface SocketWatch {
 	connected(): void;
 	disconnected(at?: number): void;
 }
-
-const noopWatch: SocketWatch = {
-	connected() {},
-	disconnected() {},
-};
 
 interface SocketSlot {
 	module: string;
@@ -101,17 +94,3 @@ export class SocketHealthRegistry {
 		return fresh;
 	}
 }
-
-export class SocketHealth extends Context.Tag("SocketHealth")<
-	SocketHealth,
-	SocketHealthRegistry
->() {}
-
-export const watchSocket = (
-	health: Option.Option<SocketHealthRegistry>,
-	identity: { module: string; venue: string },
-): SocketWatch =>
-	Option.match(health, {
-		onNone: () => noopWatch,
-		onSome: (registry) => registry.track(identity),
-	});

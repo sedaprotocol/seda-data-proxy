@@ -1,18 +1,8 @@
-import {
-	Duration,
-	Effect,
-	Match,
-	type Option,
-	Runtime,
-	Schedule,
-} from "effect";
+import { Duration, Effect, Match, Runtime, Schedule } from "effect";
 import * as v from "valibot";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
-import {
-	type SocketHealthRegistry,
-	watchSocket,
-} from "../../services/socket-health";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { forkInboundControl } from "../shared/inbound-control";
 import {
 	type LoTechAck,
@@ -55,11 +45,8 @@ export type LoTechWebSocketServiceDeps = {
 		"name" | "baseUrl" | "loTechApiKey" | "reconnectDelayMs"
 	>;
 	exchange: string;
-	/**
-	 * Captured when the module layer is built. Later sockets are opened from a
-	 * daemon fiber that does not see the layer's context.
-	 */
-	socketHealth: Option.Option<SocketHealthRegistry>;
+	/** Passed in because this socket is opened later, from a daemon fiber. */
+	socketHealth: SocketHealthRegistry;
 	runtime: Runtime.Runtime<never>;
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
@@ -161,7 +148,7 @@ export const makeLoTechWebSocketService = (
 			handleErrorMessage,
 			socketHealth,
 		} = deps;
-		const socketWatch = watchSocket(socketHealth, {
+		const socketWatch = socketHealth.track({
 			module: config.name,
 			venue: `lo-tech:${exchange}`,
 		});

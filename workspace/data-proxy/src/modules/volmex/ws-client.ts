@@ -2,7 +2,7 @@ import { Effect, type Fiber, Redacted, Runtime } from "effect";
 import { io } from "socket.io-client";
 import * as v from "valibot";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
-import { SocketHealth, watchSocket } from "../../services/socket-health";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { forkInboundControl } from "../shared/inbound-control";
 import { type VolmexDataPrice, VolmexDataPriceSchema } from "./schema";
 
@@ -16,6 +16,7 @@ export type VolmexWebSocketServiceDeps = {
 	>;
 	runtime: Runtime.Runtime<never>;
 	onPrice: (price: VolmexDataPrice) => void;
+	health: SocketHealthRegistry;
 };
 
 export interface VolmexWS {
@@ -43,9 +44,9 @@ export const makeVolmexWebSocketService = (
 	deps: VolmexWebSocketServiceDeps,
 ): Effect.Effect<VolmexWS> =>
 	Effect.gen(function* () {
-		const { config, runtime, onPrice } = deps;
+		const { config, runtime, onPrice, health } = deps;
 		const reconnectDelayMs = config.reconnectDelayMs ?? 1000;
-		const socketWatch = watchSocket(yield* Effect.serviceOption(SocketHealth), {
+		const socketWatch = health.track({
 			module: config.name,
 			venue: "volmex",
 		});

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Duration, Effect, Layer, LogLevel, Logger, Redacted } from "effect";
+import { Duration, Effect, LogLevel, Logger, Redacted } from "effect";
 import * as v from "valibot";
 import {
 	type VolmexModuleConfig,
@@ -7,11 +7,12 @@ import {
 } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import {
-	SocketHealth,
 	SocketHealthRegistry,
 	WS_DISCONNECT_GRACE_MS,
 } from "../../services/socket-health";
 import { ModuleService } from "../module";
+
+const socketHealth = new SocketHealthRegistry();
 
 type FakeSocketOptions = {
 	path?: string;
@@ -168,7 +169,10 @@ describe("VolmexModuleService.handleRequest", () => {
 			const svc = yield* ModuleService;
 			yield* svc.start();
 			return yield* svc.handleRequest(route, params, dummyRequest);
-		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+		}).pipe(
+			Effect.provide(VolmexModuleService(baseConfig, socketHealth)),
+			quiet,
+		);
 
 		const resultPromise = Effect.runPromise(program);
 
@@ -204,7 +208,10 @@ describe("VolmexModuleService.handleRequest", () => {
 			const first = yield* svc.handleRequest(route, params, dummyRequest);
 			const second = yield* svc.handleRequest(route, params, dummyRequest);
 			return [first, second] as const;
-		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+		}).pipe(
+			Effect.provide(VolmexModuleService(baseConfig, socketHealth)),
+			quiet,
+		);
 
 		const resultPromise = Effect.runPromise(program);
 
@@ -239,7 +246,7 @@ describe("VolmexModuleService.handleRequest", () => {
 				{ symbols: "BVIV,EVIV,SVIV" },
 				dummyRequest,
 			);
-		}).pipe(Effect.provide(VolmexModuleService(config)), quiet);
+		}).pipe(Effect.provide(VolmexModuleService(config, socketHealth)), quiet);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(400);
@@ -285,7 +292,10 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			return yield* svc.handleRequest(route, {}, request);
-		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+		}).pipe(
+			Effect.provide(VolmexModuleService(baseConfig, socketHealth)),
+			quiet,
+		);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(200);
@@ -317,7 +327,10 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
 			return yield* svc.handleRequest(route, { symbol: "BVIV" }, request);
-		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+		}).pipe(
+			Effect.provide(VolmexModuleService(baseConfig, socketHealth)),
+			quiet,
+		);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(200);
@@ -338,7 +351,10 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 				{},
 				new Request("http://proxy.local/history", { method: "GET" }),
 			);
-		}).pipe(Effect.provide(VolmexModuleService(baseConfig)), quiet);
+		}).pipe(
+			Effect.provide(VolmexModuleService(baseConfig, socketHealth)),
+			quiet,
+		);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(400);
@@ -373,7 +389,7 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 				{},
 				new Request("http://proxy.local/history", { method: "GET" }),
 			);
-		}).pipe(Effect.provide(VolmexModuleService(config)), quiet);
+		}).pipe(Effect.provide(VolmexModuleService(config, socketHealth)), quiet);
 
 		const response = await Effect.runPromise(program);
 		expect(response.status).toBe(504);
@@ -383,9 +399,6 @@ describe("VolmexModuleService.handleRequest (REST)", () => {
 describe("VolmexModuleService socket health", () => {
 	it("reports the socket to health only after it stays down for the grace", async () => {
 		const registry = new SocketHealthRegistry();
-		const layer = VolmexModuleService(baseConfig).pipe(
-			Layer.provide(Layer.succeed(SocketHealth, registry)),
-		);
 
 		const program = Effect.gen(function* () {
 			const svc = yield* ModuleService;
@@ -411,7 +424,7 @@ describe("VolmexModuleService socket health", () => {
 
 			socket.trigger("connect");
 			expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
-		}).pipe(Effect.provide(layer), quiet);
+		}).pipe(Effect.provide(VolmexModuleService(baseConfig, registry)), quiet);
 
 		await Effect.runPromise(program);
 	}, 10_000);

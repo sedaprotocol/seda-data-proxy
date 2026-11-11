@@ -7,7 +7,7 @@ import {
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
-import { SocketHealth } from "../../services/socket-health";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
@@ -70,14 +70,16 @@ export const resolveLoTechExchange = (
 		return exchange;
 	});
 
-export const LoTechModuleService = (config: LoTechModuleConfig) =>
+export const LoTechModuleService = (
+	config: LoTechModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
 			yield* Effect.logInfo("Initializing LO:TECH module");
 
 			const runtime = yield* Effect.runtime();
-			const socketHealth = yield* Effect.serviceOption(SocketHealth);
 
 			// Monotonically increasing counter for price feed IDs.
 			let latestPriceFeedId = 0;
@@ -189,7 +191,7 @@ export const LoTechModuleService = (config: LoTechModuleConfig) =>
 						config,
 						exchange,
 						runtime,
-						socketHealth,
+						socketHealth: health,
 						onDisconnected: () => handleDisconnect(exchange),
 						handleDataMessage: handleDataMessage(exchange),
 						handleAckMessage,

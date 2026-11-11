@@ -20,7 +20,7 @@ import {
 	type Trade,
 	TradeSchema,
 } from "../../config/hydromancer-module-config";
-import { SocketHealth, watchSocket } from "../../services/socket-health";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import type { FreshnessCache } from "../shared/freshness-cache";
 import type { PriceCache } from "../shared/price-cache";
 import { recordTickHandle } from "../shared/tick-metrics";
@@ -138,11 +138,12 @@ export const createHydromancerWS = (
 	assetCache: FreshnessCache<string, AssetCtx>,
 	bookCache: PriceCache<string, BookSnapshot>,
 	tradesCache: PriceCache<string, readonly Trade[]>,
+	health: SocketHealthRegistry,
 	options?: CreateHydromancerWSOptions,
 ): Effect.Effect<HydromancerWS, never, never> =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime<never>();
-		const socketWatch = watchSocket(yield* Effect.serviceOption(SocketHealth), {
+		const socketWatch = health.track({
 			module: config.name,
 			venue: "hydromancer",
 		});
