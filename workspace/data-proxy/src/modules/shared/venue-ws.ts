@@ -11,7 +11,10 @@ import {
 	Schedule,
 	Stream,
 } from "effect";
-import type { SocketHealthRegistry } from "../../services/socket-health";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkInboundControl } from "./inbound-control";
 import type { PriceCache } from "./price-cache";
 import { recordTickHandle } from "./tick-metrics";
@@ -112,6 +115,7 @@ export const createVenueWS = <TKey, TFrame>(
 			venue,
 			config,
 			cache,
+			health,
 			keepalive,
 			buildSubscribeFrame,
 			buildUnsubscribeFrame,
@@ -131,7 +135,10 @@ export const createVenueWS = <TKey, TFrame>(
 		);
 
 		const runtime = yield* Effect.runtime<never>();
-		const socketWatch = params.health.track({ module: name, venue });
+		const socketWatch = yield* trackModuleSocket(health, {
+			module: name,
+			venue,
+		});
 		const desiredKeys = MutableHashMap.empty<TKey, true>();
 		let currentWS: WebSocket | null = null;
 		let unhealthy = false;

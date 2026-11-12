@@ -59,7 +59,7 @@ const health = async (registry: SocketHealthRegistry, config: Config) => {
 describe("status health", () => {
 	it("returns 200 when fastOnly and no socket is past the grace", async () => {
 		const registry = new SocketHealthRegistry();
-		registry.track({ module: "okx", venue: "okx" }, Date.now());
+		registry.track({ module: "okx", venue: "okx" }, Date.now);
 
 		const response = await health(registry, fastOnly);
 		const body = await response.json();
@@ -71,7 +71,7 @@ describe("status health", () => {
 
 	it("returns a non-200 status when a socket has been down for the grace", async () => {
 		const registry = new SocketHealthRegistry();
-		registry.track({ module: "binance-main", venue: "binance" }, 0);
+		registry.track({ module: "binance-main", venue: "binance" }, () => 0);
 
 		const response = await health(registry, fastOnly);
 		const body = await response.json();
@@ -103,7 +103,7 @@ describe("status health", () => {
 
 		mockChain(dataProxy.options.chainId);
 		const registry = new SocketHealthRegistry();
-		registry.track({ module: "binance-main", venue: "binance" }, 0);
+		registry.track({ module: "binance-main", venue: "binance" }, () => 0);
 		const socketDown = await health(registry, withChain);
 		const socketBody = await socketDown.json();
 		expect(socketDown.status).toBe(500);

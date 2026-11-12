@@ -2,7 +2,10 @@ import { Duration, Effect, Match, Runtime, Schedule } from "effect";
 import * as v from "valibot";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
-import type { SocketHealthRegistry } from "../../services/socket-health";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkInboundControl } from "../shared/inbound-control";
 import {
 	type LoTechAck,
@@ -148,7 +151,7 @@ export const makeLoTechWebSocketService = (
 			handleErrorMessage,
 			socketHealth,
 		} = deps;
-		const socketWatch = socketHealth.track({
+		const socketWatch = yield* trackModuleSocket(socketHealth, {
 			module: config.name,
 			venue: `lo-tech:${exchange}`,
 		});
