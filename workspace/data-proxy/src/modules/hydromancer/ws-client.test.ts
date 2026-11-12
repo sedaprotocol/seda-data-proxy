@@ -705,11 +705,12 @@ describe("createHydromancerWS", () => {
 				const ws1 = FakeWebSocket.instances[0];
 				ws1.triggerOpen();
 				yield* Effect.yieldNow();
-				expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+				const openAt = yield* Clock.currentTimeMillis;
+				expect(registry.staleSockets(openAt + 60_000)).toEqual([]);
 
 				ws1.triggerClose();
 				yield* Effect.yieldNow();
-				const closedAt = Date.now();
+				const closedAt = yield* Clock.currentTimeMillis;
 				expect(registry.staleSockets(closedAt)).toEqual([]);
 				expect(
 					registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS),
@@ -725,7 +726,8 @@ describe("createHydromancerWS", () => {
 				yield* waitForInstances(2);
 				FakeWebSocket.instances[1].triggerOpen();
 				yield* Effect.yieldNow();
-				expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+				const recoveredAt = yield* Clock.currentTimeMillis;
+				expect(registry.staleSockets(recoveredAt + 60_000)).toEqual([]);
 
 				yield* Fiber.interrupt(fiber);
 			}),

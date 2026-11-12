@@ -3,25 +3,39 @@ import { SocketHealthRegistry, WS_DISCONNECT_GRACE_MS } from "./socket-health";
 
 const identity = { module: "binance-main", venue: "binance" };
 
+const pinned = (start = 0) => {
+	let time = start;
+	return {
+		now: () => time,
+		set: (next: number) => {
+			time = next;
+		},
+	};
+};
+
 describe("SocketHealthRegistry", () => {
 	it("stays healthy through a disconnect shorter than the grace", () => {
 		const registry = new SocketHealthRegistry();
-		const watch = registry.track(identity, 0);
+		const time = pinned();
+		const watch = registry.track(identity, time.now);
 		watch.connected();
-		watch.disconnected(10_000);
+		time.set(10_000);
+		watch.disconnected();
 
-		expect(registry.staleSockets(10_000 + WS_DISCONNECT_GRACE_MS - 1)).toEqual(
-			[],
-		);
+		expect(
+			registry.staleSockets(time.now() + WS_DISCONNECT_GRACE_MS - 1),
+		).toEqual([]);
 	});
 
 	it("is unhealthy once the disconnect reaches the grace", () => {
 		const registry = new SocketHealthRegistry();
-		const watch = registry.track(identity, 0);
+		const time = pinned();
+		const watch = registry.track(identity, time.now);
 		watch.connected();
-		watch.disconnected(10_000);
+		time.set(10_000);
+		watch.disconnected();
 
-		expect(registry.staleSockets(10_000 + WS_DISCONNECT_GRACE_MS)).toEqual([
+		expect(registry.staleSockets(time.now() + WS_DISCONNECT_GRACE_MS)).toEqual([
 			{
 				module: "binance-main",
 				venue: "binance",
@@ -32,7 +46,8 @@ describe("SocketHealthRegistry", () => {
 
 	it("clears the clock when the socket reconnects", () => {
 		const registry = new SocketHealthRegistry();
-		const watch = registry.track(identity, 0);
+		const time = pinned();
+		const watch = registry.track(identity, time.now);
 
 		expect(registry.staleSockets(WS_DISCONNECT_GRACE_MS)).toHaveLength(1);
 
@@ -43,9 +58,12 @@ describe("SocketHealthRegistry", () => {
 
 	it("does not restart the grace when close fires again while already down", () => {
 		const registry = new SocketHealthRegistry();
-		const watch = registry.track(identity, 0);
-		watch.disconnected(5_000);
-		watch.disconnected(20_000);
+		const time = pinned();
+		const watch = registry.track(identity, time.now);
+		time.set(5_000);
+		watch.disconnected();
+		time.set(20_000);
+		watch.disconnected();
 
 		expect(registry.staleSockets(WS_DISCONNECT_GRACE_MS)).toEqual([
 			{
@@ -58,7 +76,7 @@ describe("SocketHealthRegistry", () => {
 
 	it("treats a socket that never opens as stale after the grace", () => {
 		const registry = new SocketHealthRegistry();
-		registry.track(identity, 0);
+		registry.track(identity, pinned().now);
 
 		expect(registry.staleSockets(WS_DISCONNECT_GRACE_MS - 1)).toEqual([]);
 		expect(registry.staleSockets(WS_DISCONNECT_GRACE_MS)).toEqual([
@@ -72,15 +90,20 @@ describe("SocketHealthRegistry", () => {
 
 	it("reports a stale episode once", () => {
 		const registry = new SocketHealthRegistry();
-		registry.track(identity, 0);
+		const time = pinned();
+		const watch = registry.track(identity, time.now);
 
-		expect(registry.newlyStale(WS_DISCONNECT_GRACE_MS)).toHaveLength(1);
-		expect(registry.newlyStale(WS_DISCONNECT_GRACE_MS + 5_000)).toEqual([]);
+		expect(registry.read(WS_DISCONNECT_GRACE_MS).newlyStale).toHaveLength(1);
+		expect(registry.read(WS_DISCONNECT_GRACE_MS + 5_000).newlyStale).toEqual(
+			[],
+		);
 
-		const watch = registry.track(identity, 0);
 		watch.connected();
-		watch.disconnected(WS_DISCONNECT_GRACE_MS);
+		time.set(WS_DISCONNECT_GRACE_MS);
+		watch.disconnected();
 
-		expect(registry.newlyStale(WS_DISCONNECT_GRACE_MS * 2)).toHaveLength(1);
+		expect(registry.read(WS_DISCONNECT_GRACE_MS * 2).newlyStale).toHaveLength(
+			1,
+		);
 	});
 });

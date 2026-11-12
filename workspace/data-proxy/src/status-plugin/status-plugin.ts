@@ -1,6 +1,6 @@
 import { node } from "@elysiajs/node";
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Effect, Either, Runtime } from "effect";
+import { Clock, Effect, Either, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
@@ -48,9 +48,11 @@ export const statusPlugin = (
 					Runtime.runPromise(
 						runtime,
 						Effect.gen(function* () {
-							const now = Date.now();
-							const stale = socketHealth.staleSockets(now);
-							for (const socket of socketHealth.newlyStale(now)) {
+							const now = yield* Clock.currentTimeMillis;
+							const { stale, newlyStale } = yield* Effect.sync(() =>
+								socketHealth.read(now),
+							);
+							for (const socket of newlyStale) {
 								yield* Effect.logWarning(
 									"Websocket disconnected past health grace",
 									socket,
