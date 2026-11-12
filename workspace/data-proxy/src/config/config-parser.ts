@@ -15,6 +15,11 @@ import {
 import { normalizePath } from "../utils/match-route-path";
 import { replaceParams } from "../utils/replace-params";
 import {
+	type BinanceFuturesModuleRoute,
+	BinanceFuturesModuleRouteSchema,
+	validateBinanceFuturesModuleRoute,
+} from "./binance-futures-module-config";
+import {
 	type BinanceModuleRoute,
 	BinanceModuleRouteSchema,
 	validateBinanceModuleRoute,
@@ -169,6 +174,7 @@ const ConfigSchema = v.strictObject(
 				VolmexModuleRouteSchema,
 				PmInsightsModuleRouteSchema,
 				BinanceModuleRouteSchema,
+				BinanceFuturesModuleRouteSchema,
 				LighterModuleRouteSchema,
 				OkxModuleRouteSchema,
 				BybitModuleRouteSchema,
@@ -215,6 +221,7 @@ export type Route =
 	| VolmexModuleRoute
 	| PmInsightsModuleRoute
 	| BinanceModuleRoute
+	| BinanceFuturesModuleRoute
 	| LighterModuleRoute
 	| OkxModuleRoute
 	| BybitModuleRoute;
@@ -356,6 +363,11 @@ export const parseConfig = (
 
 			if (route.type === "binance") {
 				yield* validateBinanceModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "binance-futures") {
+				yield* validateBinanceFuturesModuleRoute(route);
 				continue;
 			}
 
@@ -636,6 +648,9 @@ export const parseConfig = (
 					}),
 					// Modules below use public streams that require no credentials.
 					Match.when({ type: "binance" }, (m) =>
+						Effect.succeed({ ...m } satisfies Modules),
+					),
+					Match.when({ type: "binance-futures" }, (m) =>
 						Effect.succeed({ ...m } satisfies Modules),
 					),
 					Match.when({ type: "lighter" }, (m) =>
