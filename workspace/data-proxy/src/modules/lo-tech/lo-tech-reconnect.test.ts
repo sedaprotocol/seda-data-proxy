@@ -7,8 +7,14 @@ import {
 	LoTechModuleRouteSchema,
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
+import {
+	SocketHealthRegistry,
+	WS_DISCONNECT_GRACE_MS,
+} from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { LoTechModuleService } from "./lo-tech";
+
+const socketHealth = new SocketHealthRegistry();
 
 const SYMBOL = "O|SICI-USD:SPOT";
 
@@ -157,7 +163,7 @@ describe("LoTechModuleService reconnects", () => {
 			const after = yield* fetchPriceUntil(200);
 			return { before, after };
 		}).pipe(
-			Effect.provide(LoTechModuleService(configFor(fake))),
+			Effect.provide(LoTechModuleService(configFor(fake), socketHealth)),
 			Logger.withMinimumLogLevel(LogLevel.None),
 		);
 
@@ -199,7 +205,7 @@ describe("LoTechModuleService reconnects", () => {
 			const after = yield* fetchPriceUntil(300);
 			return { before, during, after };
 		}).pipe(
-			Effect.provide(LoTechModuleService(configFor(fake))),
+			Effect.provide(LoTechModuleService(configFor(fake), socketHealth)),
 			Effect.provide(Logger.replace(Logger.defaultLogger, captureFatal)),
 		);
 
@@ -209,5 +215,46 @@ describe("LoTechModuleService reconnects", () => {
 		expect(during).toMatchObject({ price: 100, [HAS_PRICE_KEY]: true });
 		expect(after).toMatchObject({ price: 300, [HAS_PRICE_KEY]: true });
 		expect(fatalLogs.length).toBeGreaterThanOrEqual(1);
+	}, 15_000);
+
+	it("reports the exchange socket to health only after it stays down for the grace", async () => {
+		const fake = startFakeLoTech();
+		servers.push(fake.server);
+		const registry = new SocketHealthRegistry();
+		const staleLater = () => registry.staleSockets(Date.now() + 60_000);
+
+		const program = Effect.gen(function* () {
+			const svc = yield* ModuleService;
+			yield* svc.start();
+
+			// The exchange socket is opened by the first request, after start().
+			yield* fetchPrice;
+			expect(staleLater()).toEqual([]);
+
+			fake.down = true;
+			fake.dropConnections();
+			yield* Effect.promise(() =>
+				waitFor(() => staleLater().length === 1, "socket reported down"),
+			);
+			const closedAt = Date.now();
+			expect(registry.staleSockets(closedAt)).toEqual([]);
+			expect(registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS)).toEqual([
+				{
+					module: "lotech",
+					venue: "lo-tech:compute_index",
+					disconnectedForMs: expect.any(Number),
+				},
+			]);
+
+			fake.down = false;
+			yield* Effect.promise(() =>
+				waitFor(() => staleLater().length === 0, "socket reconnected"),
+			);
+		}).pipe(
+			Effect.provide(LoTechModuleService(configFor(fake), registry)),
+			Logger.withMinimumLogLevel(LogLevel.None),
+		);
+
+		await Effect.runPromise(program);
 	}, 15_000);
 });

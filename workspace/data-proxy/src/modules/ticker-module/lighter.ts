@@ -3,6 +3,7 @@ import type {
 	LighterModuleConfig,
 	LighterStreamType,
 } from "../../config/lighter-module-config";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { isRecord, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
@@ -106,7 +107,10 @@ const applyLighterTradeFrame = (
 	return { trades, liquidation_trades: liquidationTrades };
 };
 
-export const LighterModuleService = (config: LighterModuleConfig) => {
+export const LighterModuleService = (
+	config: LighterModuleConfig,
+	health: SocketHealthRegistry,
+) => {
 	const params: CreateTickerModuleServiceParams<
 		number,
 		LighterPriceFrame,
@@ -117,7 +121,7 @@ export const LighterModuleService = (config: LighterModuleConfig) => {
 		identityField: "marketId",
 		config,
 		parseKey: parseMarketId,
-		createWS: createLighterWS,
+		createWS: (config, cache) => createLighterWS(config, cache, health),
 		extraInitLog: { streamType: config.streamType },
 	};
 
@@ -360,12 +364,14 @@ export const parseInboundFrame = (
 export const createLighterWS = (
 	config: LighterModuleConfig,
 	cache: PriceCache<number, LighterPriceFrame>,
+	health: SocketHealthRegistry,
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ): Effect.Effect<VenueWS<number>, never, never> => {
 	return createVenueWS({
 		venue: "lighter",
 		config,
 		cache,
+		health,
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,

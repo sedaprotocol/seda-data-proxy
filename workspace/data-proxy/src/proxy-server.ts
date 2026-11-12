@@ -22,6 +22,7 @@ import { LighterModuleService } from "./modules/ticker-module/lighter";
 import { OkxModuleService } from "./modules/ticker-module/okx";
 import { VolmexModuleService } from "./modules/volmex/volmex";
 import type { HttpClientService } from "./services/http-client";
+import { SocketHealthRegistry } from "./services/socket-health";
 import { StatusContext, statusPlugin } from "./status-plugin";
 import { createOptionsResponse } from "./utils/create-headers";
 import { withIncomingTrace } from "./utils/with-incoming-trace";
@@ -39,6 +40,7 @@ export const startProxyServer = (
 	Effect.gen(function* () {
 		const serviceName = yield* DATA_PROXY_ID;
 		const runtime = yield* Effect.runtime<HttpClientService>();
+		const socketHealth = new SocketHealthRegistry();
 		const modules = MutableHashMap.empty<
 			string,
 			Layer.Layer<ModuleService, unknown, never>
@@ -60,26 +62,28 @@ export const startProxyServer = (
 					Layer.memoize(DxFeedModuleService(m)),
 				),
 				Match.when({ type: "hydromancer" }, (m) =>
-					Layer.memoize(HydromancerModuleService(m)),
+					Layer.memoize(HydromancerModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "lo-tech" }, (m) =>
-					Layer.memoize(LoTechModuleService(m)),
+					Layer.memoize(LoTechModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "volmex" }, (m) =>
-					Layer.memoize(VolmexModuleService(m)),
+					Layer.memoize(VolmexModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "pm-insights" }, (m) =>
 					Layer.memoize(PmInsightsModuleService(m)),
 				),
 				Match.when({ type: "binance" }, (m) =>
-					Layer.memoize(BinanceModuleService(m)),
+					Layer.memoize(BinanceModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "lighter" }, (m) =>
-					Layer.memoize(LighterModuleService(m)),
+					Layer.memoize(LighterModuleService(m, socketHealth)),
 				),
-				Match.when({ type: "okx" }, (m) => Layer.memoize(OkxModuleService(m))),
+				Match.when({ type: "okx" }, (m) =>
+					Layer.memoize(OkxModuleService(m, socketHealth)),
+				),
 				Match.when({ type: "bybit" }, (m) =>
-					Layer.memoize(BybitModuleService(m)),
+					Layer.memoize(BybitModuleService(m, socketHealth)),
 				),
 				Match.exhaustive,
 			);
@@ -174,6 +178,7 @@ export const startProxyServer = (
 				dataProxy,
 				config.statusEndpoints,
 				config,
+				socketHealth,
 			),
 		);
 		const proxyGroup = config.routeGroup ?? DEFAULT_PROXY_ROUTE_GROUP;

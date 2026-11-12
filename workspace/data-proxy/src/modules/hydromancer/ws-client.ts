@@ -20,6 +20,10 @@ import {
 	type Trade,
 	TradeSchema,
 } from "../../config/hydromancer-module-config";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import type { FreshnessCache } from "../shared/freshness-cache";
 import type { PriceCache } from "../shared/price-cache";
 import { recordTickHandle } from "../shared/tick-metrics";
@@ -137,10 +141,15 @@ export const createHydromancerWS = (
 	assetCache: FreshnessCache<string, AssetCtx>,
 	bookCache: PriceCache<string, BookSnapshot>,
 	tradesCache: PriceCache<string, readonly Trade[]>,
+	health: SocketHealthRegistry,
 	options?: CreateHydromancerWSOptions,
 ): Effect.Effect<HydromancerWS, never, never> =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime<never>();
+		const socketWatch = yield* trackModuleSocket(health, {
+			module: config.name,
+			venue: "hydromancer",
+		});
 		const channels: Record<HydromancerChannel, ChannelState> = {
 			activeAssetCtx: {
 				desired: MutableHashMap.empty<string, true>(),
@@ -202,6 +211,7 @@ export const createHydromancerWS = (
 			Effect.gen(function* () {
 				yield* Effect.logInfo("Hydromancer WS open", { name: config.name });
 				unhealthy = false;
+				socketWatch.connected();
 				currentWS = ws;
 				for (const channel of Object.values(channels)) {
 					for (const [coin] of channel.desired) {
@@ -269,6 +279,7 @@ export const createHydromancerWS = (
 			Effect.gen(function* () {
 				if (yield* Deferred.isDone(closed)) return;
 				unhealthy = true;
+				socketWatch.disconnected();
 				currentWS = null;
 				yield* Deferred.fail(closed, undefined);
 			});

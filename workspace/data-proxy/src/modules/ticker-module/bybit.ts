@@ -1,5 +1,6 @@
 import type { Effect, Schedule } from "effect";
 import type { BybitModuleConfig } from "../../config/bybit-module-config";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { mapDataItems, parseJsonRecord } from "../shared/json";
 import type { PriceCache } from "../shared/price-cache";
 import {
@@ -29,14 +30,20 @@ const applyBybitFrame = (
 	return { ...next };
 };
 
-export const BybitModuleService = (config: BybitModuleConfig) =>
+export const BybitModuleService = (
+	config: BybitModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	createTickerModuleService({
 		venue: "bybit",
 		routeType: "bybit",
 		identityField: "symbol",
 		config,
 		parseKey: parseUppercaseSymbol,
-		createWS: createBybitWS,
+		createWS: (
+			config: BybitModuleConfig,
+			cache: PriceCache<string, BybitPriceFrame>,
+		) => createBybitWS(config, cache, health),
 		cacheApply: applyBybitFrame,
 	});
 
@@ -113,12 +120,14 @@ export const parseInboundFrame = (
 export const createBybitWS = (
 	config: BybitModuleConfig,
 	cache: PriceCache<string, BybitPriceFrame>,
+	health: SocketHealthRegistry,
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>,
 ): Effect.Effect<VenueWS, never, never> =>
 	createVenueWS({
 		venue: "bybit",
 		config,
 		cache,
+		health,
 		reconnectSchedule,
 		keepalive: {
 			interval: config.keepaliveInterval,

@@ -2,6 +2,10 @@ import { Effect, type Fiber, Redacted, Runtime } from "effect";
 import { io } from "socket.io-client";
 import * as v from "valibot";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkInboundControl } from "../shared/inbound-control";
 import { type VolmexDataPrice, VolmexDataPriceSchema } from "./schema";
 
@@ -11,10 +15,11 @@ const INDICES_STREAM_EVENT = "indices-messages-stream-private";
 export type VolmexWebSocketServiceDeps = {
 	config: Pick<
 		VolmexModuleConfig,
-		"wsBaseUrl" | "volmexApiKey" | "reconnectDelayMs"
+		"name" | "wsBaseUrl" | "volmexApiKey" | "reconnectDelayMs"
 	>;
 	runtime: Runtime.Runtime<never>;
 	onPrice: (price: VolmexDataPrice) => void;
+	health: SocketHealthRegistry;
 };
 
 export interface VolmexWS {
@@ -42,8 +47,12 @@ export const makeVolmexWebSocketService = (
 	deps: VolmexWebSocketServiceDeps,
 ): Effect.Effect<VolmexWS> =>
 	Effect.gen(function* () {
-		const { config, runtime, onPrice } = deps;
+		const { config, runtime, onPrice, health } = deps;
 		const reconnectDelayMs = config.reconnectDelayMs ?? 1000;
+		const socketWatch = yield* trackModuleSocket(health, {
+			module: config.name,
+			venue: "volmex",
+		});
 		const inboundControl = yield* forkInboundControl(
 			(event: Extract<ParsedInbound, { kind: "invalid-payload" }>) =>
 				Effect.logWarning("Unexpected Volmex indices message", {
@@ -75,6 +84,7 @@ export const makeVolmexWebSocketService = (
 			);
 
 			socket.on("connect", () => {
+				socketWatch.connected();
 				Runtime.runSync(
 					runtime,
 					Effect.logInfo("Volmex Socket.IO connected", {
@@ -94,6 +104,7 @@ export const makeVolmexWebSocketService = (
 			});
 
 			socket.on("disconnect", (reason) => {
+				socketWatch.disconnected();
 				Runtime.runSync(
 					runtime,
 					Effect.logWarning("Volmex Socket.IO disconnected; will reconnect", {

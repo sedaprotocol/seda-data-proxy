@@ -10,8 +10,11 @@ import {
 import type { Route } from "../../config/config-parser";
 import type { LighterModuleConfig } from "../../config/lighter-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { LighterModuleService, buildSubscribeFrame } from "./lighter";
+
+const socketHealth = new SocketHealthRegistry();
 
 const innerTicker = (symbol: string) => ({
 	s: symbol,
@@ -125,7 +128,11 @@ const quiet = <A, E>(effect: Effect.Effect<A, E>) =>
 
 const buildService = (config: LighterModuleConfig) =>
 	Effect.runPromise(
-		quiet(ModuleService.pipe(Effect.provide(LighterModuleService(config)))),
+		quiet(
+			ModuleService.pipe(
+				Effect.provide(LighterModuleService(config, socketHealth)),
+			),
+		),
 	);
 
 describe("LighterModuleService", () => {
@@ -282,7 +289,7 @@ describe("LighterModuleService", () => {
 		} = await Effect.runPromise(
 			quiet(
 				program.pipe(
-					Effect.provide(LighterModuleService(config)),
+					Effect.provide(LighterModuleService(config, socketHealth)),
 					Effect.provide(TestContext.TestContext),
 				),
 			),

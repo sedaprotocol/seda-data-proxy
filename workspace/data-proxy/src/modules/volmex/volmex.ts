@@ -3,6 +3,7 @@ import type { Route } from "../../config/config-parser";
 import type { VolmexModuleConfig } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import type { SocketHealthRegistry } from "../../services/socket-health";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { createPriceCache } from "../shared/price-cache";
@@ -12,7 +13,10 @@ import { proxyVolmexRestRequest } from "./rest-client";
 import type { VolmexDataPrice, VolmexResponse } from "./schema";
 import { makeVolmexWebSocketService } from "./ws-client";
 
-export const VolmexModuleService = (config: VolmexModuleConfig) =>
+export const VolmexModuleService = (
+	config: VolmexModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
@@ -33,6 +37,7 @@ export const VolmexModuleService = (config: VolmexModuleConfig) =>
 				config,
 				runtime,
 				onPrice: updatePrice,
+				health,
 			});
 
 			const start = () =>

@@ -2,6 +2,10 @@ import { Duration, Effect, Match, Runtime, Schedule } from "effect";
 import * as v from "valibot";
 import WebSocket from "ws";
 import type { LoTechModuleConfig } from "../../config/lo-tech-module-config";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkInboundControl } from "../shared/inbound-control";
 import {
 	type LoTechAck,
@@ -41,9 +45,11 @@ export type LoTechWebSocketServiceApi = {
 export type LoTechWebSocketServiceDeps = {
 	config: Pick<
 		LoTechModuleConfig,
-		"baseUrl" | "loTechApiKey" | "reconnectDelayMs"
+		"name" | "baseUrl" | "loTechApiKey" | "reconnectDelayMs"
 	>;
 	exchange: string;
+	/** Passed in because this socket is opened later, from a daemon fiber. */
+	socketHealth: SocketHealthRegistry;
 	runtime: Runtime.Runtime<never>;
 	/* Runs immediately after the socket is OPEN */
 	onConnected?: (api: LoTechWebSocketServiceApi) => Effect.Effect<void>;
@@ -143,7 +149,12 @@ export const makeLoTechWebSocketService = (
 			handleDataMessage,
 			handleAckMessage,
 			handleErrorMessage,
+			socketHealth,
 		} = deps;
+		const socketWatch = yield* trackModuleSocket(socketHealth, {
+			module: config.name,
+			venue: `lo-tech:${exchange}`,
+		});
 
 		let activeSocket: WebSocket | null = null;
 		const pendingOutbound: string[] = [];
@@ -267,6 +278,7 @@ export const makeLoTechWebSocketService = (
 				activeSocket = socket;
 
 				socket.on("open", () => {
+					socketWatch.connected();
 					if (onConnected !== undefined) {
 						Runtime.runSync(
 							runtime,
@@ -294,6 +306,7 @@ export const makeLoTechWebSocketService = (
 				});
 
 				socket.on("close", () => {
+					socketWatch.disconnected();
 					Runtime.runSync(
 						runtime,
 						Effect.logWarning(

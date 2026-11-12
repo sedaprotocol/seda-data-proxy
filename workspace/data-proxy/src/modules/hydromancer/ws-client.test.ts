@@ -17,6 +17,10 @@ import type {
 	HydromancerModuleConfig,
 	Trade,
 } from "../../config/hydromancer-module-config";
+import {
+	SocketHealthRegistry,
+	WS_DISCONNECT_GRACE_MS,
+} from "../../services/socket-health";
 import { createFreshnessCache } from "../shared/freshness-cache";
 import { createPriceCache } from "../shared/price-cache";
 import { retainTradesWithinWindow } from "./hydromancer";
@@ -319,7 +323,8 @@ afterEach(() => {
 const startService = (
 	config: HydromancerModuleConfig,
 	preSubscribed: string[] = config.subscriptionCoins,
-	options?: Parameters<typeof createHydromancerWS>[4],
+	options?: Parameters<typeof createHydromancerWS>[5],
+	health: SocketHealthRegistry = new SocketHealthRegistry(),
 ) =>
 	Effect.gen(function* () {
 		const cache = yield* createFreshnessCache<string, AssetCtx>();
@@ -339,6 +344,7 @@ const startService = (
 			cache,
 			bookCache,
 			tradesCache,
+			health,
 			options ?? { reconnectSchedule: Schedule.spaced(Duration.minutes(10)) },
 		);
 		for (const coin of preSubscribed) {
@@ -677,6 +683,51 @@ describe("createHydromancerWS", () => {
 
 				ws2.triggerOpen();
 				expect(yield* service.hasError()).toBe(false);
+
+				yield* Fiber.interrupt(fiber);
+			}),
+		);
+	});
+
+	it("reports the socket to health only after it stays down for the grace", async () => {
+		const registry = new SocketHealthRegistry();
+		const fastSchedule = Schedule.spaced(Duration.millis(10));
+		await runWithTestClock(
+			Effect.gen(function* () {
+				const { fiber } = yield* startService(
+					baseConfig,
+					baseConfig.subscriptionCoins,
+					{ reconnectSchedule: fastSchedule },
+					registry,
+				);
+				yield* waitForInstances(1);
+
+				const ws1 = FakeWebSocket.instances[0];
+				ws1.triggerOpen();
+				yield* Effect.yieldNow();
+				const openAt = yield* Clock.currentTimeMillis;
+				expect(registry.staleSockets(openAt + 60_000)).toEqual([]);
+
+				ws1.triggerClose();
+				yield* Effect.yieldNow();
+				const closedAt = yield* Clock.currentTimeMillis;
+				expect(registry.staleSockets(closedAt)).toEqual([]);
+				expect(
+					registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS),
+				).toEqual([
+					{
+						module: "hydromancer",
+						venue: "hydromancer",
+						disconnectedForMs: expect.any(Number),
+					},
+				]);
+
+				yield* TestClock.adjust(Duration.millis(10));
+				yield* waitForInstances(2);
+				FakeWebSocket.instances[1].triggerOpen();
+				yield* Effect.yieldNow();
+				const recoveredAt = yield* Clock.currentTimeMillis;
+				expect(registry.staleSockets(recoveredAt + 60_000)).toEqual([]);
 
 				yield* Fiber.interrupt(fiber);
 			}),

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Duration, Effect, Fiber, LogLevel, Logger, Schedule } from "effect";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import {
 	FakeWebSocket,
 	installFakeWebSocket,
@@ -37,6 +38,7 @@ const startClient = (options?: {
 	maxMessagesWindow?: Duration.Duration;
 	reconnectSchedule?: Schedule.Schedule<unknown, unknown, never>;
 	preSubscribed?: string[];
+	health?: SocketHealthRegistry;
 	seed?: {
 		start: (keys: string[]) => Effect.Effect<void, never, never>;
 		stop: (keys: string[]) => Effect.Effect<void, never, never>;
@@ -64,6 +66,7 @@ const startClient = (options?: {
 				reconnectStableThreshold: Duration.seconds(30),
 			},
 			cache,
+			health: options?.health ?? new SocketHealthRegistry(),
 			reconnectSchedule:
 				options?.reconnectSchedule ?? Schedule.spaced(Duration.minutes(10)),
 			keepalive:
@@ -179,6 +182,48 @@ describe("createVenueWS", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 	});
 
+	it("reports a socket to health only after it stays down for the grace", async () => {
+		const registry = new SocketHealthRegistry();
+		const { ws: service, fiber } = await Effect.runPromise(
+			startClient({
+				preSubscribed: ["BTC"],
+				reconnectSchedule: Schedule.spaced(Duration.millis(10)),
+				health: registry,
+			}),
+		);
+		await flush();
+		const ws1 = FakeWebSocket.instances[0];
+		ws1.triggerOpen();
+		await flush();
+
+		// An error flips the REST-fallback flag immediately, without starting the grace.
+		ws1.triggerError();
+		await flush();
+		expect(await Effect.runPromise(service.hasError())).toBe(true);
+		expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+
+		ws1.triggerClose();
+		await flush();
+		const closedAt = Date.now();
+		expect(registry.staleSockets(closedAt)).toEqual([]);
+		const stale = registry.staleSockets(closedAt + 30_000);
+		expect(stale).toEqual([
+			{
+				module: "venue-test",
+				venue: "venue",
+				disconnectedForMs: expect.any(Number),
+			},
+		]);
+		expect(stale[0]?.disconnectedForMs).toBeGreaterThanOrEqual(30_000);
+
+		const ws2 = await waitForSocket(1);
+		ws2.triggerOpen();
+		await flush();
+		expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
+
+		await Effect.runPromise(Fiber.interrupt(fiber));
+	});
+
 	it("ignores non-json frames and payloads with no key", async () => {
 		const { cache, fiber } = await Effect.runPromise(
 			startClient({ preSubscribed: ["BTC"] }),
@@ -234,6 +279,7 @@ describe("createVenueWS", () => {
 						reconnectStableThreshold: Duration.seconds(30),
 					},
 					cache,
+					health: new SocketHealthRegistry(),
 					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
 					buildSubscribeFrame: (keys) =>
 						keys.map((key) => JSON.stringify({ op: "subscribe", keys: [key] })),
@@ -281,6 +327,7 @@ describe("createVenueWS", () => {
 						reconnectStableThreshold: Duration.seconds(30),
 					},
 					cache,
+					health: new SocketHealthRegistry(),
 					reconnectSchedule: Schedule.spaced(Duration.minutes(10)),
 					keepalive: {
 						interval: Duration.minutes(10),

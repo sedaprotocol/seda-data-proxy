@@ -1,9 +1,10 @@
 import { node } from "@elysiajs/node";
 import type { DataProxy } from "@seda-protocol/data-proxy-sdk";
-import { Effect, Either, Runtime } from "effect";
+import { Clock, Effect, Either, Runtime } from "effect";
 import Elysia from "elysia";
 import type { Config } from "../config/config-parser";
 import { getRpcChainId } from "../services/get-rpc-chain-id";
+import type { SocketHealthRegistry } from "../services/socket-health";
 import { getVersions } from "../utils/versions";
 import type { Context } from "./types";
 
@@ -12,6 +13,7 @@ export const statusPlugin = (
 	dataProxy: DataProxy,
 	options: Config["statusEndpoints"],
 	config: Config,
+	socketHealth: SocketHealthRegistry,
 ) =>
 	Effect.gen(function* () {
 		const runtime = yield* Effect.runtime();
@@ -40,15 +42,26 @@ export const statusPlugin = (
 					});
 				});
 
+				// Readiness probe. One stale socket fails this process, and restarting
+				// it does not bring a remote venue back.
 				group.get("health", async ({ set }) =>
 					Runtime.runPromise(
 						runtime,
 						Effect.gen(function* () {
-							let healthy = true;
+							const now = yield* Clock.currentTimeMillis;
+							const { stale, newlyStale } = yield* Effect.sync(() =>
+								socketHealth.read(now),
+							);
+							for (const socket of newlyStale) {
+								yield* Effect.logWarning(
+									"Websocket disconnected past health grace",
+									socket,
+								);
+							}
 
-							if (config.fastOnly) {
-								healthy = true;
-							} else {
+							let healthy = stale.length === 0;
+
+							if (!config.fastOnly) {
 								const chainId = yield* Effect.either(
 									getRpcChainId(dataProxy.options.rpcUrl),
 								);
@@ -56,7 +69,7 @@ export const statusPlugin = (
 									Either.isRight(chainId) &&
 									chainId.right === dataProxy.options.chainId;
 
-								healthy = hasCorrectChainId;
+								healthy = healthy && hasCorrectChainId;
 							}
 
 							set.status = healthy ? 200 : 500;
@@ -64,6 +77,7 @@ export const statusPlugin = (
 							return Response.json({
 								status: healthy ? "healthy" : "unhealthy",
 								metrics: context.getMetrics(),
+								...(stale.length > 0 ? { sockets: stale } : {}),
 							});
 						}),
 					),
