@@ -53,13 +53,13 @@ export const startProxyServer = (
 		for (const moduleConfig of config.modules) {
 			const moduleLayer = yield* Match.value(moduleConfig).pipe(
 				Match.when({ type: "pyth-lazer" }, (m) =>
-					Layer.memoize(PythLazerModuleService(m)),
+					Layer.memoize(PythLazerModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "chainlink-streams" }, (m) =>
 					Layer.memoize(ChainlinkStreamsModuleService(m)),
 				),
 				Match.when({ type: "dxfeed" }, (m) =>
-					Layer.memoize(DxFeedModuleService(m)),
+					Layer.memoize(DxFeedModuleService(m, socketHealth)),
 				),
 				Match.when({ type: "hydromancer" }, (m) =>
 					Layer.memoize(HydromancerModuleService(m, socketHealth)),

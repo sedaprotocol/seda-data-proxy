@@ -1,5 +1,6 @@
 import "./cometd-bootstrap";
 import {
+	DXLinkConnectionState,
 	DXLinkFeed,
 	DXLinkWebSocketClient,
 	FeedContract,
@@ -23,6 +24,10 @@ import {
 } from "../../config/dxfeed-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
@@ -35,7 +40,10 @@ import {
 	extractFullEventDataFromEvent,
 } from "./schema";
 
-export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
+export const DxFeedModuleService = (
+	config: DxFeedModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
@@ -76,12 +84,25 @@ export const DxFeedModuleService = (config: DxFeedModuleConfig) =>
 			let subscriptionId = 0;
 
 			const client = new DXLinkWebSocketClient();
+			const socketWatch = yield* trackModuleSocket(health, {
+				module: config.name,
+				venue: "dxfeed",
+			});
+			const applyConnectionState = (state: DXLinkConnectionState) => {
+				if (state === DXLinkConnectionState.CONNECTED) {
+					socketWatch.connected();
+					return;
+				}
+				socketWatch.disconnected();
+			};
 
 			if (config.dxfeedAuthToken !== undefined) {
 				client.setAuthToken(config.dxfeedAuthToken);
 			}
 
+			client.addConnectionStateChangeListener(applyConnectionState);
 			client.connect(config.webSocketUrl);
+			applyConnectionState(client.getConnectionState());
 
 			const feed = new DXLinkFeed(client, FeedContract.AUTO);
 

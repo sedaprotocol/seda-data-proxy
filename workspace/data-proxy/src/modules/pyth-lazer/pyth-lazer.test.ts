@@ -15,6 +15,7 @@ import {
 	PythLazerModuleRouteSchema,
 } from "../../config/pyth-lazer-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { pythLazerErrorMessage, redactPythLazerSecrets } from "./errors";
 
@@ -35,8 +36,13 @@ const {
 	channelFromSubscriptionKey,
 	lagMsFromTimestampUs,
 	priceFeedSubscriptionKey,
-	PythLazerModuleService,
+	PythLazerModuleService: providePythLazerModule,
 } = await import("./pyth-lazer");
+
+const socketHealth = new SocketHealthRegistry();
+const PythLazerModuleService = (
+	config: Parameters<typeof providePythLazerModule>[0],
+) => providePythLazerModule(config, socketHealth);
 
 const makeConfig = (
 	overrides: Partial<v.InferInput<typeof PythLazerModuleConfigSchema>> = {},
@@ -169,6 +175,7 @@ const makeFakeLazerClient = (options: FakeClientOptions = {}) => {
 			messageListener = handler;
 		},
 		addAllConnectionsDownListener() {},
+		addConnectionRestoredListener() {},
 		addConnectionTimeoutListener() {},
 	};
 
