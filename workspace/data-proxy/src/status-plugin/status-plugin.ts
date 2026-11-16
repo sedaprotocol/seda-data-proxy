@@ -54,7 +54,7 @@ export const statusPlugin = (
 								socketHealth.read(now),
 							);
 							for (const socket of newlyStale) {
-								yield* Effect.logError(
+								yield* Effect.logFatal(
 									"Websocket disconnected past health grace",
 									socket,
 								);
