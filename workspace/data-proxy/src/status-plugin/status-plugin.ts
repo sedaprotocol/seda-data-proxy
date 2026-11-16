@@ -42,8 +42,9 @@ export const statusPlugin = (
 					});
 				});
 
-				// Readiness probe. One stale socket fails this process, and restarting
-				// it does not bring a remote venue back.
+				// Readiness probe. Stale sockets are logged. The probe fails once more
+				// than maxUnhealthy of them are down, so one dead venue does not
+				// keep the process from coming online.
 				group.get("health", async ({ set }) =>
 					Runtime.runPromise(
 						runtime,
@@ -53,13 +54,14 @@ export const statusPlugin = (
 								socketHealth.read(now),
 							);
 							for (const socket of newlyStale) {
-								yield* Effect.logWarning(
+								yield* Effect.logError(
 									"Websocket disconnected past health grace",
 									socket,
 								);
 							}
 
-							let healthy = stale.length === 0;
+							const maxUnhealthy = options.maxUnhealthy ?? 0;
+							let healthy = stale.length <= maxUnhealthy;
 
 							if (!config.fastOnly) {
 								const chainId = yield* Effect.either(

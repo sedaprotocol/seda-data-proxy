@@ -41,12 +41,16 @@ const mockChain = (network: string) => {
 	}) as typeof fetch;
 };
 
-const health = async (registry: SocketHealthRegistry, config: Config) => {
+const health = async (
+	registry: SocketHealthRegistry,
+	config: Config,
+	maxUnhealthy?: number,
+) => {
 	const plugin = await Effect.runPromise(
 		statusPlugin(
 			new StatusContext(dataProxy.publicKey.toString("hex"), undefined),
 			dataProxy,
-			{ root: "status" },
+			{ root: "status", maxUnhealthy },
 			config,
 			registry,
 		).pipe(Logger.withMinimumLogLevel(LogLevel.None)),
@@ -99,5 +103,30 @@ describe("status health", () => {
 		expect(rpcDown.status).toBe(500);
 		expect(rpcBody.status).toBe("unhealthy");
 		expect(rpcBody).not.toHaveProperty("sockets");
+	});
+
+	it("stays up while stale sockets are within maxUnhealthy", async () => {
+		const registry = new SocketHealthRegistry();
+		registry.track({ module: "binance", venue: "binance" }, () => 0);
+
+		const response = await health(registry, fastOnly, 1);
+		const body = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(body.status).toBe("healthy");
+		expect(body.sockets).toEqual([
+			{
+				module: "binance",
+				venue: "binance",
+				disconnectedForMs: expect.any(Number),
+			},
+		]);
+
+		registry.track({ module: "okx", venue: "okx" }, () => 0);
+		const over = await health(registry, fastOnly, 1);
+		const overBody = await over.json();
+		expect(over.status).toBe(500);
+		expect(overBody.status).toBe("unhealthy");
+		expect(overBody.sockets).toHaveLength(2);
 	});
 });

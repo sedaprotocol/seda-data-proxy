@@ -179,6 +179,15 @@ const ConfigSchema = v.strictObject(
 			v.strictObject(
 				{
 					root: v.string(),
+					// How many module sockets may stay disconnected before /health
+					// returns 500. 0 fails the probe on the first one.
+					maxUnhealthy: v.optional(
+						v.pipe(
+							v.number(),
+							v.integer("maxUnhealthy must be an integer"),
+							v.minValue(0, "maxUnhealthy must be at least 0"),
+						),
+					),
 					apiKey: v.optional(
 						v.strictObject(
 							{
