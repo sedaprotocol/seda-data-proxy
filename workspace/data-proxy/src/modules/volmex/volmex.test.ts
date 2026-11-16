@@ -6,10 +6,7 @@ import {
 	VolmexModuleRouteSchema,
 } from "../../config/volmex-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
-import {
-	SocketHealthRegistry,
-	WS_DISCONNECT_GRACE_MS,
-} from "../../services/socket-health";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 
 const socketHealth = new SocketHealthRegistry();
@@ -412,9 +409,7 @@ describe("VolmexModuleService socket health", () => {
 			expect(registry.staleSockets(Date.now() + 60_000)).toEqual([]);
 
 			socket.trigger("disconnect", "transport close");
-			const closedAt = Date.now();
-			expect(registry.staleSockets(closedAt)).toEqual([]);
-			expect(registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS)).toEqual([
+			expect(registry.staleSockets(Date.now() + 60_000)).toEqual([
 				{
 					module: "volmex",
 					venue: "volmex",

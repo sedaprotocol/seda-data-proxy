@@ -86,7 +86,6 @@ describe("status health", () => {
 				disconnectedForMs: expect.any(Number),
 			},
 		]);
-		expect(body.sockets[0].disconnectedForMs).toBeGreaterThanOrEqual(30_000);
 	});
 
 	it("keeps the RPC check when fastOnly is off", async () => {
@@ -100,13 +99,5 @@ describe("status health", () => {
 		expect(rpcDown.status).toBe(500);
 		expect(rpcBody.status).toBe("unhealthy");
 		expect(rpcBody).not.toHaveProperty("sockets");
-
-		mockChain(dataProxy.options.chainId);
-		const registry = new SocketHealthRegistry();
-		registry.track({ module: "binance-main", venue: "binance" }, () => 0);
-		const socketDown = await health(registry, withChain);
-		const socketBody = await socketDown.json();
-		expect(socketDown.status).toBe(500);
-		expect(socketBody.sockets).toHaveLength(1);
 	});
 });

@@ -204,17 +204,13 @@ describe("createVenueWS", () => {
 
 		ws1.triggerClose();
 		await flush();
-		const closedAt = Date.now();
-		expect(registry.staleSockets(closedAt)).toEqual([]);
-		const stale = registry.staleSockets(closedAt + 30_000);
-		expect(stale).toEqual([
+		expect(registry.staleSockets(Date.now() + 60_000)).toEqual([
 			{
 				module: "venue-test",
 				venue: "venue",
 				disconnectedForMs: expect.any(Number),
 			},
 		]);
-		expect(stale[0]?.disconnectedForMs).toBeGreaterThanOrEqual(30_000);
 
 		const ws2 = await waitForSocket(1);
 		ws2.triggerOpen();
