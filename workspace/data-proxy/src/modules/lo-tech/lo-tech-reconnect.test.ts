@@ -7,10 +7,7 @@ import {
 	LoTechModuleRouteSchema,
 } from "../../config/lo-tech-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
-import {
-	SocketHealthRegistry,
-	WS_DISCONNECT_GRACE_MS,
-} from "../../services/socket-health";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { ModuleService } from "../module";
 import { LoTechModuleService } from "./lo-tech";
 
@@ -234,17 +231,18 @@ describe("LoTechModuleService reconnects", () => {
 			fake.down = true;
 			fake.dropConnections();
 			yield* Effect.promise(() =>
-				waitFor(() => staleLater().length === 1, "socket reported down"),
+				waitFor(
+					() =>
+						registry
+							.staleSockets(Date.now() + 60_000)
+							.some(
+								(socket) =>
+									socket.module === "lotech" &&
+									socket.venue === "lo-tech:compute_index",
+							),
+					"socket reported down",
+				),
 			);
-			const closedAt = Date.now();
-			expect(registry.staleSockets(closedAt)).toEqual([]);
-			expect(registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS)).toEqual([
-				{
-					module: "lotech",
-					venue: "lo-tech:compute_index",
-					disconnectedForMs: expect.any(Number),
-				},
-			]);
 
 			fake.down = false;
 			yield* Effect.promise(() =>

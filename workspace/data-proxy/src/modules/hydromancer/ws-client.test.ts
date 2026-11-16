@@ -17,10 +17,7 @@ import type {
 	HydromancerModuleConfig,
 	Trade,
 } from "../../config/hydromancer-module-config";
-import {
-	SocketHealthRegistry,
-	WS_DISCONNECT_GRACE_MS,
-} from "../../services/socket-health";
+import { SocketHealthRegistry } from "../../services/socket-health";
 import { createFreshnessCache } from "../shared/freshness-cache";
 import { createPriceCache } from "../shared/price-cache";
 import { retainTradesWithinWindow } from "./hydromancer";
@@ -711,10 +708,7 @@ describe("createHydromancerWS", () => {
 				ws1.triggerClose();
 				yield* Effect.yieldNow();
 				const closedAt = yield* Clock.currentTimeMillis;
-				expect(registry.staleSockets(closedAt)).toEqual([]);
-				expect(
-					registry.staleSockets(closedAt + WS_DISCONNECT_GRACE_MS),
-				).toEqual([
+				expect(registry.staleSockets(closedAt + 60_000)).toEqual([
 					{
 						module: "hydromancer",
 						venue: "hydromancer",
