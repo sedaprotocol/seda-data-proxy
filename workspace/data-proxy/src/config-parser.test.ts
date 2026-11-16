@@ -1004,6 +1004,26 @@ describe("parseConfig", () => {
 			);
 		});
 
+		it("defaults maxUnhealthy to unset and rejects a negative value", () => {
+			const [ok] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					statusEndpoints: { root: "health" },
+				}),
+			);
+			assertIsOkResult(ok);
+			expect(ok.value.config.statusEndpoints.maxUnhealthy).toBeUndefined();
+
+			const [negative] = Effect.runSync(
+				parseConfig({
+					routes: [],
+					statusEndpoints: { root: "health", maxUnhealthy: -1 },
+				}),
+			);
+			assertIsErrorResult(negative);
+			expect(negative.error).toContain("maxUnhealthy must be at least 0");
+		});
+
 		it("in a status apikey", () => {
 			const [result] = Effect.runSync(
 				parseConfig({
