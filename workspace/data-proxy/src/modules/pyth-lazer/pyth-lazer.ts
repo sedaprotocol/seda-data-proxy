@@ -25,6 +25,10 @@ import {
 } from "../../config/pyth-lazer-module-config";
 import { HAS_PRICE_KEY } from "../../constants";
 import { createErrorResponse } from "../../controllers/create-error-response";
+import {
+	type SocketHealthRegistry,
+	trackModuleSocket,
+} from "../../services/socket-health";
 import { forkIdleCleanup } from "../../utils/idle-cleanup";
 import { isU32 } from "../../utils/number";
 import { replaceParams } from "../../utils/replace-params";
@@ -132,7 +136,10 @@ const desiredFeeds = Metric.gauge("pyth_lazer_desired_feeds", {
 	description: "Number of desired price feeds per channel",
 });
 
-export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
+export const PythLazerModuleService = (
+	config: PythLazerModuleConfig,
+	health: SocketHealthRegistry,
+) =>
 	Layer.effect(
 		ModuleService,
 		Effect.gen(function* () {
@@ -234,6 +241,11 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 
 			let nextSubscriptionId = 0;
 
+			const socketWatch = yield* trackModuleSocket(health, {
+				module: config.name,
+				venue: "pyth-lazer",
+			});
+
 			const lazerClient = yield* Effect.tryPromise({
 				try: () =>
 					PythLazerClient.create({
@@ -308,12 +320,25 @@ export const PythLazerModuleService = (config: PythLazerModuleConfig) =>
 				MutableHashMap.remove(subscriptionChannels, subscriptionId);
 			};
 
-			lazerClient.addAllConnectionsDownListener(() =>
+			// create() returns only after one pool connection is up. Later, the
+			// module is down only when every connection is down.
+			socketWatch.connected();
+
+			lazerClient.addAllConnectionsDownListener(() => {
+				socketWatch.disconnected();
 				Runtime.runSync(
 					runtime,
 					Effect.logError("All connections are down for Pyth Lazer client"),
-				),
-			);
+				);
+			});
+
+			lazerClient.addConnectionRestoredListener(() => {
+				socketWatch.connected();
+				Runtime.runSync(
+					runtime,
+					Effect.logInfo("Pyth Lazer connection restored"),
+				);
+			});
 
 			lazerClient.addConnectionTimeoutListener((connectionIndex, endpoint) =>
 				Runtime.runSync(
