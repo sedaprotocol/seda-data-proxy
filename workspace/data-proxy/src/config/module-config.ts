@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import type { BinanceFuturesModuleConfig } from "./binance-futures-module-config";
+import { BinanceFuturesModuleConfigSchema } from "./binance-futures-module-config";
 import type { BinanceModuleConfig } from "./binance-module-config";
 import { BinanceModuleConfigSchema } from "./binance-module-config";
 import type { BybitModuleConfig } from "./bybit-module-config";
@@ -34,6 +36,7 @@ export const ModulesSchema = v.optional(
 			VolmexModuleConfigSchema,
 			PmInsightsModuleConfigSchema,
 			BinanceModuleConfigSchema,
+			BinanceFuturesModuleConfigSchema,
 			LighterModuleConfigSchema,
 			OkxModuleConfigSchema,
 			BybitModuleConfigSchema,
@@ -51,6 +54,7 @@ export type Modules =
 	| VolmexModuleConfig
 	| PmInsightsModuleConfig
 	| BinanceModuleConfig
+	| BinanceFuturesModuleConfig
 	| LighterModuleConfig
 	| OkxModuleConfig
 	| BybitModuleConfig;
