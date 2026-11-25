@@ -45,7 +45,7 @@ export const tickerModuleBaseFields = (defaults: {
 		"30 seconds",
 		"Invalid symbols cleanup interval",
 	),
-	priceCacheTtl: priceCacheTtlField,
+	priceCacheTtl: priceCacheTtlField(),
 });
 
 export const keepaliveIntervalField = (defaultValue: string) =>

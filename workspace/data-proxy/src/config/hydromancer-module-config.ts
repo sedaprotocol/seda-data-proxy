@@ -136,7 +136,9 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	priceCacheTtl: priceCacheTtlField,
+	// A quiet book must keep its last snapshot. An hour cap was dropping it
+	// and the oracle then held until the next websocket push.
+	priceCacheTtl: priceCacheTtlField("infinity"),
 });
 
 export interface HydromancerModuleConfig

@@ -67,7 +67,7 @@ export const LoTechModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	priceCacheTtl: priceCacheTtlField,
+	priceCacheTtl: priceCacheTtlField(),
 	reconnectDelayMs: v.optional(v.number(), 1000),
 	type: v.literal("lo-tech"),
 });

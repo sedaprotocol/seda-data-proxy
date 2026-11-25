@@ -334,7 +334,7 @@ describe("createPriceCache ttl", () => {
 
 	it("parses priceCacheTtl from config, including infinity", () => {
 		const parse = (value?: string | number) =>
-			v.parse(v.object({ priceCacheTtl: priceCacheTtlField }), {
+			v.parse(v.object({ priceCacheTtl: priceCacheTtlField() }), {
 				priceCacheTtl: value,
 			}).priceCacheTtl;
 
@@ -344,6 +344,9 @@ describe("createPriceCache ttl", () => {
 		);
 		expect(Duration.toMillis(parse(1000))).toBe(1000);
 		expect(Duration.toMillis(parse("infinity"))).toBe(Number.POSITIVE_INFINITY);
+		expect(
+			Duration.toMillis(v.parse(priceCacheTtlField("infinity"), undefined)),
+		).toBe(Number.POSITIVE_INFINITY);
 		expect(() => parse("forever")).toThrow("Invalid priceCacheTtl duration");
 	});
 
