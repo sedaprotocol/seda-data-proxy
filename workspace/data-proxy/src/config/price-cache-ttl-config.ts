@@ -3,7 +3,7 @@ import * as v from "valibot";
 
 /** `"infinity"` disables expiry, since `Duration.decodeUnknown` does not parse it. */
 export const priceCacheTtlField = v.pipe(
-	v.optional(v.union([v.number(), v.string()]), "1 hour"),
+	v.optional(v.union([v.number(), v.string()]), "infinity"),
 	v.transform((value) =>
 		value === "infinity"
 			? Duration.infinity
