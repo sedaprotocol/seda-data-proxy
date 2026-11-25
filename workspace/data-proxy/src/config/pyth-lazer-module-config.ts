@@ -75,7 +75,7 @@ export const PythLazerModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	priceCacheTtl: priceCacheTtlField(),
+	priceCacheTtl: priceCacheTtlField,
 	type: v.literal("pyth-lazer"),
 });
 

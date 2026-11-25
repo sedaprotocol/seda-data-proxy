@@ -58,7 +58,7 @@ export const DxFeedModuleConfigSchema = v.strictObject({
 			),
 		),
 	),
-	priceCacheTtl: priceCacheTtlField(),
+	priceCacheTtl: priceCacheTtlField,
 	type: v.literal("dxfeed"),
 });
 

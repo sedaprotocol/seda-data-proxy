@@ -1,7 +1,7 @@
 import { Clock, Data, Duration, Effect, MutableHashMap, Option } from "effect";
 
 const PRICE_WAIT_TIMEOUT_MS = 3_000;
-export const DEFAULT_PRICE_CACHE_TTL = Duration.hours(1);
+export const DEFAULT_PRICE_CACHE_TTL = Duration.infinity;
 
 export class FailedToGetPriceError extends Data.TaggedError(
 	"FailedToGetPriceError",
@@ -57,7 +57,7 @@ export const createPriceCache = <K, V>(options?: {
 	timeout?: Duration.Duration;
 	/** Produces the value to store from the cached value, if any, and the incoming one. */
 	apply?: PriceCacheApply<V>;
-	/** An entry not written for this long is treated as absent and removed. Defaults to 1 hour; `Duration.infinity` never expires. */
+	/** An entry not written for this long is treated as absent and removed. Defaults to never; a finite duration expires it. */
 	ttl?: Duration.Duration;
 }): Effect.Effect<PriceCache<K, V>> =>
 	Clock.clockWith((clock) =>

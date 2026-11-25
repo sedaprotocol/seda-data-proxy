@@ -334,31 +334,28 @@ describe("createPriceCache ttl", () => {
 
 	it("parses priceCacheTtl from config, including infinity", () => {
 		const parse = (value?: string | number) =>
-			v.parse(v.object({ priceCacheTtl: priceCacheTtlField() }), {
+			v.parse(v.object({ priceCacheTtl: priceCacheTtlField }), {
 				priceCacheTtl: value,
 			}).priceCacheTtl;
 
-		expect(Duration.toMillis(parse())).toBe(Duration.toMillis("1 hour"));
+		expect(Duration.toMillis(parse())).toBe(Number.POSITIVE_INFINITY);
 		expect(Duration.toMillis(parse("5 minutes"))).toBe(
 			Duration.toMillis("5 minutes"),
 		);
 		expect(Duration.toMillis(parse(1000))).toBe(1000);
 		expect(Duration.toMillis(parse("infinity"))).toBe(Number.POSITIVE_INFINITY);
-		expect(
-			Duration.toMillis(v.parse(priceCacheTtlField("infinity"), undefined)),
-		).toBe(Number.POSITIVE_INFINITY);
 		expect(() => parse("forever")).toThrow("Invalid priceCacheTtl duration");
 	});
 
-	it("defaults to a 1 hour ttl", async () => {
+	it("defaults to no expiry", async () => {
 		await runTest(
 			Effect.gen(function* () {
 				const cache = yield* createPriceCache<string, SampleValue>();
-				cache.setPriceSync("k", sample({ n: 1 }));
-				yield* TestClock.adjust(Duration.minutes(59));
-				expect(cache.getCached("k")).toBeDefined();
-				yield* TestClock.adjust(Duration.minutes(2));
-				expect(cache.getCached("k")).toBeUndefined();
+				const entry = sample({ n: 1 });
+				cache.setPriceSync("k", entry);
+				yield* TestClock.adjust(Duration.days(365));
+				expect(cache.getCached("k")).toEqual(entry);
+				expect(yield* cache.getOrWaitPrice("k")).toEqual(entry);
 			}),
 		);
 	});
